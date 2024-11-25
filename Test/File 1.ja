@@ -1,0 +1,55 @@
+{
+  "Data": {
+    "$type": "TestNodeAsset, Assembly-CSharp",
+    "Nodes": [
+      {
+        "$type": "TreeNode.Test.TestNode2, Assembly-CSharp",
+        "node": [
+          {
+            "Position": {
+              "x": 796.666748,
+              "y": 142.000015
+            }
+          },
+          {
+            "Position": {
+              "x": 796.666748,
+              "y": 142.000015
+            }
+          },
+          {
+            "Position": {
+              "x": 659.3334,
+              "y": 229.3333
+            }
+          }
+        ],
+        "Position": {
+          "x": 733.3333,
+          "y": 371.3333
+        }
+      },
+      {
+        "$type": "TreeNode.Test.TestNode1, Assembly-CSharp",
+        "Position": {
+          "x": 422.0,
+          "y": 119.333336
+        }
+      },
+      {
+        "$type": "TreeNode.Test.TestNode1, Assembly-CSharp",
+        "Position": {
+          "x": 624.6667,
+          "y": 48.66665
+        }
+      },
+      {
+        "$type": "TreeNode.Test.TestNode3, Assembly-CSharp",
+        "Position": {
+          "x": 230.666641,
+          "y": 324.6667
+        }
+      }
+    ]
+  }
+}

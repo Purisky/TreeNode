@@ -1,0 +1,12 @@
+.PrefabRoot
+{
+    border-width:2px;
+    border-color:rgb(255,255,255);
+    border-radius:8px;
+}
+.PrefabRoot:hover
+{
+    border-width:2px;
+    border-color:rgb(255,255,255);
+    border-radius:8px;
+}

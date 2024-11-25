@@ -1,0 +1,12 @@
+TreeNodeGraphView
+{
+    flex-grow:1;
+}
+#Grid
+{
+    --thick-lines:0;
+    --spacing:15;
+    --grid-background-color:rgb(35,35,35);
+    --thick-line-color:rgb(64,64,64);
+    --line-color:rgb(32,32,32);
+}   

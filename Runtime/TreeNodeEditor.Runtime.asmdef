@@ -1,0 +1,16 @@
+{
+    "name": "TreeNode.Runtime",
+    "rootNamespace": "TreeNode.Runtime",
+    "references": [
+        "GUID:6d520efc4128be94485c253f88331fa1"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
