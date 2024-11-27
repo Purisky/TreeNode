@@ -1,15 +1,10 @@
 using System;
-using System.Linq;
-using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using TreeNode.Runtime;
-using TreeNode.Utility;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine;
-using UnityEngine.Analytics;
 using UnityEngine.UIElements;
-using NUnit.Framework;
 
 namespace TreeNode.Editor
 {

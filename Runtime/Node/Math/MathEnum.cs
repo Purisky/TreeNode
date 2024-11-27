@@ -1,7 +1,3 @@
-using System.Collections.Generic;
-using TreeNode.Runtime;
-using UnityEngine;
-
 namespace TreeNode.Runtime
 {
     public enum CalculateType

@@ -1,6 +1,5 @@
 using Newtonsoft.Json;
 using System;
-using System.Collections.Generic;
 using Unity.Properties;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -35,10 +34,12 @@ namespace TreeNode.Runtime
             {
                 PropertyContainer.SetValue(this, in path, value);
             }
-            catch (Exception)
+            catch (Exception e)
             {
+                Debug.Log(e);
                 object parent = GetParent(in path);
-                parent.GetType().GetMember(path[^1].Name)[0].SetValue(parent, null);
+                parent.GetType().GetMember(path[^1].Name)[0].SetValue(parent, value);
+                Debug.Log(parent);
             }
         }
         public virtual void SetValueInternal<T>(in PropertyPath path, T value)

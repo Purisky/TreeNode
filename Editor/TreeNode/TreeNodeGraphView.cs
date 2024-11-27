@@ -214,28 +214,27 @@ namespace TreeNode.Editor
         public virtual bool CheckPort(Port start, Port end)
         {
             if (start.portType != end.portType) { return false; }
-            ViewNode parent;
-            ViewNode child;
+            ParentPort parentPort;
+            ChildPort childPort;
             if (start is ParentPort)
             {
-                child = (ViewNode)start.node;
-                parent = (ViewNode)end.node;
+                parentPort = start as ParentPort;
+                childPort = end as ChildPort;
             }
             else
             {
-                child = (ViewNode)end.node;
-                parent = (ViewNode)start.node;
+                parentPort = end as ParentPort;
+                childPort = start as ChildPort;
             }
-
-
-
-
-
-
-
-
-            return CheckLoop(parent, child);
+            return CheckMulti(parentPort, childPort) && CheckLoop(childPort.node, parentPort.node);
         }
+
+        public bool CheckMulti(ParentPort parentPort, ChildPort childPort)
+        {
+            return !parentPort.Collection || childPort is MultiPort;
+        }
+
+
         public bool CheckLoop(ViewNode parent, ViewNode child)
         {
             ViewNode node = parent;

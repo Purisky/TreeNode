@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.UIElements;
 
 namespace TreeNode.Runtime
 {
@@ -33,6 +32,7 @@ namespace TreeNode.Runtime
         public int Width;
         public Color Color;
         static Color DefaultColor = new(63 / 256f, 63 / 256f, 63 / 256f, 204 / 256f);
+        public bool OutputList;
         public NodeInfoAttribute(Type type, string title,int width, string menuItem = "",string color = "#3F3F3F")
         {
             Type = type;
@@ -141,7 +141,7 @@ namespace TreeNode.Runtime
             Action = action;
         }
     }
-
+    [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
     public class DropdownAttribute : Attribute
     {
         public string ListGetter;
@@ -149,6 +149,11 @@ namespace TreeNode.Runtime
         {
             ListGetter = listGetter;
         }
+    }
+    [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
+    public class TitlePortAttribute : Attribute
+    {
+        
     }
 
 }

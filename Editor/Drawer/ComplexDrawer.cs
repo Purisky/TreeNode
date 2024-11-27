@@ -3,13 +3,11 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using System.Runtime.InteropServices;
 using TreeNode.Runtime;
 using TreeNode.Utility;
 using Unity.Properties;
 using UnityEngine;
 using UnityEngine.UIElements;
-using static UnityEditor.Profiling.HierarchyFrameDataView;
 
 namespace TreeNode.Editor
 {
@@ -18,14 +16,25 @@ namespace TreeNode.Editor
         List<MemberGroup> Groups;
         public int Height;
         public bool HasPort;
-        HashSet<ComplexDrawer> ChildDrawers = new(); 
+        HashSet<ComplexDrawer> ChildDrawers = new();
+        MemberInfo TitlePortMember;
         public ComplexDrawer()
         {
             List<MemberInfo> members = DrawType.GetAll<ShowInNodeAttribute>();
+            bool rootDrawer = DrawType.Inherited(typeof(JsonNode));
+
             Groups = new();
             for (int i = 0; i < members.Count; i++)
             {
                 MemberInfo member = members[i];
+                if (rootDrawer && TitlePortMember == null)
+                {
+                    if (member.GetCustomAttribute<TitlePortAttribute>() != null&& member.GetCustomAttribute<ChildAttribute>() != null&& member.GetValueType()!= typeof(NumValue))
+                    {
+                        TitlePortMember = member;
+                        continue;
+                    }
+                }
                 GroupAttribute groupAttribute = member.GetCustomAttribute<GroupAttribute>();
                 string groupName = member.Name;
                 if (groupAttribute != null && groupAttribute.Name != null)
@@ -33,19 +42,19 @@ namespace TreeNode.Editor
                     groupName = groupAttribute.Name;
                 }
                 MemberGroup tempGroup = getTempGroup(groupName);
-                tempGroup.ShowIf??= groupAttribute?.ShowIf;
+                tempGroup.ShowIf ??= groupAttribute?.ShowIf;
                 if (tempGroup.Add(member))
                 {
                     HasPort = true;
                 }
                 else
-                { 
+                {
                     Type type = member.GetValueType();
                     if (type.Inherited(typeof(IList)))
-                    { 
+                    {
                         type = type.GetGenericArguments()[0];
                     }
-                    if (type.IsComplex()&& DrawerManager.TryGet(type,out BaseDrawer drawer) && drawer is ComplexDrawer complex)
+                    if (type.IsComplex() && DrawerManager.TryGet(type, out BaseDrawer drawer) && drawer is ComplexDrawer complex)
                     {
                         ChildDrawers.Add(complex);
                     }
@@ -100,11 +109,31 @@ namespace TreeNode.Editor
             Label label = CreateLabel(memberMeta.LabelInfo);
             label.style.marginLeft = 4;
             label.style.width = 70;
+
+
+
+
             propertyElement.style.flexDirection = FlexDirection.Row;
             propertyElement.Add(label);
             VisualElement content = new();
             content.style.flexGrow = 1;
             propertyElement.Add(content);
+            if (TitlePortMember != null)
+            {
+                PropertyPath propertyPath = PropertyPath.AppendName(path, TitlePortMember.Name);
+                MemberMeta meta = new(TitlePortMember, propertyPath);
+                meta.LabelInfo.Hide = true;
+                bool multi = TitlePortMember.GetValueType().Inherited(typeof(IList));
+                ChildPort port = multi ? MultiPort.Create(meta) : SinglePort.Create(meta);
+                port.Q<Label>().style.marginLeft = 0;
+                port.Q<Label>().style.marginRight = 0;
+                PropertyElement titlePropertyElement = new(meta, node, propertyPath, null, port);
+                titlePropertyElement.style.position = Position.Absolute;
+                titlePropertyElement.style.right = 0;
+                titlePropertyElement.style.alignSelf = Align.Center;
+                node.titleContainer.Add(titlePropertyElement);
+                node.ChildPorts.Add(port);
+            }
             for (int i = 0; i < Groups.Count; i++)
             {
                 content.Add(Groups[i].Draw(node, path, action));
@@ -170,8 +199,6 @@ namespace TreeNode.Editor
                             node.ShowIfElements.Add(groupVE);
                         }
                     }
-
-
                 }
                 groupVE.style.flexGrow = 1;
                 LineCount = Mathf.Max(1, PortMembers.Count);
@@ -197,6 +224,11 @@ namespace TreeNode.Editor
                                 continue;
                             }
                             PropertyElement propertyElement = baseDrawer.Create(meta, node, propertyPath, action);
+                            GroupAttribute groupAttribute = member.GetCustomAttribute<GroupAttribute>();
+                            if (groupAttribute != null)
+                            {
+                                propertyElement.SetWidth(groupAttribute.Width);
+                            }
                             NumPort port = propertyElement.Q<NumPort>();
                             lineVE.Add(propertyElement);
                             node.ChildPorts.Add(port);
@@ -206,6 +238,11 @@ namespace TreeNode.Editor
                             bool multi = member.GetValueType().Inherited(typeof(IList));
                             ChildPort port = multi ? MultiPort.Create(meta) : SinglePort.Create(meta);
                             PropertyElement propertyElement = new(meta, node, propertyPath,null, port);
+                            GroupAttribute groupAttribute = member.GetCustomAttribute<GroupAttribute>();
+                            if (groupAttribute != null)
+                            {
+                                propertyElement.SetWidth(groupAttribute.Width);
+                            }
                             lineVE.Add(propertyElement);
                             node.ChildPorts.Add(port);
                         }

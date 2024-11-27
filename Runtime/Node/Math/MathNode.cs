@@ -7,7 +7,7 @@ using UnityEngine;
 namespace TreeNode.Runtime
 {
 
-    [NodeInfo(typeof(NumNode), "二元运算", 100, "数学/二元运算"), PortColor("#00ff00")]
+    [NodeInfo(typeof(NumNode), "二元运算", 100, "计算/二元运算"), PortColor("#00ff00")]
     public class BinaryCal: NumNode
     {
         [Child, LabelInfo(Hide = true)]
@@ -36,10 +36,10 @@ namespace TreeNode.Runtime
     }
 
 
-    [NodeInfo(typeof(NumNode), "三元运算", 100, "数学/三元运算"), PortColor("#00ff00")]
+    [NodeInfo(typeof(NumNode), "三元运算", 100, "计算/三元运算"), PortColor("#00ff00")]
     public class ConditionCal : NumNode
     {
-        [Child, LabelInfo(Text ="条件")]
+        [Child, LabelInfo(Text = "条件"), TitlePort]
         public Condition Condition;
         [Child, LabelInfo(Text = "真",Width =10)]
         public NumValue True;
@@ -57,7 +57,7 @@ namespace TreeNode.Runtime
         }
     }
 
-    [NodeInfo(typeof(Condition), "比较", 100, "数学/比较"), PortColor("#0000ff")]
+    [NodeInfo(typeof(Condition), "比较", 100, "条件/比较"), PortColor("#0000ff")]
     public class Compare : Condition
     {
         [Child, LabelInfo(Hide = true)]
@@ -83,10 +83,10 @@ namespace TreeNode.Runtime
             return $"({left}{compareText}{right})";
         }
     }
-    [NodeInfo(typeof(Condition), "与", 70, "数学/逻辑/与", "#000080"), PortColor("#0000ff")]
+    [NodeInfo(typeof(Condition), "与", 80, "条件/逻辑/与", "#000080"), PortColor("#0000ff")]
     public class And : Condition
     {
-        [Child, LabelInfo(Hide = true)]
+        [Child, LabelInfo(Hide = true),TitlePort]
         public List<Condition> Conditions;
         public override string GetText()
         {
@@ -95,10 +95,10 @@ namespace TreeNode.Runtime
         }
 
     }
-    [NodeInfo(typeof(Condition), "或", 70, "数学/逻辑/或", "#D2691E"), PortColor("#0000ff")]
+    [NodeInfo(typeof(Condition), "或", 80, "条件/逻辑/或", "#D2691E"), PortColor("#0000ff")]
     public class Or : Condition
     {
-        [Child, LabelInfo(Hide = true)]
+        [Child, LabelInfo(Hide = true), TitlePort]
         public  List<Condition> Conditions;
         public override string GetText()
         {
@@ -106,10 +106,10 @@ namespace TreeNode.Runtime
             return $"({string.Join("|", Conditions.Select(n => n.GetText()))})";
         }
     }
-    [NodeInfo(typeof(Condition), "非", 70, "数学/逻辑/非", "#800000"), PortColor("#0000ff")]
+    [NodeInfo(typeof(Condition), "非", 80, "条件/逻辑/非", "#800000"), PortColor("#0000ff")]
     public class Not : Condition
     {
-        [Child, LabelInfo(Hide = true)]
+        [Child, LabelInfo(Hide = true), TitlePort]
         public Condition Condition;
         public override string GetText()
         {

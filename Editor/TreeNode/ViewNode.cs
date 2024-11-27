@@ -32,7 +32,9 @@ namespace TreeNode.Editor
                 title = nodeInfo.Title;
                 style.width = nodeInfo.Width;
                 titleContainer.style.backgroundColor = nodeInfo.Color;
+                titleContainer.Q<Label>().style.marginRight = 6;
             }
+            titleContainer.Q<Label>().style.unityFontStyleAndWeight = FontStyle.Bold;
             this.name = typeInfo.Name;
             Content = this.Q<VisualElement>("contents");
             Content.style.backgroundColor = new Color(0.2f, 0.2f, 0.2f, 0.8f);
@@ -81,7 +83,7 @@ namespace TreeNode.Editor
             Data.Position = newPos.position;
         }
 
-        public void DrawParentPort(Type parentType,ChildPort childPort = null)
+        public void DrawParentPort(Type parentType, ChildPort childPort = null)
         {
             if (parentType == null) { return; }
             ParentPort = ParentPort.Create(parentType);
