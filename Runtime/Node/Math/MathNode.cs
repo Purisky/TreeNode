@@ -102,7 +102,7 @@ namespace TreeNode.Runtime
         public  List<Condition> Conditions;
         public override string GetText()
         {
-            if (Conditions.Count == 0) { return "true"; }
+            if (Conditions==null||Conditions.Count == 0) { return "true"; }
             return $"({string.Join("|", Conditions.Select(n => n.GetText()))})";
         }
     }

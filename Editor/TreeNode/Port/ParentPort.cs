@@ -34,7 +34,6 @@ namespace TreeNode.Editor
         }
         public void SetIndex(int index)
         {
-            //Debug.Log("SetIndex"+ index);
             Index = index;
             portName = Index < 0 ? "" : Index.ToString();
         }

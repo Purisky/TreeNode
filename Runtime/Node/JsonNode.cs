@@ -17,13 +17,6 @@ namespace TreeNode.Runtime
 
         [JsonProperty]
         public PrefabData PrefabData;
-
-
-        //public string PrefabId;
-        //[JsonProperty]
-        //public Dictionary<string, object> Dic;
-
-
         public virtual T GetValue<T>(in PropertyPath path)
         {
 
@@ -33,39 +26,21 @@ namespace TreeNode.Runtime
             }
             return default;
         }
-                
-            
-            
+
+
+
         public virtual void SetValue<T>(in PropertyPath path, T value)
         {
-
-
-
-
-
-
-            IProperty property = PropertyContainer.GetProperty(this, in path);
-            if (property.IsReadOnly)
+            try
             {
-                Debug.Log(property.DeclaredValueType().Name);
+                PropertyContainer.SetValue(this, in path, value);
             }
-            PropertyContainer.SetValue(this, in path, value);
-        }
-
-        JsonNode GetEndNode(in PropertyPath path)
-        {
-            if (path.Length == 0)
+            catch (Exception)
             {
-                return this;
+                object parent = GetParent(in path);
+                parent.GetType().GetMember(path[^1].Name)[0].SetValue(parent, null);
             }
-
-
-
-            PropertyPath propertyPath = PropertyPath.Pop(path);
-            return GetValue<JsonNode>(in propertyPath);
         }
-
-
         public virtual void SetValueInternal<T>(in PropertyPath path, T value)
         {
             PropertyContainer.SetValue(this, in path, value);
