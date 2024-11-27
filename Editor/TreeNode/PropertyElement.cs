@@ -8,11 +8,10 @@ using UnityEngine;
 
 namespace TreeNode.Editor
 {
-    public class PropertyElement : VisualElement
+    public class PropertyElement : ShowIfElement
     {
         public ViewNode ViewNode;
         public PropertyPath LocalPath;
-        //public MemberInfo MemberInfo;
         public MemberMeta MemberMeta;
 
         public BaseDrawer Drawer;
@@ -21,22 +20,8 @@ namespace TreeNode.Editor
         public NodePrefabAsset NodePrefabAsset => GraphView.AssetData;
         public NodePrefabGraphView GraphView;
         static readonly StyleSheet StyleSheet = ResourcesUtil.LoadStyleSheet("PropertyElement");
-        //public PropertyElement(MemberInfo memberInfo, ViewNode viewNode, PropertyPath path, BaseDrawer drawer, VisualElement visualElement = null)
-        //{
-        //    MemberInfo = memberInfo;
-        //    ViewNode = viewNode;
-        //    LocalPath = path;
-        //    Drawer = drawer;
-        //    if (visualElement != null)
-        //    {
-        //        Add(visualElement);
-        //    }
-        //    styleSheets.Add(StyleSheet);
-        //    RegisterPrefab();
-        //}
         public PropertyElement(MemberMeta memberMeta, ViewNode viewNode, PropertyPath path, BaseDrawer drawer, VisualElement visualElement = null)
         {
-            //MemberInfo = memberInfo;
             MemberMeta = memberMeta;
             ViewNode = viewNode;
             LocalPath = path;
@@ -46,6 +31,31 @@ namespace TreeNode.Editor
                 Add(visualElement);
             }
             styleSheets.Add(StyleSheet);
+            if (MemberMeta.ShowInNode!=null&&!string.IsNullOrEmpty(MemberMeta.ShowInNode.ShowIf))
+            {
+                object parent = viewNode.Data.GetParent(MemberMeta.Path);
+                Type type = parent.GetType();
+                MemberInfo memberInfo = type.GetMember(MemberMeta.ShowInNode.ShowIf)[0];
+                if (memberInfo != null)
+                {
+                    switch (memberInfo.MemberType)
+                    {
+                        case MemberTypes.Field:
+                            ShowIf = () => (bool)((FieldInfo)memberInfo).GetValue(parent);
+                            break;
+                        case MemberTypes.Method:
+                            ShowIf = ((MethodInfo)memberInfo).CreateDelegate(typeof(Func<bool>), parent) as Func<bool>;
+                            break;
+                        case MemberTypes.Property:
+                            ShowIf = ((PropertyInfo)memberInfo).GetGetMethod().CreateDelegate(typeof(Func<bool>), parent) as Func<bool>;
+                            break;
+                    }
+                }
+                if (ShowIf != null)
+                {
+                    viewNode.ShowIfElements.Add(this);
+                }
+            }
             RegisterPrefab();
         }
 

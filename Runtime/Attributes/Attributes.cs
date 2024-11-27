@@ -1,10 +1,11 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UIElements;
 
 namespace TreeNode.Runtime
 {
-    [AttributeUsage( AttributeTargets.Class)]
+    [AttributeUsage(AttributeTargets.Class)]
     public class NodeAssetAttribute : Attribute
     {
         public Type Type;
@@ -30,19 +31,49 @@ namespace TreeNode.Runtime
         public string Title;
         public string MenuItem;
         public int Width;
-        public NodeInfoAttribute(Type type, string title,int width, string menuItem = "")
+        public Color Color;
+        static Color DefaultColor = new(63 / 256f, 63 / 256f, 63 / 256f, 204 / 256f);
+        public NodeInfoAttribute(Type type, string title,int width, string menuItem = "",string color = "#3F3F3F")
         {
             Type = type;
             Title = title;
             Width = width;
             MenuItem = menuItem;
+            Color = ColorUtility.TryParseHtmlString(color, out Color c) ? c : DefaultColor;
+            Color.a = 204 / 256f;
         }
     }
+    [AttributeUsage(AttributeTargets.Class)]
+    public class AssetFilterAttribute : Attribute
+    {
+        public bool Allowed;
+        public bool BanPrefab;
+        public HashSet<Type> Types;
+        public bool Unique;
+        public AssetFilterAttribute(bool allowed, bool unique,bool banPrefab, params Type[] types)
+        {
+            Allowed = allowed;
+            BanPrefab = banPrefab;
+            Types = new HashSet<Type>(types);
+            Unique = unique;
+        }
+        public AssetFilterAttribute(bool allowed, params Type[] types)
+        {
+            Allowed = allowed;
+            BanPrefab = false;
+            Types = new HashSet<Type>(types);
+            Unique = false;
+        }
+
+
+    }
+
+
     [AttributeUsage(AttributeTargets.Class)]
     public class PortColorAttribute : Attribute
     {
         public Color Color;
-        public PortColorAttribute(string color, string arrayColor = null)
+        public PortColorAttribute(string color)
         {
             Color = ColorUtility.TryParseHtmlString(color, out Color c) ? c : Color.white;
         }
@@ -62,7 +93,7 @@ namespace TreeNode.Runtime
         }
     }
     [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
-    public class LabelInfoAttribute : Attribute
+    public class LabelInfoAttribute : InspectorNameAttribute
     {
         public static LabelInfoAttribute Default = new();
         public static Color DefaultColor = new (210/256f, 210 / 256f, 210 / 256f);
@@ -74,8 +105,17 @@ namespace TreeNode.Runtime
         public int Size = 11;
         public string Color = "#D2D2D2";
         public bool Hide;
-        public LabelInfoAttribute()
+        public LabelInfoAttribute() : base(null)
         {
+        }
+        public LabelInfoAttribute(string text):base(text)
+        {
+            Text = text;
+        }
+        public LabelInfoAttribute(string text,float width = 0.5f) : base(text)
+        {
+            Text = text;
+            Width = width;
         }
     }
 

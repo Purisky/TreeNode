@@ -31,6 +31,7 @@ namespace TreeNode.Editor
             {
                 title = nodeInfo.Title;
                 style.width = nodeInfo.Width;
+                titleContainer.style.backgroundColor = nodeInfo.Color;
             }
             this.name = typeInfo.Name;
             Content = this.Q<VisualElement>("contents");
@@ -41,6 +42,7 @@ namespace TreeNode.Editor
             this.Q("title-label").style.unityTextAlign = TextAnchor.MiddleCenter;
             this.Q("title-label").style.flexGrow = 1;
             Draw(childPort);
+            OnChange();
         }
 
 
@@ -83,6 +85,7 @@ namespace TreeNode.Editor
         {
             if (parentType == null) { return; }
             ParentPort = ParentPort.Create(parentType);
+            ParentPort.OnChange = OnChange;
             titleContainer.Insert(1, ParentPort);
             if (childPort != null)
             {
@@ -135,7 +138,7 @@ namespace TreeNode.Editor
                     Type = Data.GetType(),
                     LabelInfo = new() { Text = Data.GetType().Name,Hide = true },
                 };
-                VisualElement visualElement = baseDrawer.Create(meta, this, new PropertyPath(), null);
+                VisualElement visualElement = baseDrawer.Create(meta, this, new PropertyPath(),OnChange);
                 Content.Add(visualElement);
             }
         }
@@ -236,6 +239,20 @@ namespace TreeNode.Editor
 
         }
 
+
+
+
+
+
+        public HashSet<ShowIfElement> ShowIfElements = new();
+
+        public void OnChange()
+        {
+            foreach (var item in ShowIfElements)
+            {
+                item.Refresh();
+            }
+        }
 
 
     }

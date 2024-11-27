@@ -38,9 +38,18 @@ namespace TreeNode.Editor
                 new SearchTreeGroupEntry(new GUIContent("Nodes"), 0)
             };
             Elements = new();
+
+            Type assetType = Graph.Asset.Data.GetType();
             foreach (var type in AppDomain.CurrentDomain.GetAssemblies().SelectMany(a => a.GetTypes())
                     .Where(n => n.GetCustomAttribute<NodeInfoAttribute>() != null))
             {
+                AssetFilterAttribute filter = type.GetCustomAttribute<AssetFilterAttribute>();
+                if (filter != null)
+                {
+                    if (Graph is NodePrefabGraphView && filter.BanPrefab) { continue; }
+                    if (filter.Allowed == !filter.Types.Contains(assetType)) { continue; }
+                    if (filter.Unique && Graph.Asset.Data.Nodes.Any(n => n.GetType() == type)) { continue; }
+                }
                 NodeInfoAttribute attribute = type.GetCustomAttribute<NodeInfoAttribute>();
                 object node = Activator.CreateInstance(type);
                 if (string.IsNullOrEmpty(attribute.MenuItem)) { continue; }

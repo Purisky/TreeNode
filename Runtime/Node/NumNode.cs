@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace TreeNode.Runtime
 {
-    [PortColor("#00ff00")]
+    [PortColor("#7CFC00")]
     public abstract class NumNode : JsonNode
     {
 

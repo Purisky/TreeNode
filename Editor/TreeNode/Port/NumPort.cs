@@ -21,17 +21,6 @@ namespace TreeNode.Editor
         public Label Text;
         public FloatField FloatField;
         public new ViewNode node;
-        //public static NumPort Create(MemberMeta meta,ViewNode node)
-        //{
-        //    NumPort port = new()
-        //    {
-        //        Member = member,
-        //        tooltip =nameof(NumNode),
-        //        node = node
-        //    };
-        //    port.InitProperty();
-        //    return port;
-        //}
         public static NumPort Create(MemberMeta memberMeta, ViewNode node)
         {
             NumPort port = new()
@@ -89,6 +78,7 @@ namespace TreeNode.Editor
                 TryPopUpText();
                 this.SetDirty();
                 OnChange?.Invoke();
+
             });
 
 

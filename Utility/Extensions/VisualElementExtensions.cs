@@ -11,10 +11,12 @@ namespace TreeNode.Utility
         {
             element.style.width = width switch
             {
-                > 0 and <= 1 => new Length(width*100, LengthUnit.Percent),
-                >1=> new Length(width, LengthUnit.Pixel),
+                > 0 and <= 1 => new Length(width * 100, LengthUnit.Percent),
+                > 1 => new Length(width, LengthUnit.Pixel),
                 _ => StyleKeyword.Auto
             };
+            if (width > 1) { element.style.flexGrow = 0; }
+
         }
         public static int GetPsuedoState(this VisualElement element)
         {

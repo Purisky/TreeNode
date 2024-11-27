@@ -9,7 +9,6 @@ namespace TreeNode.Editor
 {
     public abstract class ChildPort : BasePort
     {
-        //public MemberInfo Member;
         public MemberMeta Meta;
         public ChildPort(Capacity portCapacity, Type type) : base(Direction.Output, portCapacity, type)
         {

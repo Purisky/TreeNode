@@ -9,6 +9,7 @@ using TreeNode.Utility;
 using Unity.Properties;
 using UnityEngine;
 using UnityEngine.UIElements;
+using static UnityEditor.Profiling.HierarchyFrameDataView;
 
 namespace TreeNode.Editor
 {
@@ -32,6 +33,7 @@ namespace TreeNode.Editor
                     groupName = groupAttribute.Name;
                 }
                 MemberGroup tempGroup = getTempGroup(groupName);
+                tempGroup.ShowIf??= groupAttribute?.ShowIf;
                 if (tempGroup.Add(member))
                 {
                     HasPort = true;
@@ -116,6 +118,7 @@ namespace TreeNode.Editor
             public List<MemberInfo> Members;
             public List<MemberInfo> PortMembers;
             public int LineCount;
+            public string ShowIf;
             public MemberGroup(string name)
             {
                 Name = name;
@@ -138,12 +141,38 @@ namespace TreeNode.Editor
                 }
             }
 
-            public VisualElement Draw(ViewNode node, PropertyPath path, Action action)
+            public ShowIfElement Draw(ViewNode node, PropertyPath path, Action action)
             {
-                VisualElement groupVE = new()
+                ShowIfElement groupVE = new()
                 {
                     name = $"Group_{Name}",
                 };
+                if (!string.IsNullOrEmpty(ShowIf))
+                {
+                    object parent = node.Data.GetParent(path);
+                    MemberInfo memberInfo = parent.GetType().GetMember(ShowIf)[0];
+                    if (memberInfo != null)
+                    {
+                        switch (memberInfo.MemberType)
+                        {
+                            case MemberTypes.Field:
+                                groupVE.ShowIf = () => (bool)((FieldInfo)memberInfo).GetValue(parent);
+                                break;
+                            case MemberTypes.Method:
+                                groupVE.ShowIf = ((MethodInfo)memberInfo).CreateDelegate(typeof(Func<bool>), parent) as Func<bool>;
+                                break;
+                            case MemberTypes.Property:
+                                groupVE.ShowIf = ((PropertyInfo)memberInfo).GetGetMethod().CreateDelegate(typeof(Func<bool>), parent) as Func<bool>;
+                                break;
+                        }
+                        if (ShowIf != null)
+                        {
+                            node.ShowIfElements.Add(groupVE);
+                        }
+                    }
+
+
+                }
                 groupVE.style.flexGrow = 1;
                 LineCount = Mathf.Max(1, PortMembers.Count);
                 for (int i = 0; i < LineCount; i++)

@@ -1,11 +1,6 @@
-using Newtonsoft.Json.Linq;
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.IO;
 using System.Reflection;
-using System.Runtime.InteropServices;
-using System.Xml.Linq;
 using TreeNode.Runtime;
 using TreeNode.Utility;
 using Unity.Properties;
@@ -13,31 +8,12 @@ using UnityEditor;
 using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.UIElements;
-using static System.Collections.Specialized.BitVector32;
 
 namespace TreeNode.Editor
 {
     public class DropdownDrawer<T> : BaseDrawer
     {
         public override Type DrawType => typeof(DropdownList<T>);
-        //public override PropertyElement Create(MemberInfo memberInfo, ViewNode node, PropertyPath path, Action action)
-        //{
-        //    DropDownElement<T> dropdownElement = new();
-        //    dropdownElement.Init(memberInfo, node.Data, path, action);
-        //    DropdownList<T> dropdownItems = dropdownElement.GetList();
-        //    T TValue = node.Data.GetValue<T>(in path);
-        //    dropdownElement.TextElement.text = "Null";
-        //    foreach (var item in dropdownItems)
-        //    {
-        //        if (item.ValueEquals(TValue))
-        //        {
-        //            dropdownElement.TextElement.text = item.Text;
-        //            break;
-        //        }
-        //    }
-        //    dropdownElement.SetCallbacks();
-        //    return new PropertyElement(memberInfo, node, path, this, dropdownElement);
-        //}
         public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, PropertyPath path, Action action)
         {
             DropDownElement<T> dropdownElement = new();
@@ -75,7 +51,7 @@ namespace TreeNode.Editor
 
         public DropDownElement() : base(null, null)
         {
-            visualInput = new VisualElement();// this.Q<VisualElement>(null, "unity-base-field__input");
+            visualInput = new VisualElement();
             this.Q<VisualElement>(null, "unity-base-field__input").style.display = DisplayStyle.None;
             visualInput.AddToClassList("unity-base-field__input");
             visualInput.AddToClassList("unity-enum-field__input");
@@ -92,68 +68,6 @@ namespace TreeNode.Editor
             style.flexGrow = 1;
             Add(visualInput);
         }
-        //public void Init(MemberInfo memberInfo, JsonNode data, PropertyPath path, Action action)
-        //{
-        //    MemberInfo = memberInfo;
-        //    dataSourcePath = path;
-        //    Data = data.GetParent(in path);
-        //    ShowInNodeAttribute showInNodeAttribute = MemberInfo.GetCustomAttribute<ShowInNodeAttribute>();
-        //    LabelInfoAttribute labelInfo = MemberInfo.GetLabelInfo();
-        //    if (memberInfo.GetValueType() == typeof(List<T>)) { labelInfo.Hide = true; }
-        //    label = labelInfo.Text;
-        //    labelElement.SetInfo(labelInfo);
-        //    DropdownAttribute dropdownAttribute = memberInfo.GetCustomAttribute<DropdownAttribute>();
-        //    Type type = memberInfo.DeclaringType;
-        //    MemberInfo member = type.GetMember(dropdownAttribute.ListGetter, BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)[0];
-        //    if (member == null)
-        //    {
-        //        labelElement.text = $"{dropdownAttribute.ListGetter} not found";
-        //        labelElement.style.color = Color.red;
-        //    }
-        //    if (member.GetValueType() != typeof(DropdownList<T>))
-        //    {
-        //        labelElement.text = $"{dropdownAttribute.ListGetter} is not {typeof(DropdownList<T>).Name}";
-        //        labelElement.style.color = Color.red;
-        //    }
-        //    switch (member.MemberType)
-        //    {
-        //        case MemberTypes.Field:
-        //            FieldInfo fieldInfo = member as FieldInfo;
-        //            ListGetter = () => (member as FieldInfo).GetValue(fieldInfo.IsStatic ? null : Data) as DropdownList<T>;
-        //            break;
-        //        case MemberTypes.Method:
-        //            MethodInfo methodInfo = member as MethodInfo;
-        //            if (methodInfo.IsStatic)
-        //            {
-        //                ListGetter = methodInfo.CreateDelegate(typeof(DropdownListGetter)) as DropdownListGetter;
-        //            }
-        //            else
-        //            {
-        //                ListGetter = methodInfo.CreateDelegate(typeof(DropdownListGetter), Data) as DropdownListGetter;
-        //            }
-        //            break;
-        //        case MemberTypes.Property:
-        //            PropertyInfo propertyInfo = member as PropertyInfo;
-        //            MethodInfo getMethod = propertyInfo.GetGetMethod();
-        //            if (getMethod.IsStatic)
-        //            {
-        //                ListGetter = getMethod.CreateDelegate(typeof(DropdownListGetter)) as DropdownListGetter;
-        //            }
-        //            else
-        //            {
-        //                ListGetter = getMethod.CreateDelegate(typeof(DropdownListGetter), Data) as DropdownListGetter;
-        //            }
-        //            break;
-        //        default:
-        //            labelElement.text = $"{dropdownAttribute.ListGetter} not found";
-        //            labelElement.style.color = Color.red;
-        //            break;
-        //    }
-        //    Dirty = member.SerializeByJsonDotNet();
-        //    OnChange = MemberInfo.GetOnChangeAction(Data) + action;
-        //    SetEnabled(!showInNodeAttribute.ReadOnly);
-        //}
-
         public void Init(MemberMeta meta, JsonNode data, PropertyPath path, Action action)
         {
             Meta = meta;
@@ -260,42 +174,14 @@ namespace TreeNode.Editor
     public class EnumDrawer : BaseDrawer
     {
         public override Type DrawType => typeof(Enum);
-
-        //public override PropertyElement Create(MemberInfo memberInfo,ViewNode node, PropertyPath path,Action action)
-        //{
-        //    ShowInNodeAttribute showInNode = memberInfo.GetCustomAttribute<ShowInNodeAttribute>();
-        //    LabelInfoAttribute labelInfo = memberInfo.GetLabelInfo();
-        //    //readOnly |= showInNode.ReadOnly;
-        //    BaseField<Enum> field = CreateEnumField(memberInfo.GetValueType(), labelInfo);
-        //    field.dataSourcePath = path;
-        //    object value = node.Data.GetValue<object>(path);
-        //    field.SetValueWithoutNotify((Enum)value);
-        //    //field.pickingMode = readOnly? PickingMode.Ignore: PickingMode.Position;
-        //    object parent = node.Data.GetParent(in path);
-        //    action = memberInfo.GetOnChangeAction(parent) + action;
-        //    bool dirty = memberInfo.SerializeByJsonDotNet();
-        //    field.RegisterValueChangedCallback(evt =>
-        //    {
-        //        node.Data.SetValue(in path, evt.newValue);
-        //        if (dirty)
-        //        {
-        //            field.SetDirty();
-        //        }
-        //        action?.Invoke();
-        //    });
-        //    field.SetEnabled(!showInNode.ReadOnly);
-        //    return new PropertyElement(memberInfo, node, path, this, field);
-        //}
         public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, PropertyPath path, Action action)
         {
-            ShowInNodeAttribute showInNode = memberMeta.ShowInNode;// memberInfo.GetCustomAttribute<ShowInNodeAttribute>();
-            LabelInfoAttribute labelInfo = memberMeta.LabelInfo;// memberInfo.GetLabelInfo();
-            //readOnly |= showInNode.ReadOnly;
+            ShowInNodeAttribute showInNode = memberMeta.ShowInNode;
+            LabelInfoAttribute labelInfo = memberMeta.LabelInfo;
             BaseField<Enum> field = CreateEnumField(memberMeta.Type, labelInfo);
             field.dataSourcePath = path;
             object value = node.Data.GetValue<object>(path);
             field.SetValueWithoutNotify((Enum)value);
-            //field.pickingMode = readOnly? PickingMode.Ignore: PickingMode.Position;
             object parent = node.Data.GetParent(in path);
             action = memberMeta.OnChangeMethod.GetOnChangeAction(parent) + action;
             bool dirty = memberMeta.Json;
@@ -331,5 +217,22 @@ namespace TreeNode.Editor
             }
         }
     }
+
+    public class EnumElement : BaseField<Enum>
+    {
+
+
+
+
+        public EnumElement() : base(null, null)
+        {
+        }
+
+
+
+    }
+
+
+
 
 }

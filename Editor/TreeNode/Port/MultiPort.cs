@@ -23,9 +23,10 @@ namespace TreeNode.Editor
             {
                 Meta = meta,
                 tooltip = type.Name,
-                portName = meta.LabelInfo.Text,
+                portName = meta.LabelInfo.Hide?null: meta.LabelInfo.Text,
             };
             port.AddToClassList("ArrayPort");
+
             return port;
         }
 
