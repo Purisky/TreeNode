@@ -8,10 +8,6 @@ namespace TreeNode.Runtime
     public abstract class TreeNodeAsset
     {
         public List<JsonNode> Nodes = new();
-
-
-
-
     }
 
 }

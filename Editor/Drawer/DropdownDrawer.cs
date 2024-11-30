@@ -110,7 +110,7 @@ namespace TreeNode.Editor
                     break;
                 case MemberTypes.Property:
                     PropertyInfo propertyInfo = member as PropertyInfo;
-                    MethodInfo getMethod = propertyInfo.GetGetMethod();
+                    MethodInfo getMethod = propertyInfo.GetMethod;
                     if (getMethod.IsStatic)
                     {
                         ListGetter = getMethod.CreateDelegate(typeof(DropdownListGetter)) as DropdownListGetter;
@@ -170,7 +170,6 @@ namespace TreeNode.Editor
 
 
 
-
     public class EnumDrawer : BaseDrawer
     {
         public override Type DrawType => typeof(Enum);
@@ -218,19 +217,7 @@ namespace TreeNode.Editor
         }
     }
 
-    public class EnumElement : BaseField<Enum>
-    {
 
-
-
-
-        public EnumElement() : base(null, null)
-        {
-        }
-
-
-
-    }
 
 
 

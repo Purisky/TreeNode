@@ -1,5 +1,6 @@
 
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using TreeNode.Utility;
 using UnityEngine;
@@ -63,8 +64,25 @@ namespace TreeNode.Runtime
             return () => { };
 
         }
-
-
-
+        public class EnumExtensions<T> where T : Enum
+        {
+            static Dictionary<T, string> Dic;
+            static EnumExtensions()
+            {
+                Dic = EnumAttributeGetter.GetLabelInfo<T>();
+            }
+            public static string GetLabel(T enum_)
+            {
+                if (Dic.Count > 0 && Dic.TryGetValue(enum_, out string text))
+                {
+                    return text;
+                }
+                return enum_.ToString();
+            }
+        }
+        public static string GetLabel<T>(this T enum_)where T : Enum
+        {
+           return EnumExtensions<T>.GetLabel(enum_);
+        }
     }
 }

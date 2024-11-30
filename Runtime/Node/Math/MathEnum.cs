@@ -8,12 +8,10 @@ namespace TreeNode.Runtime
         Sub,
         [LabelInfo("*")]
         Mul,
-        [LabelInfo("/")]
+        [LabelInfo("∕")]
         Div,
         [LabelInfo("%")]
         Mod,
-        [LabelInfo("//")]
-        DivInt,
         [LabelInfo("~")]
         Random
     }

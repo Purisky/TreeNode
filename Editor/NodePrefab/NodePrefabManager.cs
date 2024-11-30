@@ -48,7 +48,7 @@ namespace TreeNode.Editor
 
         static PrefabPreviewData GetDataByPath(string path)
         {
-            JsonAsset jsonAsset = JsonAssetHandler.GetJsonAsset(path) ?? throw new NodePrefabAssetException.JsonEmpty(path);
+            JsonAsset jsonAsset = JsonAsset.GetJsonAsset(path) ?? throw new NodePrefabAssetException.JsonEmpty(path);
             if (jsonAsset.Data is NodePrefabAsset nodePrefabAsset)
             {
                 if (!nodePrefabAsset.Nodes.Any())

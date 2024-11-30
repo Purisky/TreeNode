@@ -33,7 +33,7 @@ namespace TreeNode.Runtime
         public Color Color;
         static Color DefaultColor = new(63 / 256f, 63 / 256f, 63 / 256f, 204 / 256f);
         public bool OutputList;
-        public NodeInfoAttribute(Type type, string title,int width, string menuItem = "",string color = "#3F3F3F")
+        public NodeInfoAttribute(Type type, string title, int width, string menuItem = "", string color = "#3F3F3F")
         {
             Type = type;
             Title = title;
@@ -50,7 +50,7 @@ namespace TreeNode.Runtime
         public bool BanPrefab;
         public HashSet<Type> Types;
         public bool Unique;
-        public AssetFilterAttribute(bool allowed, bool unique,bool banPrefab, params Type[] types)
+        public AssetFilterAttribute(bool allowed, bool unique, bool banPrefab, params Type[] types)
         {
             Allowed = allowed;
             BanPrefab = banPrefab;
@@ -96,7 +96,7 @@ namespace TreeNode.Runtime
     public class LabelInfoAttribute : InspectorNameAttribute
     {
         public static LabelInfoAttribute Default = new();
-        public static Color DefaultColor = new (210/256f, 210 / 256f, 210 / 256f);
+        public static Color DefaultColor = new(210 / 256f, 210 / 256f, 210 / 256f);
         public string Text;
         /// <summary>
         /// 0=>Auto, (0~1]=>Percent, (1,∞)=>Pixel
@@ -108,11 +108,11 @@ namespace TreeNode.Runtime
         public LabelInfoAttribute() : base(null)
         {
         }
-        public LabelInfoAttribute(string text):base(text)
+        public LabelInfoAttribute(string text) : base(text)
         {
             Text = text;
         }
-        public LabelInfoAttribute(string text,float width = 0.5f) : base(text)
+        public LabelInfoAttribute(string text, float width = 0.5f) : base(text)
         {
             Text = text;
             Width = width;
@@ -145,7 +145,7 @@ namespace TreeNode.Runtime
     public class DropdownAttribute : Attribute
     {
         public string ListGetter;
-        public DropdownAttribute( string listGetter)
+        public DropdownAttribute(string listGetter)
         {
             ListGetter = listGetter;
         }
@@ -153,7 +153,5 @@ namespace TreeNode.Runtime
     [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
     public class TitlePortAttribute : Attribute
     {
-        
     }
-
 }

@@ -12,7 +12,7 @@ namespace TreeNode.Editor
     public partial class TreeNodeGraphView
     {
         const int X_SPACE = 30;
-        const int Y_SPACE = 30;
+        const int Y_SPACE = 10;
         int[] maxWidthPerDepth;
         int[] validYPosPerDepth;
 

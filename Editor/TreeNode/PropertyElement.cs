@@ -35,7 +35,8 @@ namespace TreeNode.Editor
             {
                 object parent = viewNode.Data.GetParent(MemberMeta.Path);
                 Type type = parent.GetType();
-                MemberInfo memberInfo = type.GetMember(MemberMeta.ShowInNode.ShowIf)[0];
+
+                MemberInfo memberInfo = type.GetMember(MemberMeta.ShowInNode.ShowIf, BindingFlags.NonPublic| BindingFlags.Public| BindingFlags.Static| BindingFlags.Instance)[0];
                 if (memberInfo != null)
                 {
                     switch (memberInfo.MemberType)
@@ -47,7 +48,7 @@ namespace TreeNode.Editor
                             ShowIf = ((MethodInfo)memberInfo).CreateDelegate(typeof(Func<bool>), parent) as Func<bool>;
                             break;
                         case MemberTypes.Property:
-                            ShowIf = ((PropertyInfo)memberInfo).GetGetMethod().CreateDelegate(typeof(Func<bool>), parent) as Func<bool>;
+                            ShowIf = ((PropertyInfo)memberInfo).GetMethod.CreateDelegate(typeof(Func<bool>), parent) as Func<bool>;
                             break;
                     }
                 }

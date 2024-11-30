@@ -27,7 +27,6 @@ namespace TreeNode.Runtime
                 CalculateType.Mul => "*",
                 CalculateType.Div => "/",
                 CalculateType.Mod => "%",
-                CalculateType.DivInt => "//",
                 CalculateType.Random => "~",
                 _=>"?"
             };
@@ -39,7 +38,7 @@ namespace TreeNode.Runtime
     [NodeInfo(typeof(NumNode), "三元运算", 100, "计算/三元运算"), PortColor("#00ff00")]
     public class ConditionCal : NumNode
     {
-        [Child, LabelInfo(Text = "条件"), TitlePort]
+        [Child, TitlePort]
         public Condition Condition;
         [Child, LabelInfo(Text = "真",Width =10)]
         public NumValue True;
@@ -86,7 +85,7 @@ namespace TreeNode.Runtime
     [NodeInfo(typeof(Condition), "与", 80, "条件/逻辑/与", "#000080"), PortColor("#0000ff")]
     public class And : Condition
     {
-        [Child, LabelInfo(Hide = true),TitlePort]
+        [Child,TitlePort]
         public List<Condition> Conditions;
         public override string GetText()
         {
@@ -98,7 +97,7 @@ namespace TreeNode.Runtime
     [NodeInfo(typeof(Condition), "或", 80, "条件/逻辑/或", "#D2691E"), PortColor("#0000ff")]
     public class Or : Condition
     {
-        [Child, LabelInfo(Hide = true), TitlePort]
+        [Child, TitlePort]
         public  List<Condition> Conditions;
         public override string GetText()
         {
@@ -109,7 +108,7 @@ namespace TreeNode.Runtime
     [NodeInfo(typeof(Condition), "非", 80, "条件/逻辑/非", "#800000"), PortColor("#0000ff")]
     public class Not : Condition
     {
-        [Child, LabelInfo(Hide = true), TitlePort]
+        [Child, TitlePort]
         public Condition Condition;
         public override string GetText()
         {

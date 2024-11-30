@@ -58,7 +58,7 @@ namespace TreeNode.Editor
 
         public static void OpenJsonAsset(string filePath)
         {
-            JsonAsset jsonAsset = GetJsonAsset(filePath);
+            JsonAsset jsonAsset = JsonAsset. GetJsonAsset(filePath);
             if (jsonAsset == null) { return; }
             Type assetType = jsonAsset.Data.GetType();
             if (!AssetWindows.TryGetValue(assetType, out  Type window))
@@ -72,7 +72,7 @@ namespace TreeNode.Editor
         }
         public static void OpenPrefabJsonAsset(string filePath)
         {
-            JsonAsset jsonAsset = GetJsonAsset(filePath);
+            JsonAsset jsonAsset = JsonAsset. GetJsonAsset(filePath);
             if (jsonAsset == null) { return; }
             if (jsonAsset.Data is NodePrefabAsset nodePrefabAsset)
             {
@@ -81,31 +81,6 @@ namespace TreeNode.Editor
             }
             Debug.LogError($"Asset data type error");
         }
-
-
-        public static JsonAsset GetJsonAsset(string filePath)
-        {
-            JsonAsset jsonAsset = null;
-            try
-            {
-                jsonAsset = Json.Get<JsonAsset>(System.IO.File.ReadAllText(filePath));
-            }
-            catch (Exception)
-            {
-                Debug.LogError($"Json parse error : {filePath}");
-                return null;
-            }
-            if (jsonAsset == null || jsonAsset.Data is null)
-            {
-                Debug.LogError($"Unknown asset type : {filePath}");
-                return null;
-            }
-            return jsonAsset;
-        }
-
-
-
-
     }
 
 
