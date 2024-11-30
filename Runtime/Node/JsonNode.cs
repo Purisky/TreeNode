@@ -36,10 +36,10 @@ namespace TreeNode.Runtime
             }
             catch (Exception e)
             {
-                Debug.Log(e);
+                //Debug.Log(e);
                 object parent = GetParent(in path);
                 parent.GetType().GetMember(path[^1].Name)[0].SetValue(parent, value);
-                Debug.Log(parent);
+                //Debug.Log(parent);
             }
         }
         public virtual void SetValueInternal<T>(in PropertyPath path, T value)

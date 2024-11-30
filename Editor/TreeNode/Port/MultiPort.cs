@@ -9,15 +9,14 @@ namespace TreeNode.Editor
 {
     public class MultiPort : ChildPort
     {
-        protected MultiPort(Type type) : base(Capacity.Multi, type)
+        protected MultiPort(MemberMeta meta,Type type) : base(meta, Capacity.Multi, type)
         {
         }
         public static MultiPort Create(MemberMeta meta)
         {
             Type type = meta.Type.GetGenericArguments()[0];
-            MultiPort port = new(type)
+            MultiPort port = new(meta,type)
             {
-                Meta = meta,
                 tooltip = type.Name,
                 portName = meta.LabelInfo.Hide?null: meta.LabelInfo.Text,
             };

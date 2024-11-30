@@ -81,6 +81,11 @@ namespace TreeNode.Runtime
     [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
     public class ChildAttribute : ShowInNodeAttribute
     {
+        public bool Require;
+        public ChildAttribute(bool require = false)
+        {
+            Require = require;
+        }
     }
     [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
     public class ShowInNodeAttribute : Attribute

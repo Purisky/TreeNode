@@ -216,6 +216,7 @@ namespace TreeNode.Editor
                         MemberInfo member = PortMembers[i];
                         PropertyPath propertyPath = PropertyPath.AppendName(path, member.Name);
                         MemberMeta meta = new(member, propertyPath);
+                        //Debug.Log(meta.ShowInNode);
                         if (member.GetValueType() == typeof(NumValue))
                         {
                             if (!DrawerManager.TryGet(member, out BaseDrawer baseDrawer))
@@ -236,6 +237,7 @@ namespace TreeNode.Editor
                         else
                         {
                             bool multi = member.GetValueType().Inherited(typeof(IList));
+                            //Debug.Log(Name);
                             ChildPort port = multi ? MultiPort.Create(meta) : SinglePort.Create(meta);
                             PropertyElement propertyElement = new(meta, node, propertyPath,null, port);
                             GroupAttribute groupAttribute = member.GetCustomAttribute<GroupAttribute>();

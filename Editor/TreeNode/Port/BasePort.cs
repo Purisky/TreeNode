@@ -14,11 +14,11 @@ namespace TreeNode.Editor
         protected static StyleSheet StyleSheet = ResourcesUtil.LoadStyleSheet("NodePort");
         public new ViewNode node => GetFirstAncestorOfType<ViewNode>();
         public Action OnChange;
-        protected BasePort( Direction portDirection, Capacity portCapacity, Type type) : base(Orientation.Horizontal, portDirection, portCapacity, type)
+        protected BasePort(Direction portDirection, Capacity portCapacity, Type type) : base(Orientation.Horizontal, portDirection, portCapacity, type)
         {
             EdgeConnectorListener listener = new();
             m_EdgeConnector = new EdgeConnector<Edge>(listener);
-            UnityEngine.UIElements.VisualElementExtensions.AddManipulator(this, m_EdgeConnector);
+            VisualElementExtensions.AddManipulator(this, m_EdgeConnector);
             styleSheets.Add(StyleSheet);
             PortColorAttribute portColorAtt = portType.GetCustomAttribute<PortColorAttribute>();
             if (portColorAtt != null)
@@ -26,9 +26,6 @@ namespace TreeNode.Editor
                 portColor = portColorAtt.Color;
             }
         }
-
-
-
 
         protected class EdgeConnectorListener : IEdgeConnectorListener
         {

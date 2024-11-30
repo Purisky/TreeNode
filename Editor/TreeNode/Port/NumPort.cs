@@ -11,18 +11,17 @@ namespace TreeNode.Editor
 {
     public class NumPort : ChildPort
     {
-        protected NumPort() : base(Capacity.Single, typeof(NumNode))
+        protected NumPort( MemberMeta meta) : base(meta, Capacity.Single, typeof(NumNode))
         {
         }
         public NumValue NumValue;
         public Label Text;
         public FloatField FloatField;
         public new ViewNode node;
-        public static NumPort Create(MemberMeta memberMeta, ViewNode node)
+        public static NumPort Create(MemberMeta meta, ViewNode node)
         {
-            NumPort port = new()
+            NumPort port = new(meta)
             {
-                Meta = memberMeta,
                 tooltip = nameof(NumNode),
                 node = node
             };
