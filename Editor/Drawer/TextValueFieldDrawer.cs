@@ -76,7 +76,7 @@ namespace TreeNode.Editor
             Toggle.labelElement.SetInfo(labelInfo);
             Toggle.style.flexGrow = 0;
             Toggle.style.justifyContent = Justify.SpaceAround;
-            Toggle.Q<VisualElement>("unity-checkmark").parent.style.width = 20;
+            Toggle.Q<VisualElement>("unity-checkmark").parent.style.width = 14;
             Toggle.Q<VisualElement>("unity-checkmark").parent.style.flexGrow = 0;
             return Toggle;
         }
