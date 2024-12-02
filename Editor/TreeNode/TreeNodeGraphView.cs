@@ -152,7 +152,7 @@ namespace TreeNode.Editor
                     }
                 }
                 graphViewChange.elementsToRemove.AddRange(temp);
-                IEnumerable<Edge> edges = graphViewChange.elementsToRemove.OfType<Edge>();
+                IEnumerable<Edge> edges = graphViewChange.elementsToRemove.OfType<Edge>().Distinct();
                 if (edges.Any())
                 {
                     foreach (Edge edge in edges)
