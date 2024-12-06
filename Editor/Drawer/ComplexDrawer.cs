@@ -158,7 +158,7 @@ namespace TreeNode.Editor
             {
                 ShowInNodeAttribute showInNodeAttribute = memberInfo.GetCustomAttribute<ShowInNodeAttribute>();
                 MinOrder = Math.Min(MinOrder, showInNodeAttribute.Order);
-                if (showInNodeAttribute is ChildAttribute || memberInfo.GetValueType() == typeof(NumValue))
+                if (showInNodeAttribute is ChildAttribute || memberInfo.GetValueType() == typeof(NumValue) || memberInfo.GetValueType().Inherited(typeof(NumValue)))
                 {
                     PortMembers.Add(memberInfo);
                     return true;
@@ -216,10 +216,9 @@ namespace TreeNode.Editor
                         MemberInfo member = PortMembers[i];
                         PropertyPath propertyPath = PropertyPath.AppendName(path, member.Name);
                         MemberMeta meta = new(member, propertyPath);
-                        //Debug.Log(meta.ShowInNode);
-                        if (member.GetValueType() == typeof(NumValue))
+                        if (meta.Type== typeof(NumValue)||meta.Type.Inherited(typeof(NumValue)))
                         {
-                            if (!DrawerManager.TryGet(member, out BaseDrawer baseDrawer))
+                            if (!DrawerManager.TryGet(typeof(NumValue), out BaseDrawer baseDrawer))
                             {
                                 Debug.LogError($"this value type drawer not exist");
                                 continue;
@@ -236,10 +235,10 @@ namespace TreeNode.Editor
                         }
                         else
                         {
-                            bool multi = member.GetValueType().Inherited(typeof(IList));
+                            bool multi = meta.Type.Inherited(typeof(IList));
                             //Debug.Log(Name);
                             ChildPort port = multi ? MultiPort.Create(meta) : SinglePort.Create(meta);
-                            PropertyElement propertyElement = new(meta, node, propertyPath,null, port);
+                            PropertyElement propertyElement = new(meta, node, propertyPath, null, port);
                             GroupAttribute groupAttribute = member.GetCustomAttribute<GroupAttribute>();
                             if (groupAttribute != null)
                             {
@@ -253,7 +252,7 @@ namespace TreeNode.Editor
                     {
                         if (!DrawerManager.TryGet(Members[j], out BaseDrawer baseDrawer))
                         {
-                            Debug.LogError($"this value type drawer not exist");
+                            Debug.LogError($"this value type drawer not exist [{Members[j].GetValueType()}]");
                             continue;
                         }
                         PropertyPath propertyPath = PropertyPath.AppendName(path, Members[j].Name);

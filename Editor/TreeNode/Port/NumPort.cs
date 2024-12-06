@@ -11,7 +11,7 @@ namespace TreeNode.Editor
 {
     public class NumPort : ChildPort
     {
-        protected NumPort( MemberMeta meta) : base(meta, Capacity.Single, typeof(NumNode))
+        protected NumPort(MemberMeta meta, Type type) : base(meta, Capacity.Single, type)
         {
         }
         public NumValue NumValue;
@@ -20,14 +20,34 @@ namespace TreeNode.Editor
         public new ViewNode node;
         public static NumPort Create(MemberMeta meta, ViewNode node)
         {
-            NumPort port = new(meta)
+            Type type = typeof(NumNode);
+            if (meta.Type != typeof(NumValue))
             {
-                tooltip = nameof(NumNode),
+                Type gType = GetGenericType(meta.Type, typeof(NumValue<>));
+                type = gType.GetGenericArguments()[0];
+            }
+            NumPort port = new(meta, type)
+            {
                 node = node
             };
             port.InitProperty();
             return port;
         }
+
+        static Type GetGenericType(Type type, Type gType)
+        {
+            if (type.BaseType == null)
+            {
+                return null;
+            }
+            if (type.BaseType.IsGenericType&& type.BaseType.GetGenericTypeDefinition()== gType)
+            {
+                return type.BaseType;
+            }
+            return GetGenericType(type.BaseType, gType);
+        }
+
+
         public void InitProperty()
         {
             style.flexGrow = 1;
@@ -53,12 +73,11 @@ namespace TreeNode.Editor
 
         public void InitNumValue(PropertyPath path)
         {
-            
-            NumValue = node.Data.GetValue< NumValue >(in path);
+            NumValue = node.Data.GetValue<NumValue>(in path);
             //Debug.Log($"{path}  :  {Json.ToJson(NumValue)}");
             if (NumValue == null)
             {
-                NumValue = new();
+                NumValue = Activator.CreateInstance(Meta.Type) as NumValue;
                 node.Data.SetValue(in path, NumValue);
             }
             FloatField.SetValueWithoutNotify(NumValue.Value);
