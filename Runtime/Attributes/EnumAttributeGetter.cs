@@ -43,7 +43,7 @@ namespace TreeNode.Runtime
             }
             return dic;
         }
-        public static Dictionary<U, string> GetLabelTextWithNull<U>() where U : Enum
+        public static Dictionary<U, string> GetLabelInfoWithNull<U>() where U : Enum
         {
             Dictionary<U, string> dic = new();
             Dictionary<U, LabelInfoAttribute> adic = GetAll<U, LabelInfoAttribute>();

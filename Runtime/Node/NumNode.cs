@@ -10,6 +10,7 @@ namespace TreeNode.Runtime
         public abstract string GetText(); 
     }
     public class NumValue<T>: NumValue where T : NumNode
+
     {
     }
 
