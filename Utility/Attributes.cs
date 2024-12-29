@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace TreeNode.Runtime
+namespace TreeNode.Utility
 {
     [AttributeUsage(AttributeTargets.Class)]
     public class NodeAssetAttribute : Attribute
@@ -15,10 +15,10 @@ namespace TreeNode.Runtime
     }
 
     [AttributeUsage(AttributeTargets.Class)]
-    public class AssetIconAttribute : Attribute
+    public class IconAttribute : Attribute
     {
         public string path;
-        public AssetIconAttribute(string path = null)
+        public IconAttribute(string path = null)
         {
             this.path = path;
         }
@@ -32,7 +32,8 @@ namespace TreeNode.Runtime
         public int Width;
         public Color Color;
         static Color DefaultColor = new(63 / 256f, 63 / 256f, 63 / 256f, 204 / 256f);
-        public bool OutputList;
+        //public bool OutputList;
+        public bool Unique;
         public NodeInfoAttribute(Type type, string title, int width, string menuItem = "", string color = "#3F3F3F")
         {
             Type = type;
@@ -42,30 +43,6 @@ namespace TreeNode.Runtime
             Color = ColorUtility.TryParseHtmlString(color, out Color c) ? c : DefaultColor;
             Color.a = 204 / 256f;
         }
-    }
-    [AttributeUsage(AttributeTargets.Class)]
-    public class AssetFilterAttribute : Attribute
-    {
-        public bool Allowed;
-        public bool BanPrefab;
-        public HashSet<Type> Types;
-        public bool Unique;
-        public AssetFilterAttribute(bool allowed, bool unique, bool banPrefab, params Type[] types)
-        {
-            Allowed = allowed;
-            BanPrefab = banPrefab;
-            Types = new HashSet<Type>(types);
-            Unique = unique;
-        }
-        public AssetFilterAttribute(bool allowed, params Type[] types)
-        {
-            Allowed = allowed;
-            BanPrefab = false;
-            Types = new HashSet<Type>(types);
-            Unique = false;
-        }
-
-
     }
 
 
@@ -98,7 +75,7 @@ namespace TreeNode.Runtime
         }
     }
     [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
-    public class LabelInfoAttribute : InspectorNameAttribute
+    public class LabelInfoAttribute : Attribute
     {
         public static LabelInfoAttribute Default = new();
         public static Color DefaultColor = new(210 / 256f, 210 / 256f, 210 / 256f);
@@ -110,14 +87,14 @@ namespace TreeNode.Runtime
         public int Size = 11;
         public string Color = "#D2D2D2";
         public bool Hide;
-        public LabelInfoAttribute() : base(null)
+        public LabelInfoAttribute()
         {
         }
-        public LabelInfoAttribute(string text) : base(text)
+        public LabelInfoAttribute(string text)
         {
             Text = text;
         }
-        public LabelInfoAttribute(string text, float width = 0.5f) : base(text)
+        public LabelInfoAttribute(string text, float width = 0.5f)
         {
             Text = text;
             Width = width;
@@ -150,6 +127,8 @@ namespace TreeNode.Runtime
     public class DropdownAttribute : Attribute
     {
         public string ListGetter;
+        public bool Flat;
+        public bool SkipExist;
         public DropdownAttribute(string listGetter)
         {
             ListGetter = listGetter;
@@ -157,6 +136,34 @@ namespace TreeNode.Runtime
     }
     [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
     public class TitlePortAttribute : Attribute
+    {
+    }
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Field)]
+    public class AssetFilterAttribute : Attribute
+    {
+        public bool Allowed;
+        public bool BanPrefab;
+        public HashSet<Type> Types;
+        //public bool Unique;
+        public AssetFilterAttribute(bool allowed, bool banPrefab, params Type[] types)
+        {
+            Allowed = allowed;
+            BanPrefab = banPrefab;
+            Types = new HashSet<Type>(types);
+            //Unique = unique;
+        }
+        public AssetFilterAttribute(bool allowed, params Type[] types)
+        {
+            Allowed = allowed;
+            BanPrefab = false;
+            Types = new HashSet<Type>(types);
+            //Unique = false;
+        }
+
+
+    }
+    [AttributeUsage(AttributeTargets.Field)]
+    public class HideEnumAttribute : Attribute
     {
     }
 }

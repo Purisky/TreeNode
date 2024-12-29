@@ -17,7 +17,7 @@ namespace TreeNode.Editor
         }
         public static Texture2D DefaultIcon() => Load<Texture2D>("Icons/Icon.png");
 
-
+         
 
 
         public static StyleSheet LoadStyleSheet(string filename)=> Load<StyleSheet>($"Styles/{filename}.uss");

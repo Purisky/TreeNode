@@ -20,7 +20,7 @@ namespace TreeNode.Editor
 
         public TreeNodeWindowSearchProvider SearchProvider;
         public VisualElement ViewContainer;
-
+        protected ContentZoomer m_Zoomer;
         public TreeNodeGraphView(TreeNodeGraphWindow window)
         {
             Window = window;
@@ -53,7 +53,7 @@ namespace TreeNode.Editor
             canPasteSerializedData = CanPaste;
             serializeGraphElements = Copy;
             unserializeAndPaste = Paste;
-
+            
         }
 
         public virtual string Copy(IEnumerable<GraphElement> elements)

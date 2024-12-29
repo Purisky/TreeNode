@@ -1,0 +1,10 @@
+.selected
+{
+    border-width:1px;
+    border-color:rgb(255,255,255);
+    border-radius:4px;
+}
+TreeItem>#labels:hover
+{
+    background-color:rgba(60,60,60,0.7);
+}   

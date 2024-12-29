@@ -5,6 +5,7 @@ using TreeNode.Runtime;
 using Unity.Properties;
 using UnityEngine.UIElements;
 using UnityEngine;
+using TreeNode.Utility;
 
 namespace TreeNode.Editor
 {
@@ -230,6 +231,7 @@ namespace TreeNode.Editor
         public DropdownAttribute Dropdown;
         public bool Json;
         public MethodInfo OnChangeMethod;
+        public string DropdownKey;
 
         public MemberMeta(MemberInfo member, PropertyPath path)
         {
@@ -238,9 +240,26 @@ namespace TreeNode.Editor
             ShowInNode = member.GetCustomAttribute<ShowInNodeAttribute>();
             LabelInfo = member.GetLabelInfo();
             Dropdown = member.GetCustomAttribute<DropdownAttribute>();
+            if (Dropdown == null&& Type.IsSubclassOf(typeof(Enum)))
+            {
+                Dropdown = new(null);
+            }
             Json = member.SerializeByJsonDotNet();
             OnChangeMethod = member.GetMethodInfo();
             Path = path;
+            DropdownKey = null;
+            if (Type.IsSubclassOf(typeof(Enum)))
+            {
+                DropdownKey = Type.Name;
+            }
+            else
+            {
+                if (Dropdown != null)
+                {
+                    DropdownKey = $"{member.DeclaringType.Name}.{member.Name}";
+                }
+            }
+            
         }
 
     }

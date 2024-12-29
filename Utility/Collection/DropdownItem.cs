@@ -8,11 +8,14 @@ namespace TreeNode.Utility
     {
         public string Text;
         public string FullText;
+        public string IconPath;
+        public Color TextColor = DefaultColor;
+        static readonly Color DefaultColor = new Color(210f / 256, 210f / 256, 210f / 256);
     }
     public class DropdownItem<T> : DropdownItem
     {
         readonly T value;
-        readonly bool isValueType;
+        public readonly static bool isValueType = typeof(T).IsValueType || typeof(T) == typeof(string);
         public readonly string JsonText;
 
 
@@ -22,7 +25,6 @@ namespace TreeNode.Utility
             FullText = text;
             Text = FullText.Split('/').Last();
             value = v;
-            isValueType = typeof(T).IsValueType || typeof(T) == typeof(string);
             if (!isValueType)
             {
                 JsonText = Json.ToJson(v);

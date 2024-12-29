@@ -54,7 +54,17 @@ namespace TreeNode.Editor
             return drawer;
         }
 
-
+        public static BaseDrawer GetEnumDrawer(Type type)
+        {
+            if (Drawers.TryGetValue(type, out BaseDrawer drawer))
+            {
+                return drawer;
+            }
+            Type drawerType = typeof(EnumDrawer<>).MakeGenericType(type);
+            drawer = Activator.CreateInstance(drawerType) as BaseDrawer;
+            Drawers[type] = drawer;
+            return drawer;
+        }
 
 
 
@@ -64,17 +74,18 @@ namespace TreeNode.Editor
         {
             Type type = member.GetValueType();
             DropdownAttribute dropdown = member.GetCustomAttribute<DropdownAttribute>();
-            if (dropdown != null&& !type.Inherited(typeof(IList)))
+            if (type.IsEnum)
+            {
+                drawer = GetEnumDrawer(type);
+                return true;
+            }
+            if (dropdown != null && !type.Inherited(typeof(IList)))
             {
                 drawer = GetDropdownDrawer(type);
                 return true;
             }
             else
             {
-                if (type.IsEnum)
-                {
-                    return TryGet(typeof(Enum), out drawer);
-                }
                 return TryGet(type, out drawer);
             }
         }
@@ -87,10 +98,6 @@ namespace TreeNode.Editor
             if (type.Inherited(typeof(IList)))
             {
                 return Drawers.TryGetValue(typeof(List<>), out drawer);
-            }
-            if (type.IsEnum)
-            {
-                return Drawers.TryGetValue(typeof(Enum), out drawer);
             }
             if (type.IsComplex())
             {

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using TreeNode.Runtime;
+using TreeNode.Utility;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -18,7 +19,7 @@ namespace TreeNode.Editor
         {
             EdgeConnectorListener listener = new();
             m_EdgeConnector = new EdgeConnector<Edge>(listener);
-            VisualElementExtensions.AddManipulator(this, m_EdgeConnector);
+            UnityEngine.UIElements.VisualElementExtensions.AddManipulator(this, m_EdgeConnector);
             styleSheets.Add(StyleSheet);
             PortColorAttribute portColorAtt = portType.GetCustomAttribute<PortColorAttribute>();
             if (portColorAtt != null)

@@ -20,9 +20,9 @@ namespace TreeNode.Editor
         {
             Icons = new();
             foreach (var item in AppDomain.CurrentDomain.GetAssemblies().SelectMany(a => a.GetTypes())
-                .Where(n => n.BaseType == typeof(TreeNodeAsset) && n.GetCustomAttribute<AssetIconAttribute>() != null))
+                .Where(n => n.BaseType == typeof(TreeNodeAsset) && n.GetCustomAttribute<Utility.IconAttribute>() != null))
             {
-                AssetIconAttribute attribute = item.GetCustomAttribute<AssetIconAttribute>();
+                Utility.IconAttribute attribute = item.GetCustomAttribute<Utility.IconAttribute>();
                 attribute.path ??= $"{ResourcesUtil.ROOTPATH}Icons/{item.Name}.png";
                 //Debug.Log(item.Name);
                 Texture2D texture2D = AssetDatabase.LoadAssetAtPath<Texture2D>(attribute.path);

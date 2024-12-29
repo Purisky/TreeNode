@@ -1,10 +1,11 @@
 using Newtonsoft.Json;
 using System.Collections.Generic;
+using TreeNode.Utility;
 using Unity.Properties;
 
 namespace TreeNode.Runtime
 {
-    [AssetIcon]
+    [Icon]
     public class NodePrefabAsset : TreeNodeAsset
     {
         public string Name;

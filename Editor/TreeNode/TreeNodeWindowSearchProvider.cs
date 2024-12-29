@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using TreeNode.Runtime;
+using TreeNode.Utility;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -48,9 +49,10 @@ namespace TreeNode.Editor
                 {
                     if (Graph is NodePrefabGraphView && filter.BanPrefab) { continue; }
                     if (filter.Allowed == !filter.Types.Contains(assetType)) { continue; }
-                    if (filter.Unique && Graph.Asset.Data.Nodes.Any(n => n.GetType() == type)) { continue; }
+                    
                 }
                 NodeInfoAttribute attribute = type.GetCustomAttribute<NodeInfoAttribute>();
+                if (attribute.Unique && Graph.Asset.Data.Nodes.Any(n => n.GetType() == type)) { continue; }
                 object node = Activator.CreateInstance(type);
                 if (string.IsNullOrEmpty(attribute.MenuItem)) { continue; }
                 Elements.Add(new(node, attribute.MenuItem));
