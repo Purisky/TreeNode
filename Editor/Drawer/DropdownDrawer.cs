@@ -1,5 +1,5 @@
 using Newtonsoft.Json.Linq;
-using Palmmedia.ReportGenerator.Core.Reporting.Builders.Rendering;
+using NUnit.Framework;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -8,10 +8,10 @@ using TreeNode.Runtime;
 using TreeNode.Utility;
 using Unity.Properties;
 using UnityEditor;
-using UnityEditor.PackageManager;
-using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.UIElements;
+using static TreeNode.ReflectionExtensions;
+using static UnityEditor.Progress;
 
 namespace TreeNode.Editor
 {
@@ -20,39 +20,42 @@ namespace TreeNode.Editor
         public override Type DrawType => typeof(DropdownList<T>);
         public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, PropertyPath path, Action action)
         {
-            DropDownElement<T> dropdownElement = new();
+            DropdownElement<T> dropdownElement;
+            if (memberMeta.Dropdown.Flat)
+            {
+                dropdownElement = new FlatDropdownElement<T>();
+            }
+            else
+            {
+                dropdownElement = new TreeDropDownElement<T>();
+            }
             dropdownElement.Init(memberMeta, node, path, action);
             return new PropertyElement(memberMeta, node, path, this, dropdownElement);
         }
     }
-    public class DropDownElement<T> : BaseField<T>
+    public abstract class DropdownElement<T> : BaseField<T>
     {
-        VisualElement visualInput;
+        protected VisualElement visualInput;
         public VisualElement VisualInput => visualInput;
-
-
-
         public TextElement TextElement;
-        VisualElement ArrowElement;
+        protected VisualElement ArrowElement;
         public MemberMeta Meta;
         public object Data;
-        bool Dirty;
-        Action OnChange;
-        public delegate DropdownList<T> DropdownListGetter();
-        DropdownListGetter ListGetter;
+        protected bool Dirty;
+        protected Action OnChange;
+        protected MemberGetter<DropdownList<T>> ListGetter;
 
         public DropdownList<T> GetList() => ListGetter();
 
 
         public ViewNode Node;
 
-        public HashSet<string> Expand;
-        public bool Flat;
-        public bool Flags;
+        //public bool Flat;
+        //public bool Flags;
 
 
 
-        public DropDownElement() : base(null, null)
+        public DropdownElement() : base(null, null)
         {
             visualInput = new VisualElement();
             this.Q<VisualElement>(null, "unity-base-field__input").style.display = DisplayStyle.None;
@@ -70,7 +73,7 @@ namespace TreeNode.Editor
             style.flexGrow = 1;
             Add(visualInput);
         }
-        public void Init(MemberMeta meta,ViewNode node, PropertyPath path, Action action)
+        public virtual void Init(MemberMeta meta,ViewNode node, PropertyPath path, Action action)
         {
             Meta = meta;
             dataSourcePath = path;
@@ -81,123 +84,109 @@ namespace TreeNode.Editor
             if (Meta.Type == typeof(List<T>)) { labelInfo.Hide = true; }
             label = labelInfo.Text;
             labelElement.SetInfo(labelInfo);
-            if (Meta.Type.IsSubclassOf(typeof(Enum)))
-            {
-                Flags = Meta.Type.GetCustomAttribute<FlagsAttribute>() != null;
-            }
-            Flat = Meta.Dropdown.Flat || Flags;
-            if (!Flat)
-            {
-                Expand = DropMenu.Get(Meta.DropdownKey);
-            }
-
             InitListGetter(meta);
             Dirty = meta.Json;
-
-
-
-
             OnChange = Meta.OnChangeMethod.GetOnChangeAction(Data) + action;
             SetEnabled(!showInNodeAttribute.ReadOnly);
             T TValue = Node.Data.GetValue<T>(in path);
             SetValueWithoutNotify(TValue);
-            DropdownList<T> list = GetList();
-            TextElement.text = "Null";
-            foreach (var item in list)
-            {
-                if (item.ValueEquals(TValue))
-                {
-                    TextElement.text = item.FullText;
-                    break;
-                }
-            }
-
+            TextElement.text = GetValueText(GetList(), TValue);
             SetCallbacks();
         }
+        protected virtual string GetValueText(DropdownList<T> items, T Value)
+        {
+            foreach (var item in items)
+            {
+                if (item.ValueEquals(Value))
+                {
+                    return item.FullText;
+                }
+            }
+            return "Null";
 
-        private void InitListGetter(MemberMeta meta)
+        }
+
+        protected void InitListGetter(MemberMeta meta)
         {
             DropdownAttribute dropdownAttribute = Meta.Dropdown;
             if (Meta.Type.IsSubclassOf(typeof(Enum)))
             {
                 if (string.IsNullOrEmpty(dropdownAttribute.ListGetter))
                 {
-                    //Debug.Log(typeof(T).Name);
-                    ListGetter = new (() =>
-                    {
-                        return EnumList<T>.GetList(Node.View.Asset.Data.GetType());
-                    });
-
-
-
+                    ListGetter = () => EnumList<T>.GetList(Node.View.Asset.Data.GetType());
+                }
+                else
+                {
+                    InitializeListGetterForEnum(meta, dropdownAttribute);
                 }
             }
             else
             {
-                Type type = meta.DeclaringType;
-                MemberInfo member = type.GetMember(dropdownAttribute.ListGetter, BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)[0];
-                if (member == null)
-                {
-                    labelElement.text = $"{dropdownAttribute.ListGetter} not found";
-                    labelElement.style.color = Color.red;
-                }
-                if (member.GetValueType() != typeof(DropdownList<T>))
-                {
-                    labelElement.text = $"{dropdownAttribute.ListGetter} is not {typeof(DropdownList<T>).Name}";
-                    labelElement.style.color = Color.red;
-                }
-                switch (member.MemberType)
-                {
-                    case MemberTypes.Field:
-                        FieldInfo fieldInfo = member as FieldInfo;
-                        ListGetter = () => (member as FieldInfo).GetValue(fieldInfo.IsStatic ? null : Data) as DropdownList<T>;
-                        break;
-                    case MemberTypes.Method:
-                        MethodInfo methodInfo = member as MethodInfo;
-                        if (methodInfo.IsStatic)
-                        {
-                            ListGetter = methodInfo.CreateDelegate(typeof(DropdownListGetter)) as DropdownListGetter;
-                        }
-                        else
-                        {
-                            ListGetter = methodInfo.CreateDelegate(typeof(DropdownListGetter), Data) as DropdownListGetter;
-                        }
-                        break;
-                    case MemberTypes.Property:
-                        PropertyInfo propertyInfo = member as PropertyInfo;
-                        MethodInfo getMethod = propertyInfo.GetMethod;
-                        if (getMethod.IsStatic)
-                        {
-                            ListGetter = getMethod.CreateDelegate(typeof(DropdownListGetter)) as DropdownListGetter;
-                        }
-                        else
-                        {
-                            ListGetter = getMethod.CreateDelegate(typeof(DropdownListGetter), Data) as DropdownListGetter;
-                        }
-                        break;
-                    default:
-                        labelElement.text = $"{dropdownAttribute.ListGetter} not found";
-                        labelElement.style.color = Color.red;
-                        break;
-                }
+                InitializeListGetterForNonEnum(meta, dropdownAttribute);
+            }
+        }
 
+        private void InitializeListGetterForEnum(MemberMeta meta, DropdownAttribute dropdownAttribute)
+        {
+            MemberInfo member = GetMemberInfo(meta, dropdownAttribute.ListGetter);
+            if (member == null) return;
+
+            Type memberType = member.GetValueType();
+            if (memberType == typeof(DropdownList<T>))
+            {
+                ListGetter = member.GetMemberGetter<DropdownList<T>>(Data);
+            }
+            else if (memberType == typeof(List<T>))
+            {
+                ListGetter = () => EnumList<T>.GetList(Node.View.Asset.Data.GetType(), member.GetMemberGetter<List<T>>(Data).Invoke());
+            }
+            else
+            {
+                SetLabelError($"{dropdownAttribute.ListGetter} is not {typeof(DropdownList<T>).Name} or {typeof(List<T>).Name}");
+            }
+        }
+
+        private void InitializeListGetterForNonEnum(MemberMeta meta, DropdownAttribute dropdownAttribute)
+        {
+            MemberInfo member = GetMemberInfo(meta, dropdownAttribute.ListGetter);
+            if (member == null) return;
+
+            if (member.GetValueType() != typeof(DropdownList<T>))
+            {
+                SetLabelError($"{dropdownAttribute.ListGetter} is not {typeof(DropdownList<T>).Name}");
+                return;
             }
 
-
-
-
-
-
-
-
+            ListGetter = member.GetMemberGetter<DropdownList<T>>(Data);
         }
+
+        private MemberInfo GetMemberInfo(MemberMeta meta, string listGetter)
+        {
+            Type type = meta.DeclaringType;
+            MemberInfo member = type.GetMember(listGetter, BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic).FirstOrDefault();
+            if (member == null)
+            {
+                SetLabelError($"{listGetter} not found");
+            }
+            return member;
+        }
+
+        private void SetLabelError(string errorMessage)
+        {
+            labelElement.text = errorMessage;
+            labelElement.style.color = Color.red;
+        }
+
+
+
+
 
         public void SetCallbacks()
         {
             visualInput.RegisterCallback<MouseDownEvent>(OnMouseDown);
         }
-        VisualElement menu;
-        public void OnMouseDown(MouseDownEvent evt)
+        protected VisualElement menu;
+        public virtual void OnMouseDown(MouseDownEvent evt)
         {
             //Debug.Log(menu?.parent);
             if (menu != null && menu.parent!=null)
@@ -228,19 +217,9 @@ namespace TreeNode.Editor
             evt.StopPropagation();
         }
 
-        public class DropMenu
+        protected class DropMenu
         {
-            static readonly Dictionary<string, HashSet<string>> Expands = new();
-
-            public static HashSet<string> Get(string key)
-            {
-                if (Expands.TryGetValue(key, out HashSet<string> expand)) { return expand; }
-                Expands[key] = expand = new();
-                return expand;
-            }
-
-
-            internal DropDownElement<T> DropDownElement;
+            internal DropdownElement<T> DropDownElement;
             internal Dictionary<string, TreeItem> Dic;
             internal VisualElement m_MenuContainer;
 
@@ -250,11 +229,7 @@ namespace TreeNode.Editor
 
             internal List<MenuItem> MenuItems;
 
-            public string Key;
-            public HashSet<string> Expand;
-            public bool Flat;
-            public bool Flags;
-
+            //public string Key;
             internal class MenuItem
             {
                 public DropdownItem<T> Item;
@@ -262,19 +237,19 @@ namespace TreeNode.Editor
                 public Action action;
             }
             static readonly StyleSheet StyleSheet = ResourcesUtil.LoadStyleSheet("Dropdown");
-            public DropMenu(DropDownElement<T> dropDownElement)
+            public DropMenu(DropdownElement<T> dropDownElement)
             {
                 DropDownElement = dropDownElement;
-                Key = DropDownElement.Meta.DropdownKey;
-                if (DropDownElement.Meta.Type.IsSubclassOf(typeof(Enum)))
-                {
-                    Flags = DropDownElement.Meta.Type.GetCustomAttribute<FlagsAttribute>() != null;
-                }
-                Flat = DropDownElement.Meta.Dropdown.Flat || Flags;
-                if (!Flat)
-                {
-                    Expand = Get(Key);
-                }
+                //Key = DropDownElement.Meta.DropdownKey;
+                //if (DropDownElement.Meta.Type.IsSubclassOf(typeof(Enum)))
+                //{
+                //    Flags = DropDownElement.Meta.Type.GetCustomAttribute<FlagsAttribute>() != null;
+                //}
+                //Flat = DropDownElement.Meta.Dropdown.Flat || Flags;
+                //if (!Flat)
+                //{
+                //    Expand = Get(Key);
+                //}
                 Dic = new();
                 MenuItems = new();
                 m_MenuContainer = new VisualElement();
@@ -314,85 +289,11 @@ namespace TreeNode.Editor
                 evt.StopPropagation();
             }
 
-            public void BuildMenu()
-            {
-                string path;
-                if (!Flat)
-                {
-                    HashSet<string> parents = new();
-                    List<MenuItem> delete = new();
-                    for (int i = 0; i < MenuItems.Count; i++)
-                    {
-                        if (parents.Contains(MenuItems[i].Item.FullText))
-                        {
-                            delete.Add(MenuItems[i]);
-                            continue;
-                        }
-                        string[] paths = MenuItems[i].Item.FullText.Split('/');
-                        if (paths.Length > 1)
-                        {
-                            string parentPath = paths[0];
-                            for (int j = 0; j < paths.Length - 1; j++)
-                            {
-                                parents.Add(parentPath);
-                                parentPath += "/" + paths[j + 1];
-                            }
-                        }
-                    }
-                    for (int i = 0; i < delete.Count; i++)
-                    {
-                        MenuItems.Remove(delete[i]);
-                    }
-                    for (int i = 0; i < MenuItems.Count; i++)
-                    {
-                        path = MenuItems[i].Item.FullText;
-                        bool selected = MenuItems[i].Item.ValueEquals(DropDownElement.value);
-                        if (selected && DropDownElement.Meta.Dropdown.SkipExist) { continue; }
-                        MenuItems[i].element = new(MenuItems[i].Item, selected, MenuItems[i].action);
-                        if (!path.Contains('/'))
-                        {
-                            m_ScrollView.Add(MenuItems[i].element);
-                        }
-                        else
-                        {
-                            string parentPath = path[..path.LastIndexOf('/')];
-                            TreeItem parent = GetAddPath(parentPath);
-                            parent.AddTreeItem(MenuItems[i].element);
-                        }
-                        if (selected)
-                        {
-                            MenuItems[i].element.Expand2Root();
-                        }
-                    }
-                }
-                else
-                {
-                    for (int i = 0; i < MenuItems.Count; i++)
-                    {
-                        bool selected = MenuItems[i].Item.ValueEquals(DropDownElement.value);
-                        MenuItems[i].element = new(MenuItems[i].Item, selected, MenuItems[i].action, true);
-                        m_ScrollView.Add(MenuItems[i].element);
-                    }
-                }
+            public virtual void BuildMenu() {
+                Debug.Log(" virtual BuildMenu");
             }
 
-            TreeItem GetAddPath(string path)
-            {
-                if (Dic.TryGetValue(path, out TreeItem item)) { return item; }
-                Dic[path] = item = new(path, Expand);
-                if (!path.Contains('/'))
-                {
-                    m_ScrollView.Add(item);
-                }
-                else
-                {
-                    string parentPath = path[..path.LastIndexOf('/')];
-                    TreeItem parent = GetAddPath(parentPath);
-                    parent.AddTreeItem(item);
-                }
-                return item;
 
-            }
 
 
 
@@ -420,215 +321,569 @@ namespace TreeNode.Editor
                 });
                 return m_MenuContainer;
             }
-            public class TreeItem : VisualElement
+
+
+        }
+        public class TreeItem : VisualElement
+        {
+            public string Path;
+            public string Text;
+            public List<TreeItem> List;
+            public Action Action;
+
+            VisualElement GroupElement;
+            VisualElement Arrow;
+            Label Label;
+
+            public bool Selected;
+
+            public HashSet<string> Expands;
+
+            public TreeItem(DropdownItem<T> item, bool selected, Action action, bool flat = false)
             {
-                public string Path;
-                public string Text;
-                public List<TreeItem> List;
-                public Action Action;
-
-                VisualElement GroupElement;
-                VisualElement Arrow;
-                Label Label;
-
-                public bool Selected;
-
-                public HashSet<string> Expands;
-
-                public TreeItem(DropdownItem<T> item, bool selected, Action action, bool flat = false)
+                VisualElement labelElement = Init(item.FullText, flat ? item.FullText : item.Text);
+                Label.style.color = item.TextColor;
+                if (item.IconPath != null)
                 {
-                    VisualElement labelElement = Init(item.FullText, flat ? item.FullText : item.Text);
-                    Label.style.color = item.TextColor;
-                    if (item.IconPath != null)
-                    {
-                        Image icon = new() { name = "icon", image = IconUtil.Get(item.IconPath) };
-                        labelElement.Insert(0, icon);
-                    }
-                    Selected = selected;
-                    if (Selected)
-                    {
-                        labelElement.AddToClassList("selected");
-                    }
-                    labelElement.RegisterCallback<PointerDownEvent>((evt) => action());
-                    if (DropdownItem<T>.isValueType)
-                    {
-                        tooltip = item.Value.ToString();
-                    }
+                    Image icon = new() { name = "icon", image = IconUtil.Get(item.IconPath) };
+                    labelElement.Insert(0, icon);
                 }
-
-                public TreeItem(string path, HashSet<string> expands)
+                Selected = selected;
+                if (Selected)
                 {
-                    Expands = expands;
-                    VisualElement labelElement = Init(path);
-                    List = new();
-                    GroupElement = new() { name = "group" };
-                    //GroupElement.style.paddingLeft = 5;
-                    Add(GroupElement);
-                    Arrow = new();
-                    Arrow.AddToClassList("unity-enum-field__arrow");
-                    //Arrow.style.rotate = new StyleRotate(new Rotate(Angle.Degrees(-90)));
-                    Arrow.style.right = 0;
-                    Arrow.style.position = Position.Absolute;
-                    labelElement.Add(Arrow);
-                    labelElement.RegisterCallback<PointerDownEvent>((evt) =>
-                    {
-                        bool display = GroupElement.style.display == DisplayStyle.Flex;
-                        Fold(!display);
-                    });
-                    InternalFold(Expands.Contains(path));
+                    labelElement.AddToClassList("selected");
                 }
-
-                void Fold(bool active)
+                labelElement.RegisterCallback<PointerDownEvent>((evt) => action());
+                if (DropdownItem<T>.isValueType)
                 {
-                    if (active)
+                    tooltip = item.Value.ToString();
+                }
+            }
+
+            public TreeItem(string path, HashSet<string> expands)
+            {
+                Expands = expands;
+                VisualElement labelElement = Init(path);
+                List = new();
+                GroupElement = new() { name = "group" };
+                //GroupElement.style.paddingLeft = 5;
+                Add(GroupElement);
+                Arrow = new();
+                Arrow.AddToClassList("unity-enum-field__arrow");
+                //Arrow.style.rotate = new StyleRotate(new Rotate(Angle.Degrees(-90)));
+                Arrow.style.right = 0;
+                Arrow.style.position = Position.Absolute;
+                labelElement.Add(Arrow);
+                labelElement.RegisterCallback<PointerDownEvent>((evt) =>
+                {
+                    bool display = GroupElement.style.display == DisplayStyle.Flex;
+                    Fold(!display);
+                });
+                InternalFold(Expands.Contains(path));
+            }
+
+            void Fold(bool active)
+            {
+                if (active)
+                {
+                    Expands.Add(Path);
+                }
+                else
+                {
+                    Expands.Remove(Path);
+                }
+                InternalFold(active);
+            }
+            void InternalFold(bool active)
+            {
+                Arrow.style.rotate = new StyleRotate(new Rotate(Angle.Degrees(active ? 0 : -90)));
+                GroupElement.style.display = active ? DisplayStyle.Flex : DisplayStyle.None;
+            }
+
+
+            public VisualElement Init(string path, string text = null)
+            {
+                Path = path;
+                string[] paths = Path.Split('/');
+                Text = text ?? paths.Last();
+                VisualElement labelElement = new() { name = "labels" };
+                labelElement.style.flexDirection = FlexDirection.Row;
+                labelElement.style.paddingLeft = 5 * paths.Length - 5;
+                Add(labelElement);
+                Label = new() { text = Text };
+                labelElement.Add(Label);
+                return labelElement;
+            }
+
+
+
+            public void AddTreeItem(TreeItem item)
+            {
+                List.Add(item);
+                GroupElement.Add(item);
+            }
+
+            public bool ChildDisplay
+            {
+                get
+                {
+                    if (List == null)
                     {
-                        Expands.Add(Path);
+                        return Display;
+                    }
+                    for (int i = 0; i < List.Count; i++)
+                    {
+                        if (List[i].Display) { return true; }
+                    }
+                    return false;
+                }
+            }
+
+            public bool Display
+            {
+                get => style.display == DisplayStyle.Flex;
+                set => style.display = value ? DisplayStyle.Flex : DisplayStyle.None;
+            }
+
+
+            public void SetDisplay(bool display)
+            {
+                if (display == Display) { return; }
+                Display = display;
+                TreeItem treeItem = GetFirstAncestorOfType<TreeItem>();
+                treeItem?.SetDisplay(treeItem.ChildDisplay);
+            }
+            public void Expand2Root()
+            {
+                if (Arrow != null)
+                {
+                    InternalFold(true);
+                }
+                TreeItem treeItem = GetFirstAncestorOfType<TreeItem>();
+                treeItem?.Expand2Root();
+            }
+
+
+        }
+    }
+
+    public class FlagsDropDownElement<T> : FlatDropdownElement<T> where T:Enum
+    {
+        public T None;
+        public T All;
+        public override void Init(MemberMeta meta, ViewNode node, PropertyPath path, Action action)
+        {
+            base.Init(meta, node, path, action);
+            Type underlyingType = Enum.GetUnderlyingType(typeof(T));
+            foreach (var item in GetList())
+            {
+                All = BitwiseOr(underlyingType, All, item.Value);
+            }
+            None = (T)Enum.ToObject(typeof(T), 0);
+        }
+        public static T BitwiseOr(Type underlyingType, T A, T B)
+        {
+            if (underlyingType == typeof(int))
+            {
+                int result = Convert.ToInt32(A) | Convert.ToInt32(B);
+                return (T)Enum.ToObject(typeof(T), result);
+            }
+            else if (underlyingType == typeof(uint))
+            {
+                uint result = Convert.ToUInt32(A) | Convert.ToUInt32(B);
+                return (T)Enum.ToObject(typeof(T), result);
+            }
+            else if (underlyingType == typeof(long))
+            {
+                long result = Convert.ToInt64(A) | Convert.ToInt64(B);
+                return (T)Enum.ToObject(typeof(T), result);
+            }
+            else if (underlyingType == typeof(ulong))
+            {
+                ulong result = Convert.ToUInt64(A) | Convert.ToUInt64(B);
+                return (T)Enum.ToObject(typeof(T), result);
+            }
+            else if (underlyingType == typeof(short))
+            {
+                short result = (short)(Convert.ToInt16(A) | Convert.ToInt16(B));
+                return (T)Enum.ToObject(typeof(T), result);
+            }
+            else if (underlyingType == typeof(ushort))
+            {
+                ushort result = (ushort)(Convert.ToUInt16(A) | Convert.ToUInt16(B));
+                return (T)Enum.ToObject(typeof(T), result);
+            }
+            else if (underlyingType == typeof(byte))
+            {
+                byte result = (byte)(Convert.ToByte(A) | Convert.ToByte(B));
+                return (T)Enum.ToObject(typeof(T), result);
+            }
+            else if (underlyingType == typeof(sbyte))
+            {
+                sbyte result = (sbyte)(Convert.ToSByte(A) | Convert.ToSByte(B));
+                return (T)Enum.ToObject(typeof(T), result);
+            }
+            else
+            {
+                throw new ArgumentException("Unsupported enum underlying type.");
+            }
+        }
+
+
+
+
+
+
+        public override void OnMouseDown(MouseDownEvent evt)
+        {
+            //Debug.Log(menu?.parent);
+            if (menu != null && menu.parent != null)
+            {
+                menu.RemoveFromHierarchy();
+                menu = null;
+                return;
+            }
+            DropdownList<T> items = GetList();
+            DropMenu dropMenu = new(this);
+            dropMenu.Add(new DropdownItem<T>("None", None), () =>
+            {
+                Node.Data.SetValue(dataSourcePath, None);
+                SetValueWithoutNotify(None);
+                TextElement.text = "None";
+                if (Dirty)
+                {
+                    this.SetDirty();
+                }
+                dropMenu.UpdateSelection();
+                OnChange?.Invoke();
+            });
+            for (int i = 0; i < items.Count; i++)
+            {
+                DropdownItem<T> item = items[i];
+                dropMenu.Add(item, () =>
+                {
+                    T value = Node.Data.GetValue<T>(dataSourcePath);
+                    if (value.HasFlag(item.Value))
+                    {
+                        value = BitwiseOr(Enum.GetUnderlyingType(typeof(T)), value, item.Value);
                     }
                     else
                     {
-                        Expands.Remove(Path);
+                        value = BitwiseOr(Enum.GetUnderlyingType(typeof(T)), value, item.Value);
                     }
-                    InternalFold(active);
-                }
-                void InternalFold(bool active)
-                {
-                    Arrow.style.rotate = new StyleRotate(new Rotate(Angle.Degrees(active ? 0 : -90)));
-                    GroupElement.style.display = active ? DisplayStyle.Flex : DisplayStyle.None;
-                }
-
-
-                public VisualElement Init(string path, string text = null)
-                {
-                    Path = path;
-                    string[] paths = Path.Split('/');
-                    Text = text ?? paths.Last();
-                    VisualElement labelElement = new() { name = "labels" };
-                    labelElement.style.flexDirection = FlexDirection.Row;
-                    labelElement.style.paddingLeft = 5 * paths.Length - 5;
-                    Add(labelElement);
-                    Label = new() { text = Text };
-                    labelElement.Add(Label);
-                    return labelElement;
-                }
-
-
-
-                public void AddTreeItem(TreeItem item)
-                {
-                    List.Add(item);
-                    GroupElement.Add(item);
-                }
-
-                public bool ChildDisplay
-                {
-                    get
+                    Node.Data.SetValue(dataSourcePath, value);
+                    SetValueWithoutNotify(value);
+                    TextElement.text = GetValueText(GetList(), value);
+                    if (Dirty)
                     {
-                        if (List == null)
-                        {
-                            return Display;
-                        }
-                        for (int i = 0; i < List.Count; i++)
-                        {
-                            if (List[i].Display) { return true; }
-                        }
-                        return false;
+                        this.SetDirty();
                     }
-                }
-
-                public bool Display
-                {
-                    get => style.display == DisplayStyle.Flex;
-                    set => style.display = value ? DisplayStyle.Flex : DisplayStyle.None;
-                }
-
-
-                public void SetDisplay(bool display)
-                {
-                    if (display == Display) { return; }
-                    Display = display;
-                    TreeItem treeItem = GetFirstAncestorOfType<TreeItem>();
-                    treeItem?.SetDisplay(treeItem.ChildDisplay);
-                }
-                public void Expand2Root()
-                {
-                    if (Arrow != null)
-                    {
-                        InternalFold(true);
-                    }
-                    TreeItem treeItem = GetFirstAncestorOfType<TreeItem>();
-                    treeItem?.Expand2Root();
-                }
-
-
+                    dropMenu.UpdateSelection();
+                    OnChange?.Invoke();
+                });
             }
-
+            dropMenu.Add(new DropdownItem<T>("All", All), () =>
+            {
+                Node.Data.SetValue(dataSourcePath, All);
+                SetValueWithoutNotify(All);
+                TextElement.text = "All";
+                if (Dirty)
+                {
+                    this.SetDirty();
+                }
+                dropMenu.UpdateSelection();
+                OnChange?.Invoke();
+            });
+            dropMenu.BuildMenu();
+            menu = dropMenu.DropDown();
+            evt.StopPropagation();
+        }
+        protected override string GetValueText(DropdownList<T> items, T Value)
+        {
+            List<DropdownItem<T>> flags = GetFlagsValue (items, Value);
+            if (flags.Count == 0)   
+            {
+                return "None";
+            }
+            if (flags.Count == items.Count)
+            {
+                return "All";
+            }
+            return string.Join(",", flags.Select(x => x.FullText));
+        }
+        protected List<DropdownItem<T>> GetFlagsValue(DropdownList<T> items, T Value)
+        {
+            List<DropdownItem<T>> flags = new();
+            foreach (var item in items)
+            {
+                if (Value.HasFlag(item.Value))
+                {
+                    flags.Add(item);
+                }
+            }
+            return flags;
         }
 
+
+        protected new class DropMenu : DropdownElement<T>.DropMenu
+        {
+            public DropMenu(FlatDropdownElement<T> dropDownElement) : base(dropDownElement)
+            {
+            }
+            public override void BuildMenu()
+            {
+                int count = 0;
+                MenuItems[0].element = new(MenuItems[0].Item, false, MenuItems[0].action, true);
+                m_ScrollView.Add(MenuItems[0].element);
+                for (int i = 1; i < MenuItems.Count-1; i++)
+                {
+                    bool selected = DropDownElement.value.HasFlag(MenuItems[i].Item.Value);
+                    if (selected) { count++; }
+                    MenuItems[i].element = new(MenuItems[i].Item, selected, MenuItems[i].action, true);
+                    m_ScrollView.Add(MenuItems[i].element);
+                }
+                MenuItems[^1].element = new(MenuItems[^1].Item, false, MenuItems[^1].action, true);
+                m_ScrollView.Add(MenuItems[^1].element);
+                if (count == 0)
+                {
+                    MenuItems[0].element.AddToClassList("selected");
+                }
+                if (count == MenuItems.Count - 2)
+                {
+                    MenuItems[^1].element.AddToClassList("selected");
+                }
+            }
+            public void UpdateSelection()
+            { 
+                int count = 0;
+                for (int i = 1; i < MenuItems.Count - 1; i++)
+                {
+                    bool selected = DropDownElement.value.HasFlag(MenuItems[i].Item.Value);
+                    if (selected) { count++; }
+                    if (selected)
+                    {
+                        MenuItems[i].element.AddToClassList("selected");
+                    }
+                    else
+                    {
+                        MenuItems[i].element.RemoveFromClassList("selected");
+                    }
+                }
+                if (count == 0)
+                {
+                    MenuItems[0].element.AddToClassList("selected");
+                }
+                else
+                {
+                    MenuItems[0].element.RemoveFromClassList("selected");
+                }
+                if (count == MenuItems.Count - 2)
+                {
+                    MenuItems[^1].element.AddToClassList("selected");
+                }
+                else
+                {
+                    MenuItems[^1].element.RemoveFromClassList("selected");
+                }
+            }
+        }
+    }
+    public class TreeDropDownElement<T> : DropdownElement<T>
+    {
+        public override void OnMouseDown(MouseDownEvent evt)
+        {
+            //Debug.Log(menu?.parent);
+            if (menu != null && menu.parent != null)
+            {
+                menu.RemoveFromHierarchy();
+                menu = null;
+                return;
+            }
+            DropdownList<T> items = GetList();
+            DropMenu dropMenu = new(this);
+            for (int i = 0; i < items.Count; i++)
+            {
+                DropdownItem<T> item = items[i];
+                dropMenu.Add(item, () =>
+                {
+                    Node.Data.SetValue(dataSourcePath, item.Value);
+                    SetValueWithoutNotify(item.Value);
+                    TextElement.text = item.FullText;
+                    if (Dirty)
+                    {
+                        this.SetDirty();
+                    }
+                    OnChange?.Invoke();
+                });
+            }
+            dropMenu.BuildMenu();
+            menu = dropMenu.DropDown();
+            evt.StopPropagation();
+        }
+
+
+
+        protected new class DropMenu : DropdownElement<T>.DropMenu
+        {
+            public HashSet<string> Expand;
+            public DropMenu(TreeDropDownElement<T> dropDownElement) : base(dropDownElement)
+            {
+                Expand =DropdownExpand.Get(dropDownElement.Meta.DropdownKey);
+            }
+
+            public override void BuildMenu()
+            {
+                //Debug.Log("BuildMenu");
+                string path;
+                HashSet<string> parents = new();
+                List<MenuItem> delete = new();
+                for (int i = 0; i < MenuItems.Count; i++)
+                {
+                    if (parents.Contains(MenuItems[i].Item.FullText))
+                    {
+                        delete.Add(MenuItems[i]);
+                        continue;
+                    }
+                    string[] paths = MenuItems[i].Item.FullText.Split('/');
+                    if (paths.Length > 1)
+                    {
+                        string parentPath = paths[0];
+                        for (int j = 0; j < paths.Length - 1; j++)
+                        {
+                            parents.Add(parentPath);
+                            parentPath += "/" + paths[j + 1];
+                        }
+                    }
+                }
+                for (int i = 0; i < delete.Count; i++)
+                {
+                    MenuItems.Remove(delete[i]);
+                }
+                for (int i = 0; i < MenuItems.Count; i++)
+                {
+                    path = MenuItems[i].Item.FullText;
+                    bool selected = MenuItems[i].Item.ValueEquals(DropDownElement.value);
+                    if (selected && DropDownElement.Meta.Dropdown.SkipExist) { continue; }
+                    MenuItems[i].element = new(MenuItems[i].Item, selected, MenuItems[i].action);
+                    if (!path.Contains('/'))
+                    {
+                        m_ScrollView.Add(MenuItems[i].element);
+                    }
+                    else
+                    {
+                        string parentPath = path[..path.LastIndexOf('/')];
+                        TreeItem parent = GetAddPath(parentPath);
+                        parent.AddTreeItem(MenuItems[i].element);
+                    }
+                    if (selected)
+                    {
+                        MenuItems[i].element.Expand2Root();
+                    }
+                }
+            }
+            TreeItem GetAddPath(string path)
+            {
+                if (Dic.TryGetValue(path, out TreeItem item)) { return item; }
+                Dic[path] = item = new(path, Expand);
+                if (!path.Contains('/'))
+                {
+                    m_ScrollView.Add(item);
+                }
+                else
+                {
+                    string parentPath = path[..path.LastIndexOf('/')];
+                    TreeItem parent = GetAddPath(parentPath);
+                    parent.AddTreeItem(item);
+                }
+                return item;
+
+            }
+        }
+    }
+    public class FlatDropdownElement<T> : DropdownElement<T>
+    {
+        public override void OnMouseDown(MouseDownEvent evt)
+        {
+            //Debug.Log(menu?.parent);
+            if (menu != null && menu.parent != null)
+            {
+                menu.RemoveFromHierarchy();
+                menu = null;
+                return;
+            }
+            DropdownList<T> items = GetList();
+            DropMenu dropMenu = new(this);
+            for (int i = 0; i < items.Count; i++)
+            {
+                DropdownItem<T> item = items[i];
+                dropMenu.Add(item, () =>
+                {
+                    Node.Data.SetValue(dataSourcePath, item.Value);
+                    SetValueWithoutNotify(item.Value);
+                    TextElement.text = item.FullText;
+                    if (Dirty)
+                    {
+                        this.SetDirty();
+                    }
+                    OnChange?.Invoke();
+                });
+            }
+            dropMenu.BuildMenu();
+            menu = dropMenu.DropDown();
+            evt.StopPropagation();
+        }
+        protected new class DropMenu : DropdownElement<T>.DropMenu
+        {
+            public DropMenu(FlatDropdownElement<T> dropDownElement) : base(dropDownElement)
+            {
+            }
+            public override void BuildMenu()
+            {
+
+                for (int i = 0; i < MenuItems.Count; i++)
+                {
+                    bool selected = MenuItems[i].Item.ValueEquals(DropDownElement.value);
+                    MenuItems[i].element = new(MenuItems[i].Item, selected, MenuItems[i].action, true);
+                    m_ScrollView.Add(MenuItems[i].element);
+                }
+            }
+        }
     }
 
 
-
-
-
-
-    public class EnumDrawer<T> : BaseDrawer
+    public class EnumDrawer<T> : BaseDrawer where T : Enum
     {
         public override Type DrawType => typeof(T);
         public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, PropertyPath path, Action action)
         {
-            DropDownElement<T> dropdownElement = new();
+            DropdownElement<T> dropdownElement;
+            if (memberMeta.Type.GetCustomAttribute<FlagsAttribute>() != null)
+            {
+                dropdownElement = new FlagsDropDownElement<T>();
+            }
+            else if (memberMeta.Dropdown.Flat)
+            {
+                dropdownElement = new FlatDropdownElement<T>();
+            }
+            else
+            {
+                dropdownElement = new TreeDropDownElement<T>();
+            }
             dropdownElement.Init(memberMeta, node, path, action);
             return new PropertyElement(memberMeta, node, path, this, dropdownElement);
-
-
-
-
-            //ShowInNodeAttribute showInNode = memberMeta.ShowInNode;
-            //LabelInfoAttribute labelInfo = memberMeta.LabelInfo;
-            //BaseField<Enum> field = CreateEnumField(memberMeta.Type, labelInfo);
-            //field.dataSourcePath = path;
-            //object value = node.Data.GetValue<object>(path);
-            //field.SetValueWithoutNotify((Enum)value);
-            //object parent = node.Data.GetParent(in path);
-            //action = memberMeta.OnChangeMethod.GetOnChangeAction(parent) + action;
-            //bool dirty = memberMeta.Json;
-            //field.RegisterValueChangedCallback(evt =>
-            //{
-            //    node.Data.SetValue(in path, evt.newValue);
-            //    if (dirty)
-            //    {
-            //        field.SetDirty();
-            //    }
-            //    action?.Invoke();
-            //});
-            //field.SetEnabled(!showInNode.ReadOnly);
-            //return new PropertyElement(memberMeta, node, path, this, field);
         }
-
-
-        //DropDownElement<Enum> CreateEnumField(Type enumType, LabelInfoAttribute labelInfo)
-        //{
-        //    DropDownElement < Enum > field =  = 
-
-
-        //    if (!enumType.IsDefined(typeof(FlagsAttribute)))
-        //    {
-        //        EnumField field = new(labelInfo.Text, Enum.GetValues(enumType).GetValue(0) as Enum);
-        //        field.style.flexGrow = 1;
-        //        field.labelElement.SetInfo(labelInfo);
-        //        return field;
-        //    }
-        //    else
-        //    {
-        //        EnumFlagsField enumFlags = new(labelInfo.Text, Enum.GetValues(enumType).GetValue(0) as Enum);
-        //        enumFlags.style.flexGrow = 1;
-        //        enumFlags.labelElement.SetInfo(labelInfo);
-        //        return enumFlags;
-        //    }
-        //}
     }
 
-
+    public class DropdownExpand
+    {
+        static readonly Dictionary<string, HashSet<string>> Expands = new();
+        public static HashSet<string> Get(string key)
+        {
+            if (Expands.TryGetValue(key, out HashSet<string> expand)) { return expand; }
+            Expands[key] = expand = new();
+            return expand;
+        }
+    }
 
 
 

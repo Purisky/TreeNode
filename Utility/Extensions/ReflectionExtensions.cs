@@ -132,7 +132,21 @@ namespace TreeNode
             }
             return true;
         }
-
+        public delegate TResult MemberGetter<out TResult>();
+        public static MemberGetter<TResult> GetMemberGetter<TResult>(this MemberInfo member, object data) where TResult : class
+        {
+            return member.MemberType switch
+            {
+                MemberTypes.Field => () => (member as FieldInfo).GetValue((member as FieldInfo).IsStatic ? null : data) as TResult,
+                MemberTypes.Method => (member as MethodInfo).IsStatic
+                    ? (member as MethodInfo).CreateDelegate(typeof(MemberGetter<TResult>)) as MemberGetter<TResult>
+                    : (member as MethodInfo).CreateDelegate(typeof(MemberGetter<TResult>), data) as MemberGetter<TResult>,
+                MemberTypes.Property => (member as PropertyInfo).GetMethod.IsStatic
+                    ? (member as PropertyInfo).GetMethod.CreateDelegate(typeof(MemberGetter<TResult>)) as MemberGetter<TResult>
+                    : (member as PropertyInfo).GetMethod.CreateDelegate(typeof(MemberGetter<TResult>), data) as MemberGetter<TResult>,
+                _ => throw new InvalidOperationException($"{member.Name} is not a valid member type for MemberGetter")
+            };
+        }
 
     }
 }
