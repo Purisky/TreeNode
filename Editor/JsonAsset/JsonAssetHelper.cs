@@ -15,7 +15,7 @@ namespace TreeNode.Editor
     {
         static Dictionary<string, Texture2D> Icons;
         static Texture2D defaultIcon;
-        [MenuItem("TreeNode/" + I18n.ForceReloadIcon)]
+        [MenuItem(I18n.TreeNode + "/" + I18n.ForceReloadIcon)]
         public static void ReloadIcon()
         {
             Icons = new();
@@ -33,7 +33,7 @@ namespace TreeNode.Editor
 
             }
             defaultIcon = ResourcesUtil.DefaultIcon();
-            AssetDatabase.GetAllAssetPaths().Where(n => n.EndsWith(".ja")|| n.EndsWith(".pja")).ToList().ForEach(n =>
+            AssetDatabase.GetAllAssetPaths().Where(n => n.EndsWith(".ja") || n.EndsWith(".pja")).ToList().ForEach(n =>
             {
                 AssetDatabase.ImportAsset(n);
             });

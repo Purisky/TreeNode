@@ -35,7 +35,7 @@ namespace TreeNode.Runtime
             {
                 PropertyContainer.SetValue(this, in path, value);
             }
-            catch (Exception e)
+            catch
             {
                 //Debug.Log(e);
                 object parent = GetParent(in path);

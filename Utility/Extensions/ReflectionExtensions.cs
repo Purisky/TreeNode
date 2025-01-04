@@ -2,7 +2,6 @@ using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
-using UnityEngine;
 
 namespace TreeNode
 {
@@ -28,7 +27,7 @@ namespace TreeNode
 
         }
 
-        public static MemberInfo GetFirst<T>(this Type type) where T: Attribute
+        public static MemberInfo GetFirst<T>(this Type type) where T : Attribute
         {
             MemberInfo[] members = type.GetMembers();
             foreach (var member in members)
@@ -53,13 +52,13 @@ namespace TreeNode
             }
             return list;
         }
-        public static List<MemberInfo> GetAll<T0,T1>(this Type type) where T0 : Attribute where T1 : Attribute
+        public static List<MemberInfo> GetAll<T0, T1>(this Type type) where T0 : Attribute where T1 : Attribute
         {
             MemberInfo[] members = type.GetMembers();
             List<MemberInfo> list = new();
             foreach (var member in members)
             {
-                if (member.GetCustomAttribute<T0>() is not null|| member.GetCustomAttribute<T1>() is not null)
+                if (member.GetCustomAttribute<T0>() is not null || member.GetCustomAttribute<T1>() is not null)
                 {
                     list.Add(member);
                 }
@@ -123,7 +122,7 @@ namespace TreeNode
                         }
                         break;
                     case MemberSerialization.Fields:
-                        if (memberInfo.MemberType != MemberTypes.Field&& memberInfo.GetCustomAttribute<JsonPropertyAttribute>() == null)
+                        if (memberInfo.MemberType != MemberTypes.Field && memberInfo.GetCustomAttribute<JsonPropertyAttribute>() == null)
                         {
                             return false;
                         }
@@ -132,12 +131,12 @@ namespace TreeNode
             }
             return true;
         }
-        public delegate TResult MemberGetter<out TResult>();
+        public delegate TResult MemberGetter<out TResult>(Type type);
         public static MemberGetter<TResult> GetMemberGetter<TResult>(this MemberInfo member, object data) where TResult : class
         {
             return member.MemberType switch
             {
-                MemberTypes.Field => () => (member as FieldInfo).GetValue((member as FieldInfo).IsStatic ? null : data) as TResult,
+                MemberTypes.Field => (Type type) => (member as FieldInfo).GetValue((member as FieldInfo).IsStatic ? null : data) as TResult,
                 MemberTypes.Method => (member as MethodInfo).IsStatic
                     ? (member as MethodInfo).CreateDelegate(typeof(MemberGetter<TResult>)) as MemberGetter<TResult>
                     : (member as MethodInfo).CreateDelegate(typeof(MemberGetter<TResult>), data) as MemberGetter<TResult>,

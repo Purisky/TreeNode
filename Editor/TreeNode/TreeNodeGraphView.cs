@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using TreeNode.Runtime;
 using TreeNode.Utility;
+using UnityEditor;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -93,15 +94,51 @@ namespace TreeNode.Editor
                 }, (DropdownMenuAction a) => canDeleteSelection ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
                 evt.menu.AppendSeparator();
             }
+            if ( evt.target is ViewNode viewNode)
+            {
+                evt.menu.AppendAction(I18n.EditNode, delegate
+                {
+                    EditNodeScript(viewNode.Data.GetType());
+                });
+                evt.menu.AppendSeparator();
+            }
             if (evt.target is GraphView)
             {
                 evt.menu.AppendAction(I18n.Format, FormatAllNodes, DropdownMenuAction.AlwaysEnabled);
                 evt.menu.AppendSeparator();
             }
-            
-
-
         }
+
+        /// <summary>
+        /// Open the script editor
+        /// </summary>
+        /// <param name="type"></param>
+        void EditNodeScript(Type type)
+        {
+            string typeName = type.Name;
+            string[] guids = AssetDatabase.FindAssets("t:Script a:assets");
+            System.Text.RegularExpressions.Regex classRegex = new System.Text.RegularExpressions.Regex($@"\bclass\s+{typeName}\b");
+
+            foreach (string guid in guids)
+            {
+                string assetPath = AssetDatabase.GUIDToAssetPath(guid);
+                string[] fileLines = File.ReadAllLines(assetPath);
+
+                for (int i = 0; i < fileLines.Length; i++)
+                {
+                    if (classRegex.IsMatch(fileLines[i]))
+                    {
+                        // 打开脚本文件并定位到类定义的行
+                        AssetDatabase.OpenAsset(AssetDatabase.LoadAssetAtPath<MonoScript>(assetPath), i + 1);
+                        return;
+                    }
+                }
+            }
+
+            Debug.LogError($"Script for {type.Name} not found.");
+        }
+
+
 
         private void FormatAllNodes(DropdownMenuAction a)
         {

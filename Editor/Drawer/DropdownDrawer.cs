@@ -1,4 +1,3 @@
-using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using System;
 using System.Collections.Generic;
@@ -11,7 +10,6 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
 using static TreeNode.ReflectionExtensions;
-using static UnityEditor.Progress;
 
 namespace TreeNode.Editor
 {
@@ -44,17 +42,8 @@ namespace TreeNode.Editor
         protected bool Dirty;
         protected Action OnChange;
         protected MemberGetter<DropdownList<T>> ListGetter;
-
-        public DropdownList<T> GetList() => ListGetter();
-
-
+        public DropdownList<T> GetList() => ListGetter(Node.View.Asset.Data.GetType());
         public ViewNode Node;
-
-        //public bool Flat;
-        //public bool Flags;
-
-
-
         public DropdownElement() : base(null, null)
         {
             visualInput = new VisualElement();
@@ -113,7 +102,7 @@ namespace TreeNode.Editor
             {
                 if (string.IsNullOrEmpty(dropdownAttribute.ListGetter))
                 {
-                    ListGetter = () => EnumList<T>.GetList(Node.View.Asset.Data.GetType());
+                    ListGetter = (Type type) => EnumList<T>.GetList(Node.View.Asset.Data.GetType());
                 }
                 else
                 {
@@ -138,7 +127,7 @@ namespace TreeNode.Editor
             }
             else if (memberType == typeof(List<T>))
             {
-                ListGetter = () => EnumList<T>.GetList(Node.View.Asset.Data.GetType(), member.GetMemberGetter<List<T>>(Data).Invoke());
+                ListGetter = (Type type) => EnumList<T>.GetList(Node.View.Asset.Data.GetType(), member.GetMemberGetter<List<T>>(Data).Invoke(type));
             }
             else
             {
@@ -255,6 +244,8 @@ namespace TreeNode.Editor
                 m_MenuContainer = new VisualElement();
                 m_MenuContainer.AddToClassList("unity-base-dropdown");
                 m_OuterContainer = new VisualElement();
+                m_OuterContainer.style.borderBottomLeftRadius = 6;
+                m_OuterContainer.style.borderBottomRightRadius = 6;
                 m_OuterContainer.AddToClassList("unity-base-dropdown__container-outer");
                 m_MenuContainer.Add(m_OuterContainer);
                 m_ScrollView = new ScrollView();
@@ -264,11 +255,17 @@ namespace TreeNode.Editor
                 m_ScrollView.touchScrollBehavior = ScrollView.TouchScrollBehavior.Clamped;
                 m_ScrollView.mode = ScrollViewMode.VerticalAndHorizontal;
                 m_OuterContainer.hierarchy.Add(m_ScrollView);
+                m_OuterContainer.style.flexGrow = 1;
+                m_ScrollView.style.flexGrow = 1;
                 //m_MenuContainer.RegisterCallback<AttachToPanelEvent>(OnAttachToPanel);
                 //m_MenuContainer.RegisterCallback<DetachFromPanelEvent>(OnDetachFromPanel);
                 m_MenuContainer.style.position = new StyleEnum<Position>(Position.Absolute);
                 m_MenuContainer.style.width = DropDownElement.VisualInput.localBound.width;
+                m_OuterContainer.style.width = DropDownElement.VisualInput.localBound.width;
+                m_ScrollView.style.width = DropDownElement.VisualInput.localBound.width;
+                //Debug.Log(m_MenuContainer.style.width);
                 m_MenuContainer.style.maxHeight = 500;
+                
                 m_MenuContainer.RegisterCallback<FocusOutEvent>(OnFocusOut);
                 m_MenuContainer.styleSheets.Add(StyleSheet);
                 m_ScrollView.RegisterCallback<WheelEvent>(OnWheel);
@@ -346,6 +343,10 @@ namespace TreeNode.Editor
                 if (item.IconPath != null)
                 {
                     Image icon = new() { name = "icon", image = IconUtil.Get(item.IconPath) };
+                    icon.style.height = 16;
+                    icon.style.width = 16;
+                    icon.style.flexGrow = 0;
+
                     labelElement.Insert(0, icon);
                 }
                 Selected = selected;
@@ -469,17 +470,17 @@ namespace TreeNode.Editor
 
     public class FlagsDropDownElement<T> : FlatDropdownElement<T> where T:Enum
     {
-        public T None;
-        public T All;
+        public T Nothing;
+        public T Everything;
         public override void Init(MemberMeta meta, ViewNode node, PropertyPath path, Action action)
         {
             base.Init(meta, node, path, action);
             Type underlyingType = Enum.GetUnderlyingType(typeof(T));
             foreach (var item in GetList())
             {
-                All = BitwiseOr(underlyingType, All, item.Value);
+                Everything = BitwiseOr(underlyingType, Everything, item.Value);
             }
-            None = (T)Enum.ToObject(typeof(T), 0);
+            Nothing = (T)Enum.ToObject(typeof(T), 0);
         }
         public static T BitwiseOr(Type underlyingType, T A, T B)
         {
@@ -545,11 +546,11 @@ namespace TreeNode.Editor
             }
             DropdownList<T> items = GetList();
             DropMenu dropMenu = new(this);
-            dropMenu.Add(new DropdownItem<T>("None", None), () =>
+            dropMenu.Add(new DropdownItem<T>(I18n.EnumNothing, Nothing), () =>
             {
-                Node.Data.SetValue(dataSourcePath, None);
-                SetValueWithoutNotify(None);
-                TextElement.text = "None";
+                Node.Data.SetValue(dataSourcePath, Nothing);
+                SetValueWithoutNotify(Nothing);
+                TextElement.text = I18n.EnumNothing;
                 if (Dirty)
                 {
                     this.SetDirty();
@@ -582,11 +583,11 @@ namespace TreeNode.Editor
                     OnChange?.Invoke();
                 });
             }
-            dropMenu.Add(new DropdownItem<T>("All", All), () =>
+            dropMenu.Add(new DropdownItem<T>(I18n.EnumEverything, Everything), () =>
             {
-                Node.Data.SetValue(dataSourcePath, All);
-                SetValueWithoutNotify(All);
-                TextElement.text = "All";
+                Node.Data.SetValue(dataSourcePath, Everything);
+                SetValueWithoutNotify(Everything);
+                TextElement.text = I18n.EnumEverything;
                 if (Dirty)
                 {
                     this.SetDirty();
@@ -603,11 +604,11 @@ namespace TreeNode.Editor
             List<DropdownItem<T>> flags = GetFlagsValue (items, Value);
             if (flags.Count == 0)   
             {
-                return "None";
+                return I18n.EnumNothing;
             }
             if (flags.Count == items.Count)
             {
-                return "All";
+                return I18n.EnumEverything;
             }
             return string.Join(",", flags.Select(x => x.FullText));
         }

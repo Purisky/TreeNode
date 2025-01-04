@@ -1,39 +1,58 @@
 using UnityEngine;
 
 #if TREENODE_CHINESE
-using Language = TreeNode.Utility.Chinese;
+using Current = TreeNode.Utility.Chinese;
+#elif TREENODE_FRENCH
+using Current = TreeNode.Utility.French;
 #else
-using Language = TreeNode.Utility.English;
+using Current = TreeNode.Utility.English;
 #endif
 
 namespace TreeNode.Utility
 {
     public class I18n
     {
-        public static string CurrentLanguage = typeof(Language).Name;
+        public static string CurrentLanguage = typeof(Current).Name;
+
+        public const string SelfName = Current.SelfName;
+        public const string ChangeLanguage = Current.ChangeLanguage;
 
 
-        public const string TreeNode = Language.TreeNode;
-        public const string Hotkeys = Language.Hotkeys;
-        public const string ForceReloadIcon = Language.ForceReloadIcon;
-        public const string CreateNode = Language.CreateNode;
-        public const string Copy = Language.Copy;
-        public const string Paste = Language.Paste;
-        public const string Cut = Language.Cut;
-        public const string Delete = Language.Delete;
-        public const string SetRoot = Language.SetRoot;
-        public const string Confirm = Language.Confirm;
+        public const string TreeNode = Current.TreeNode;
+        public const string Hotkeys = Current.Hotkeys;
+        public const string ForceReloadIcon = Current.ForceReloadIcon;
+        public const string CreateNode = Current.CreateNode;
+        public const string Copy = Current.Copy;
+        public const string Paste = Current.Paste;
+        public const string Cut = Current.Cut;
+        public const string Delete = Current.Delete;
 
-        public const string Format = Language.Format;
+        public const string SetRoot = Current.SetRoot;
+        public const string Confirm = Current.Confirm;
+        public const string EditNode = Current.EditNode;
 
-        public const string MoveUp = Language.MoveUp;
-        public const string Move2Top = Language.Move2Top;
-        public const string MoveDown = Language.MoveDown;
-        public const string Move2Bottom = Language.Move2Bottom;
-        public const string SetIndex = Language.SetIndex;
-        public const string DeleteItem = Language.DeleteItem;
-        public const string SetID = Language.SetID;
-        public const string Goto = Language.Goto;
+        public const string Format = Current.Format;
+
+        public const string EnumNothing = Current.EnumNothing;
+        public const string EnumEverything = Current.EnumEverything;
+
+
+
+        public const string MoveUp = Current.MoveUp;
+        public const string Move2Top = Current.Move2Top;
+        public const string MoveDown = Current.MoveDown;
+        public const string Move2Bottom = Current.Move2Bottom;
+        public const string SetIndex = Current.SetIndex;
+        public const string DeleteItem = Current.DeleteItem;
+        public const string SetID = Current.SetID;
+        public const string Goto = Current.Goto;
 
     }
+
+    public abstract class Language { 
+        
+
+
+    }
+
 }

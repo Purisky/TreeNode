@@ -14,7 +14,7 @@ namespace TreeNode.Utility
         }
     }
 
-    [AttributeUsage(AttributeTargets.Class)]
+    [AttributeUsage(AttributeTargets.Class| AttributeTargets.Field)]
     public class IconAttribute : Attribute
     {
         public string path;

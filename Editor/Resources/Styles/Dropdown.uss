@@ -4,7 +4,17 @@
     border-color:rgb(255,255,255);
     border-radius:4px;
 }
+TreeItem
+{
+    border-radius:4px;
+} 
 TreeItem>#labels:hover
 {
-    background-color:rgba(60,60,60,0.7);
-}   
+    background-color:rgba(120,120,120,0.7);
+    border-radius:4px;
+} 
+.unity-base-dropdown__container-inner
+{
+    background-color:rgba(10,10,10,0.3);
+    padding:2px;
+}
