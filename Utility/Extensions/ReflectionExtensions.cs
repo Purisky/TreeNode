@@ -137,14 +137,27 @@ namespace TreeNode
             return member.MemberType switch
             {
                 MemberTypes.Field => (Type type) => (member as FieldInfo).GetValue((member as FieldInfo).IsStatic ? null : data) as TResult,
-                MemberTypes.Method => (member as MethodInfo).IsStatic
-                    ? (member as MethodInfo).CreateDelegate(typeof(MemberGetter<TResult>)) as MemberGetter<TResult>
-                    : (member as MethodInfo).CreateDelegate(typeof(MemberGetter<TResult>), data) as MemberGetter<TResult>,
+                MemberTypes.Method => HandleMethod(member as MethodInfo),
                 MemberTypes.Property => (member as PropertyInfo).GetMethod.IsStatic
                     ? (member as PropertyInfo).GetMethod.CreateDelegate(typeof(MemberGetter<TResult>)) as MemberGetter<TResult>
                     : (member as PropertyInfo).GetMethod.CreateDelegate(typeof(MemberGetter<TResult>), data) as MemberGetter<TResult>,
                 _ => throw new InvalidOperationException($"{member.Name} is not a valid member type for MemberGetter")
             };
+
+            MemberGetter<TResult> HandleMethod(MethodInfo methodInfo)
+            {
+                if (methodInfo.GetParameters().Length > 0)
+                {
+                    return methodInfo.IsStatic
+                    ? methodInfo.CreateDelegate(typeof(MemberGetter<TResult>)) as MemberGetter<TResult>
+                    : methodInfo.CreateDelegate(typeof(MemberGetter<TResult>), data) as MemberGetter<TResult>;
+                }
+                else
+                {
+                    return (Type type) => methodInfo.Invoke(methodInfo.IsStatic ? null : data, null) as TResult;
+                }
+            }
+
         }
 
     }

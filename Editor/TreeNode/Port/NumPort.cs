@@ -56,6 +56,7 @@ namespace TreeNode.Editor
             LabelInfoAttribute labelInfo = Meta.LabelInfo;
             this.Q<Label>().SetInfo(labelInfo);
             this.Q<Label>().style.unityTextAlign = TextAnchor.MiddleLeft;
+            this.Q<Label>().style.marginLeft = 1;
             VisualElement element = new();
             element.style.flexDirection = FlexDirection.Row;
             element.style.flexGrow = 1;
