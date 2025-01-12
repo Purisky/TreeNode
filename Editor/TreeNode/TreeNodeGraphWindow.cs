@@ -42,13 +42,8 @@ namespace TreeNode.Editor
                 Title = System.IO.Path.GetFileNameWithoutExtension(Path);
                 if (JsonAsset == null)
                 {
-                    JsonAsset jsonAsset = null;
-                    try
-                    {
-                        jsonAsset = Json.Get<JsonAsset>(File.ReadAllText(Path));
-                        JsonAsset = jsonAsset;
-                    }
-                    catch (Exception)
+                    JsonAsset jsonAsset = JsonAsset.GetJsonAsset(Path);
+                    if (jsonAsset == null)
                     {
                         rootVisualElement.Add(new Label($"Json parse error : {Path}"));
                         Debug.LogError($"Json parse error : {Path}");
