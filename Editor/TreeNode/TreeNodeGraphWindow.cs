@@ -49,6 +49,7 @@ namespace TreeNode.Editor
                         Debug.LogError($"Json parse error : {Path}");
                         return;
                     }
+                    JsonAsset = jsonAsset;
                 }
                 History = new(this);
                 titleContent = new(Title, JsonAssetHelper.GetIcon(JsonAsset.Data.GetType().Name), Path);
