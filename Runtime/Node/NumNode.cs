@@ -10,14 +10,13 @@ namespace TreeNode.Runtime
     {
         public abstract string GetText(); 
     }
-    public class NumValue<T>: NumValue where T : NumNode
-
+    public class NumValue<T> : NumValue where T : NumNode
     {
     }
 
 
 
-    public class NumValue
+    public abstract class NumValue
     {
         public float Value;
         public NumNode Node;
