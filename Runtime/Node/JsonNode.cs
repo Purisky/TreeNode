@@ -24,7 +24,8 @@ namespace TreeNode.Runtime
             {
                 return Value;
             }
-            return default;
+            object parent = GetParent(in path);
+            return (T)parent.GetType().GetMember(path[^1].Name)[0].GetValue(parent);
         }
 
 

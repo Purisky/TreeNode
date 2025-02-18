@@ -531,8 +531,53 @@ namespace TreeNode.Editor
         }
 
 
-
-
+        public static T BitwiseAndNot(Type underlyingType, T A, T B)
+        {
+            if (underlyingType == typeof(int))
+            {
+                int result = Convert.ToInt32(A) & ~Convert.ToInt32(B);
+                return (T)Enum.ToObject(typeof(T), result);
+            }
+            else if (underlyingType == typeof(uint))
+            {
+                uint result = Convert.ToUInt32(A) & ~Convert.ToUInt32(B);
+                return (T)Enum.ToObject(typeof(T), result);
+            }
+            else if (underlyingType == typeof(long))
+            {
+                long result = Convert.ToInt64(A) & ~Convert.ToInt64(B);
+                return (T)Enum.ToObject(typeof(T), result);
+            }
+            else if (underlyingType == typeof(ulong))
+            {
+                ulong result = Convert.ToUInt64(A) & ~Convert.ToUInt64(B);
+                return (T)Enum.ToObject(typeof(T), result);
+            }
+            else if (underlyingType == typeof(short))
+            {
+                short result = (short)(Convert.ToInt16(A) & ~Convert.ToInt16(B));
+                return (T)Enum.ToObject(typeof(T), result);
+            }
+            else if (underlyingType == typeof(ushort))
+            {
+                ushort result = (ushort)(Convert.ToUInt16(A) & ~Convert.ToUInt16(B));
+                return (T)Enum.ToObject(typeof(T), result);
+            }
+            else if (underlyingType == typeof(byte))
+            {
+                byte result = (byte)(Convert.ToByte(A) & ~Convert.ToByte(B));
+                return (T)Enum.ToObject(typeof(T), result);
+            }
+            else if (underlyingType == typeof(sbyte))
+            {
+                sbyte result = (sbyte)(Convert.ToSByte(A) & ~Convert.ToSByte(B));
+                return (T)Enum.ToObject(typeof(T), result);
+            }
+            else
+            {
+                throw new ArgumentException("Unsupported enum underlying type.");
+            }
+        }
 
 
         public override void OnMouseDown(MouseDownEvent evt)
@@ -566,7 +611,7 @@ namespace TreeNode.Editor
                     T value = Node.Data.GetValue<T>(dataSourcePath);
                     if (value.HasFlag(item.Value))
                     {
-                        value = BitwiseOr(Enum.GetUnderlyingType(typeof(T)), value, item.Value);
+                        value = BitwiseAndNot(Enum.GetUnderlyingType(typeof(T)), value, item.Value);
                     }
                     else
                     {

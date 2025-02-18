@@ -21,6 +21,7 @@ namespace TreeNode.Editor
             field.style.height = 20;
             field.Insert(0, CreateLabel(labelInfo));
             Tv value = node.Data.GetValue<Tv>(in path);
+
             field.SetValueWithoutNotify(value);
             object parent = node.Data.GetParent(path);
             action = memberMeta.OnChangeMethod.GetOnChangeAction(parent) + action;

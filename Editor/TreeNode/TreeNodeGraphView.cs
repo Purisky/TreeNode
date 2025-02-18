@@ -86,20 +86,21 @@ namespace TreeNode.Editor
                 evt.menu.AppendAction(I18n.CreateNode, OnContextMenuNodeCreate, DropdownMenuAction.AlwaysEnabled);
                 evt.menu.AppendSeparator();
             }
-            if (evt.target is GraphView || evt.target is Node || evt.target is Group || evt.target is Edge)
-            {
-                evt.menu.AppendAction(I18n.Delete, delegate
-                {
-                    DeleteSelectionCallback(AskUser.DontAskUser);
-                }, (DropdownMenuAction a) => canDeleteSelection ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
-                evt.menu.AppendSeparator();
-            }
+
             if ( evt.target is ViewNode viewNode)
             {
                 evt.menu.AppendAction(I18n.EditNode, delegate
                 {
                     EditNodeScript(viewNode.Data.GetType());
                 });
+                evt.menu.AppendSeparator();
+            }
+            if (evt.target is GraphView || evt.target is Node || evt.target is Group || evt.target is Edge)
+            {
+                evt.menu.AppendAction(I18n.Delete, delegate
+                {
+                    DeleteSelectionCallback(AskUser.DontAskUser);
+                }, (DropdownMenuAction a) => canDeleteSelection ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
                 evt.menu.AppendSeparator();
             }
             if (evt.target is GraphView)
