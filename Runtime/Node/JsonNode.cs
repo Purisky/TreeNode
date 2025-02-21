@@ -1,5 +1,6 @@
 using Newtonsoft.Json;
 using System;
+using System.Collections.Generic;
 using TreeNode.Utility;
 using Unity.Properties;
 using UnityEngine;
@@ -12,9 +13,6 @@ namespace TreeNode.Runtime
     {
         [JsonProperty]
         public Vec2 Position;
-
-
-
         [JsonProperty]
         public PrefabData PrefabData;
         public virtual T GetValue<T>(in PropertyPath path)
@@ -27,9 +25,6 @@ namespace TreeNode.Runtime
             object parent = GetParent(in path);
             return (T)parent.GetType().GetMember(path[^1].Name)[0].GetValue(parent);
         }
-
-
-
         public virtual void SetValue<T>(in PropertyPath path, T value)
         {
             try
@@ -48,10 +43,6 @@ namespace TreeNode.Runtime
         {
             PropertyContainer.SetValue(this, in path, value);
         }
-
-
-
-
         public object GetParent(in PropertyPath path)
         {
             if (path.Length <=1)

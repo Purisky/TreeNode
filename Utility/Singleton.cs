@@ -6,7 +6,7 @@ namespace TreeNode.Utility
     {
         private static readonly T instance = new();
         static Singleton() { }
-        protected Singleton() { Init(); }
+        //protected Singleton() { Init(); }
         public static T Inst => instance;
         public virtual void Init() { }
     }

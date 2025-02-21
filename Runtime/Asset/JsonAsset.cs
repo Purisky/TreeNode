@@ -34,6 +34,27 @@ namespace TreeNode.Runtime
             }
             return jsonAsset;
         }
+        public static JsonAsset GetJsonAssetByText(string text)
+        {
+            JsonAsset jsonAsset = null;
+            JObject job = JObject.Parse(text);
+            if (job == null)
+            {
+                Debug.LogError($"Unknown asset type : {text}");
+                return null;
+            }
+            CheckTypeRecursively(job);
+            try
+            {
+                jsonAsset = Json.Get<JsonAsset>(text);
+            }
+            catch (Exception)
+            {
+                Debug.LogError($"Json parse error : {text}");
+                return null;
+            }
+            return jsonAsset;
+        }
         private static void CheckTypeRecursively(JObject job)
         {
             foreach (var property in job.Properties())
