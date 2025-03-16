@@ -166,4 +166,13 @@ namespace TreeNode.Utility
     public class HideEnumAttribute : Attribute
     {
     }
+    [AttributeUsage(AttributeTargets.Field| AttributeTargets.Class| AttributeTargets.Property| AttributeTargets.Struct)]
+    public class RagDocAttribute : Attribute
+    {
+        public string Desc;
+        public RagDocAttribute(string desc)
+        {
+            Desc = desc;
+        }
+    }
 }
