@@ -56,19 +56,19 @@ namespace TreeNode.Editor
 
 
 
-        public static void OpenJsonAsset(string filePath)
+        public static TreeNodeGraphWindow OpenJsonAsset(string filePath)
         {
             JsonAsset jsonAsset = JsonAsset. GetJsonAsset(filePath);
-            if (jsonAsset == null) { return; }
+            if (jsonAsset == null) { return null; }
             Type assetType = jsonAsset.Data.GetType();
             if (!AssetWindows.TryGetValue(assetType, out  Type window))
             {
                 Debug.LogError($"Asset window class not exist : {assetType.Name}");
-                return;
+                return null;
             }
             //Debug.Log("OnOpenFile");
             MethodInfo method = typeof(WindowManager).GetMethod("Open");
-            method.MakeGenericMethod(window, assetType).Invoke(null, new object[] { jsonAsset.Data, filePath });
+           return  method.MakeGenericMethod(window, assetType).Invoke(null, new object[] { jsonAsset.Data, filePath }) as TreeNodeGraphWindow;
         }
         public static void OpenPrefabJsonAsset(string filePath)
         {

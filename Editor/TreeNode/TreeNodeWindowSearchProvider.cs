@@ -44,18 +44,13 @@ namespace TreeNode.Editor
             foreach (var type in AppDomain.CurrentDomain.GetAssemblies().SelectMany(a => a.GetTypes())
                     .Where(n => n.GetCustomAttribute<NodeInfoAttribute>() != null))
             {
-                AssetFilterAttribute filter = type.GetCustomAttribute<AssetFilterAttribute>();
-                if (filter != null)
+                if (IsNodeValidIn(type, Graph.Asset.Data))
                 {
-                    if (Graph is NodePrefabGraphView && filter.BanPrefab) { continue; }
-                    if (filter.Allowed == !filter.Types.Contains(assetType)) { continue; }
-                    
+                    NodeInfoAttribute attribute = type.GetCustomAttribute<NodeInfoAttribute>();
+                    if (string.IsNullOrEmpty(attribute.MenuItem)) { continue; }
+                    object node = Activator.CreateInstance(type);
+                    Elements.Add(new(node, attribute.MenuItem));
                 }
-                NodeInfoAttribute attribute = type.GetCustomAttribute<NodeInfoAttribute>();
-                if (attribute.Unique && Graph.Asset.Data.Nodes.Any(n => n.GetType() == type)) { continue; }
-                object node = Activator.CreateInstance(type);
-                if (string.IsNullOrEmpty(attribute.MenuItem)) { continue; }
-                Elements.Add(new(node, attribute.MenuItem));
             }
 
             if (Graph is not NodePrefabGraphView)
@@ -127,6 +122,18 @@ namespace TreeNode.Editor
             return true;
         }
 
+        public static bool IsNodeValidIn(Type nodeType, TreeNodeAsset asset)
+        {
+            AssetFilterAttribute filter = nodeType.GetCustomAttribute<AssetFilterAttribute>();
+            if (filter != null)
+            {
+                if (asset is NodePrefabAsset && filter.BanPrefab) { return false; }
+                if (filter.Allowed == !filter.Types.Contains(asset.GetType())) { return false; }
+            }
+            NodeInfoAttribute attribute = nodeType.GetCustomAttribute<NodeInfoAttribute>();
+            if (attribute.Unique && asset.Nodes.Any(n => n.GetType() == nodeType)) { return false; }
 
+            return true;
+        }
     }
 }

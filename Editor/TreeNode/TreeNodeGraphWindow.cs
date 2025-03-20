@@ -129,7 +129,7 @@ namespace TreeNode.Editor
             
         }
 
-        protected static void CreateFile<T>() where T : TreeNodeAsset
+        public static void CreateFile<T>() where T : TreeNodeAsset
         {
             string path = AssetDatabase.GetAssetPath(Selection.activeObject);
             JsonAsset jsonAsset = new()
@@ -147,13 +147,28 @@ namespace TreeNode.Editor
             File.WriteAllText(filename, Json.ToJson(jsonAsset));
             AssetDatabase.Refresh();
         }
-
+        public static bool CreateFile<T>(string path,string id) where T : TreeNodeAsset
+        {
+            JsonAsset jsonAsset = new()
+            {
+                Data = Activator.CreateInstance<T>()
+            };
+            string ext = jsonAsset.Data.GetType().Name == "NodePrefabAsset" ? ".pja" : ".ja";
+            string filename = $"{path}/{id}{ext}";
+            if (File.Exists(filename))
+            {
+                return false;
+            }
+            File.WriteAllText(filename, Json.ToJson(jsonAsset));
+            AssetDatabase.Refresh();
+            return true;
+        }
 
     }
 
     public static class WindowManager
     {
-        public static void Open<TWindow,T>(T target, string path) where T : TreeNodeAsset where TWindow : TreeNodeGraphWindow
+        public static TWindow Open<TWindow,T>(T target, string path) where T : TreeNodeAsset where TWindow : TreeNodeGraphWindow
         {
             TWindow[] windows = Resources.FindObjectsOfTypeAll<TWindow>();
             for (int i = 0; i < windows.Length; i++)
@@ -162,12 +177,13 @@ namespace TreeNode.Editor
                 {
                     windows[i].Show();
                     windows[i].Focus();
-                    return;
+                    return windows[i];
                 }
             }
             TWindow window = EditorWindow.CreateWindow<TWindow>(typeof(TWindow),typeof(SceneView));
             window.Init(target,path);
             window.Show();
+            return window;
         }
     }
 
