@@ -35,33 +35,13 @@ namespace TreeNode.Runtime
         private static readonly ConcurrentDictionary<AccessorKey, object> GetterCache = new();
         private static readonly ConcurrentDictionary<AccessorKey, object> SetterCache = new();
         private static readonly ConcurrentDictionary<string, string[]> PathCache = new();
-        private static int cacheUsageCount = 0;
-        private const int CacheUsageThreshold = 1000;
-
-        public static void ClearCache()
-        {
-            GetterCache.Clear();
-            SetterCache.Clear();
-            PathCache.Clear();
-            cacheUsageCount = 0;
-        }
-
         public static T GetValue<T>(object obj, string path)
         {
             obj.ThrowIfNull(nameof(obj));
             path.ThrowIfNullOrEmpty(nameof(path));
-
-            var currentObj = obj;
-            var members = PathCache.GetOrAdd(path, p => p.Split('.'));
-
-            foreach (var member in members[..^1])
-            {
-                var getter = GetOrCreateGetter<object>(currentObj.GetType(), member);
-                currentObj =  getter(currentObj);
-            }
-            var getter_ = GetOrCreateGetter<T>(currentObj.GetType(), members[^1]);
-            IncrementCacheUsage();
-            return getter_(currentObj);
+            object parent = GetParent(obj, path, out var last);
+            var getter_ = GetOrCreateGetter<T>(parent.GetType(), last);
+            return getter_(parent);
         }
 
         public static void SetValue<T>(object obj, string path, T value)
@@ -69,61 +49,52 @@ namespace TreeNode.Runtime
             obj.ThrowIfNull(nameof(obj));
             path.ThrowIfNullOrEmpty(nameof(path));
 
-
-
-
+            object parent = GetParent(obj, path, out var last);
+            var setter = GetOrCreateSetter<T>(parent.GetType(), last);
+            setter(parent, value);
+        }
+        static object GetParent(object obj, string path,out string last)
+        {
+            obj.ThrowIfNull(nameof(obj));
+            path.ThrowIfNullOrEmpty(nameof(path));
             var currentObj = obj;
             var members = PathCache.GetOrAdd(path, p => p.Split('.'));
-
             foreach (var member in members[..^1])
             {
                 var getter = GetOrCreateGetter<object>(currentObj.GetType(), member);
                 currentObj = getter(currentObj);
             }
-            var setter = GetOrCreateSetter<T>(currentObj.GetType(), members[^1]);
-            //Debug.Log($"{currentObj.GetType()}({currentObj}).{members[^1]},{typeof(T)}");
-            IncrementCacheUsage();
-            setter(obj, value);
+            last = members[^1];
+            return currentObj;
         }
-
-        private static void IncrementCacheUsage()
+        private static Func<object, T> GetOrCreateGetter<T>(Type type, string memberName)
         {
-            cacheUsageCount++;
-            if (cacheUsageCount >= CacheUsageThreshold)
-            {
-                ClearCache();
-            }
-        }
-
-        private static Func<object, T> GetOrCreateGetter<T>(Type type, string propertyPath)
-        {
-            //Debug.Log($"{type.Name}=>{propertyPath}");
-            var key = new AccessorKey(type, propertyPath.GetHashCode(), typeof(T));
+            var key = new AccessorKey(type, memberName.GetHashCode(), typeof(T));
             if (GetterCache.TryGetValue(key, out var cachedGetter))
             {
                 return (Func<object, T>)cachedGetter;
             }
-            var getter = CreateGetter<T>(type, propertyPath);
+            var getter = CreateGetter<T>(type, memberName);
             GetterCache[key] = getter;
             return getter;
         }
 
-        private static Action<object, T> GetOrCreateSetter<T>(Type type, string propertyPath)
+        private static Action<object, T> GetOrCreateSetter<T>(Type type, string memberName)
         {
-            var key = new AccessorKey(type, propertyPath.GetHashCode(), typeof(T));
+            var key = new AccessorKey(type, memberName.GetHashCode(), typeof(T));
             if (SetterCache.TryGetValue(key, out var cachedSetter))
             {
                 return (Action<object, T>)cachedSetter;
             }
 
-            var setter = CreateSetter<T>(type, propertyPath);
+            var setter = CreateSetter<T>(type, memberName);
             SetterCache[key] = setter;
             return setter;
         }
 
-        private static Func<object, T> CreateGetter<T>(Type type, string propertyPath)
+        private static Func<object, T> CreateGetter<T>(Type type, string memberName)
         {
-            if (string.IsNullOrEmpty(propertyPath))
+            if (string.IsNullOrEmpty(memberName))
             {
                 return obj => (T)obj;
             }
@@ -131,212 +102,37 @@ namespace TreeNode.Runtime
             var param = Expression.Parameter(typeof(object), "obj");
             var current = Expression.Convert(param, type);
 
-
-
-
-            var members = PathCache.GetOrAdd(propertyPath, path => path.Split('.'));
-            var expressionCache = new List<Expression>(members.Length);
-
-            if (members.Length == 1 && !members[0].Contains("["))
-            {
-                string memberName = members[0];
-                var property = type.GetProperty(memberName);
-                if (property != null)
-                {
-                    var propertyExpr = Expression.Property(current, property);
-                    var converted = Expression.Convert(propertyExpr, typeof(T));
-                    return Expression.Lambda<Func<object, T>>(converted, param).Compile();
-                }
-
-                var field = type.GetField(memberName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                if (field != null)
-                {
-                    var fieldExpr = Expression.Field(current, field);
-                    var converted = Expression.Convert(fieldExpr, typeof(T));
-                    return Expression.Lambda<Func<object, T>>(converted, param).Compile();
-                }
-            }
-
-            foreach (var memberName in members)
-            {
-                if (memberName.EndsWith("]"))
-                {
-                    var indexStart = memberName.IndexOf('[');
-                    var indexEnd = memberName.IndexOf(']');
-                    var arrayName = memberName[..indexStart];
-                    var index = int.Parse(memberName.Substring(indexStart + 1, indexEnd - indexStart - 1));
-
-                    if (!string.IsNullOrEmpty(arrayName))
-                    {
-                        var arrayProperty = type.GetProperty(arrayName);
-                        if (arrayProperty != null)
-                        {
-                            current = Expression.Convert(Expression.Property(current, arrayProperty), arrayProperty.PropertyType);
-                            type = arrayProperty.PropertyType;
-                        }
-                        else
-                        {
-                            var arrayField = type.GetField(arrayName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                                ?? throw new ArgumentException($"Member {arrayName}({memberName}) not found on type {type.Name}=>{propertyPath}");
-                            current = Expression.Convert(Expression.Field(current, arrayField), arrayField.FieldType);
-                            type = arrayField.FieldType;
-                        }
-                    }
-
-
-                    var indexer = type.GetProperty("Item")
-                        ?? throw new ArgumentException($"Type {type.Name} does not have an indexer");
-                    current = Expression.Convert(Expression.MakeIndex(current, indexer, new[] { Expression.Constant(index) }), indexer.PropertyType);
-                    type = indexer.PropertyType;
-                }
-                else
-                {
-                    var property = type.GetProperty(memberName);
-                    if (property != null)
-                    {
-                        current = Expression.Convert(Expression.Property(current, property), property.PropertyType);
-                        type = property.PropertyType;
-                    }
-                    else
-                    {
-                        var field = type.GetField(memberName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                            ?? throw new ArgumentException($"Member {memberName} not found on type {type.Name}=>{propertyPath}");
-                        current = Expression.Convert(Expression.Field(current, field), field.FieldType);
-                        type = field.FieldType;
-                    }
-                }
-                expressionCache.Add(current);
-            }
+            var target = ProcessMemberAccess(current, memberName, ref type);
 
             if (!typeof(T).IsAssignableFrom(type))
             {
                 throw new InvalidCastException($"Type mismatch: expected {typeof(T).Name}, actual {type.Name}");
             }
 
-            var finalConvert = Expression.Convert(current, typeof(T));
+            var finalConvert = Expression.Convert(target, typeof(T));
             return Expression.Lambda<Func<object, T>>(finalConvert, param).Compile();
         }
 
-        private static Action<object, T> CreateSetter<T>(Type type, string propertyPath)
+        private static Action<object, T> CreateSetter<T>(Type type, string memberName)
         {
             var param = Expression.Parameter(typeof(object), "obj");
             var valueParam = Expression.Parameter(typeof(T), "value");
             var current = Expression.Convert(param, type);
 
-            var members = PathCache.GetOrAdd(propertyPath, path => path.Split('.'));
-            var expressionCache = new List<Expression>(members.Length);
+            var target = ProcessMemberAccess(current, memberName, ref type);
 
-
-            if (members.Length == 1 && !members[0].Contains("["))
+            if (!typeof(T).IsAssignableFrom(type))
             {
-                string memberName = members[0];
-                var property = type.GetProperty(memberName);
-                if (property != null)
-                {
-                    if (!typeof(T).IsAssignableFrom(property.PropertyType))
-                    {
-                        throw new InvalidCastException($"Type mismatch: expected {typeof(T).Name}, actual {property.PropertyType.Name}");
-                    }
-
-                    var propertyExpr = Expression.Property(current, property);
-                    var assignExpr = Expression.Assign(propertyExpr, Expression.Convert(valueParam, property.PropertyType));
-                    return Expression.Lambda<Action<object, T>>(assignExpr, param, valueParam).Compile();
-                }
-
-                var field = type.GetField(memberName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                if (field != null)
-                {
-                    if (!typeof(T).IsAssignableFrom(field.FieldType))
-                    {
-                        throw new InvalidCastException($"Type mismatch: expected {typeof(T).Name}, actual {field.FieldType.Name}");
-                    }
-                    
-                    var fieldExpr = Expression.Field(current, field);
-                    var assignExpr = Expression.Assign(fieldExpr, Expression.Convert(valueParam, field.FieldType));
-                    return Expression.Lambda<Action<object, T>>(assignExpr, param, valueParam).Compile();
-                }
+                throw new InvalidCastException($"Type mismatch: expected {typeof(T).Name}, actual {type.Name}");
             }
 
-            for (int i = 0; i < members.Length - 1; i++)
-            {
-                var memberName = members[i];
-
-                if (memberName.EndsWith("]"))
-                {
-                    var indexStart = memberName.IndexOf('[');
-                    var indexEnd = memberName.IndexOf(']');
-                    var arrayName = memberName.Substring(0, indexStart);
-                    var index = int.Parse(memberName.Substring(indexStart + 1, indexEnd - indexStart - 1));
-
-                    var arrayProperty = type.GetProperty(arrayName);
-                    if (arrayProperty != null)
-                    {
-                        current = Expression.Convert(Expression.Property(current, arrayProperty), arrayProperty.PropertyType);
-                        type = arrayProperty.PropertyType;
-                    }
-                    else
-                    {
-                        var arrayField = type.GetField(arrayName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                            ?? throw new ArgumentException($"Member {arrayName} not found on type {type.Name}");
-                        current = Expression.Convert(Expression.Field(current, arrayField), arrayField.FieldType);
-                        type = arrayField.FieldType;
-                    }
-
-                    var indexer = type.GetProperty("Item")
-                        ?? throw new ArgumentException($"Type {type.Name} does not have an indexer");
-                    current = Expression.Convert(Expression.MakeIndex(current, indexer, new[] { Expression.Constant(index) }), indexer.PropertyType);
-                    type = indexer.PropertyType;
-                }
-                else
-                {
-                    var property = type.GetProperty(memberName);
-                    if (property != null)
-                    {
-                        current = Expression.Convert(Expression.Property(current, property), property.PropertyType);
-                        type = property.PropertyType;
-                    }
-                    else
-                    {
-                        var field = type.GetField(memberName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                            ?? throw new ArgumentException($"Member {memberName} not found on type {type.Name}");
-                        current = Expression.Convert(Expression.Field(current, field), field.FieldType);
-                        type = field.FieldType;
-                    }
-                }
-                expressionCache.Add(current);
-            }
-
-            var lastMemberName = members[^1];
-            var lastProperty = type.GetProperty(lastMemberName);
-            if (lastProperty != null)
-            {
-                if (!typeof(T).IsAssignableFrom(lastProperty.PropertyType))
-                {
-                    throw new InvalidCastException($"Type mismatch: expected {typeof(T).Name}, actual {lastProperty.PropertyType.Name}");
-                }
-
-                var propertyExpr = Expression.Property(current, lastProperty);
-                var assignExpr = Expression.Assign(propertyExpr, Expression.Convert(valueParam, lastProperty.PropertyType));
-                return Expression.Lambda<Action<object, T>>(assignExpr, param, valueParam).Compile();
-            }
-            else
-            {
-                var lastField = type.GetField(lastMemberName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                    ?? throw new ArgumentException($"Member {lastMemberName} not found on type {type.Name}");
-                if (!typeof(T).IsAssignableFrom(lastField.FieldType))
-                {
-                    throw new InvalidCastException($"Type mismatch: expected {typeof(T).Name}, actual {lastField.FieldType.Name}");
-                }
-
-                var fieldExpr = Expression.Field(current, lastField);
-                var assignExpr = Expression.Assign(fieldExpr, Expression.Convert(valueParam, lastField.FieldType));
-                return Expression.Lambda<Action<object, T>>(assignExpr, param, valueParam).Compile();
-            }
+            var assignExpr = Expression.Assign(target, Expression.Convert(valueParam, type));
+            return Expression.Lambda<Action<object, T>>(assignExpr, param, valueParam).Compile();
         }
+
         public static string PopPath(string path)
         {
             if (string.IsNullOrEmpty(path)) { return path; }
-            //path.ThrowIfNullOrEmpty(nameof(path));
             int lastDotIndex = path.LastIndexOf('.');
             int lastBracketIndex = path.LastIndexOf('[');
 
@@ -347,6 +143,55 @@ namespace TreeNode.Runtime
             return path[..Math.Max(lastDotIndex, lastBracketIndex)];
         }
 
+        private static Expression ProcessMemberAccess(Expression current, string memberName, ref Type type)
+        {
+            if (memberName.EndsWith("]"))
+            {
+                var indexStart = memberName.IndexOf('[');
+                var indexEnd = memberName.IndexOf(']');
+                var arrayName = memberName[..indexStart];
+                var index = int.Parse(memberName.Substring(indexStart + 1, indexEnd - indexStart - 1));
 
+                if (!string.IsNullOrEmpty(arrayName))
+                {
+                    var arrayProperty = type.GetProperty(arrayName);
+                    if (arrayProperty != null)
+                    {
+                        current = Expression.Property(current, arrayProperty);
+                        type = arrayProperty.PropertyType;
+                    }
+                    else
+                    {
+                        var arrayField = type.GetField(arrayName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                            ?? throw new ArgumentException($"Member {arrayName} not found on type {type.Name}");
+                        current = Expression.Field(current, arrayField);
+                        type = arrayField.FieldType;
+                    }
+                }
+
+                var indexer = type.GetProperty("Item")
+                    ?? throw new ArgumentException($"Type {type.Name} does not have an indexer");
+                current = Expression.MakeIndex(current, indexer, new[] { Expression.Constant(index) });
+                type = indexer.PropertyType;
+            }
+            else
+            {
+                var property = type.GetProperty(memberName);
+                if (property != null)
+                {
+                    current = Expression.Property(current, property);
+                    type = property.PropertyType;
+                }
+                else
+                {
+                    var field = type.GetField(memberName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                        ?? throw new ArgumentException($"Member {memberName} not found on type {type.Name}");
+                    current = Expression.Field(current, field);
+                    type = field.FieldType;
+                }
+            }
+
+            return current;
+        }
     }
 }

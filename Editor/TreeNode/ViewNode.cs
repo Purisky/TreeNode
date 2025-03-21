@@ -204,11 +204,16 @@ namespace TreeNode.Editor
                 return $"[{index}]";
             }
             ChildPort childPort = ParentPort.connections.First().ChildPort();
+
             PropertyElement element = childPort.GetFirstAncestorOfType<PropertyElement>();
             string path = element.LocalPath;
             if (childPort is NumPort)
             {
                 path = $"{path}.Node";
+            }
+            else if (childPort is MultiPort)
+            {
+                path = $"{path}[{ParentPort.Index}]";
             }
             return $"{parentNode.GetNodePath()}.{path}";
         }

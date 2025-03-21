@@ -88,24 +88,21 @@ namespace TreeNode.Editor
                     tree.Add(entry);
                 }
             }
-            if (Graph is not NodePrefabGraphView)
+            return tree;
+            if (Graph is not NodePrefabGraphView)//todo not ready
             {
-                tree.Add(new SearchTreeGroupEntry(new GUIContent("NodePrefab"), 0));
+                tree.Add(new SearchTreeGroupEntry(new GUIContent("NodePrefab"), 1));
                 foreach (var item in NodePrefabManager.Previews)
                 {
-                    tree.Add(new SearchTreeEntry(new GUIContent(item.Value.Name))
+                    Debug.Log(item.Value.Name);
+                    tree.Add(new SearchTreeEntry(new GUIContent($"{item.Value.Name}"))
                     {
-                        level = 1,
+                        level = 2,
                         userData = item.Value
                     });
                 }
             }
-
-
-
             return tree;
-
-
         }
 
         public bool OnSelectEntry(SearchTreeEntry SearchTreeEntry, SearchWindowContext context)

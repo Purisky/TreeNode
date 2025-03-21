@@ -1,3 +1,4 @@
+using System;
 using TreeNode.Runtime;
 using Unity.Properties;
 using UnityEngine.UIElements;
@@ -25,10 +26,15 @@ namespace TreeNode.Editor
             ChildPorts = new();
             for (int i = 0; i < ppData.Fields.Count; i++)
             {
-                BaseDrawer baseDrawer = DrawerManager.Get(ppData.Fields[i].Type);
-                string path = $"PrefabData._{ppData.Fields[i].ID}";
+                Type type = ppData.Fields[i].Type;
+                BaseDrawer baseDrawer = DrawerManager.Get(type);
+                if (baseDrawer == null&& (type == typeof(NumValue) || type.Inherited(typeof(NumValue))))
+                {
+                    baseDrawer = DrawerManager.Get(typeof(NumValue));
+                }
                 if (baseDrawer != null)
                 {
+                    string path = $"PrefabData._{ppData.Fields[i].ID}";
                     //MemberInfo memberInfo = new MemberInfo()
                     MemberMeta meta = new()
                     {

@@ -27,19 +27,10 @@ namespace TreeNode.Runtime
                 return null;
             }
         }
-        //public T GetValue<T>(in PropertyPath path)
-        //{
-        //    return PropertyContainer.GetValue<List<JsonNode>, T>(Nodes, path.ToString());
-        //}
         public T GetValue<T>(string path)
         {
            return PropertyAccessor.GetValue< T>(Nodes, path);
-            //int index = int.Parse(path[1..path.IndexOf(']')]);
-            //JsonNode node = Nodes[index];
-            //return PropertyContainer.GetValue<JsonNode,T>(node, path[(path.IndexOf(']') + 2)..]);
         }
-
-        public JsonNode this[int index] => Nodes[index];
 
 
 

@@ -219,6 +219,10 @@ namespace TreeNode.Editor
                         MemberInfo member = PortMembers[i];
 
                         string propertyPath = string.IsNullOrEmpty(path)? member.Name: $"{path}.{member.Name}";
+
+
+
+
                         MemberMeta meta = new(member, propertyPath);
                         if (meta.Type== typeof(NumValue)||meta.Type.Inherited(typeof(NumValue)))
                         {
@@ -251,6 +255,10 @@ namespace TreeNode.Editor
                             lineVE.Add(propertyElement);
                             node.ChildPorts.Add(port);
                         }
+
+
+
+
                     }
                     for (int j = Members.Count - 1; j >= 0; j--)
                     {

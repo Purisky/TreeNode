@@ -81,9 +81,9 @@ namespace TreeNode.Editor
             ID = System.IO.Path.GetFileNameWithoutExtension(Path);
             Name = asset.Name;
             Width = asset.Width;
-
-            NodeInfoAttribute nodeInfo = asset.RootNode.GetType().GetCustomAttribute<NodeInfoAttribute>();
-            OutputType = nodeInfo.Type;
+            Debug.Log(Width);
+            //NodeInfoAttribute nodeInfo = asset.RootNode.GetType().GetCustomAttribute<NodeInfoAttribute>();
+            OutputType = asset.RootNode.GetType();
             Fields = new();
             for (int i = 0; i < asset.Properties.Count; i++)
             {
@@ -131,12 +131,12 @@ namespace TreeNode.Editor
 
         public JsonNode CreateNode()
         {
+            Debug.Log(OutputType);
             JsonNode node = Activator.CreateInstance(OutputType) as JsonNode;
             node.PrefabData = Activator.CreateInstance(ByName(ID)) as PrefabData;
             for (int i = 0; i < Fields.Count; i++)
             {
-                PropertyPath path = new($"_{Fields[i].ID}");
-                PropertyContainer.SetValue(node.PrefabData, in path, Fields[i].DeepClone());
+                PropertyAccessor.SetValue(node.PrefabData, $"_{Fields[i].ID}", Fields[i].DeepClone());
             }
 
 

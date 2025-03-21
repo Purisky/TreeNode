@@ -4,6 +4,7 @@ using System.Linq;
 using TreeNode.Runtime;
 using TreeNode.Utility;
 using UnityEditor.Experimental.GraphView;
+using UnityEngine;
 using UnityEngine.UIElements;
 
 namespace TreeNode.Editor
@@ -124,7 +125,8 @@ namespace TreeNode.Editor
             for (int i = 0; i < NodePrefabInfo.Properties.Count; i++)
             {
                 NodePrefabInfoProperty property = NodePrefabInfo.Properties[i];
-                AssetData.Width = Math.Max(AssetData.Width, (int)property.PropertyElement.style.width.value.value);
+                Debug.Log(property.PropertyElement.layout.width);
+                AssetData.Width = Math.Max(AssetData.Width, (int)property.PropertyElement.layout.width);
             }
             PrefabPreviewData prefabPreviewData = new(Window.Path, AssetData);
             NodePrefabManager.Previews[Window.Path] = prefabPreviewData;

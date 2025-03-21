@@ -95,6 +95,11 @@ namespace TreeNode.Editor
                     EditNodeScript(viewNode.Data.GetType());
                 });
                 evt.menu.AppendSeparator();
+                evt.menu.AppendAction("Print Path", delegate
+                {
+                    Debug.Log(viewNode.GetNodePath());
+                });
+                evt.menu.AppendSeparator();
             }
             if (evt.target is GraphView || evt.target is Node || evt.target is Group || evt.target is Edge)
             {
