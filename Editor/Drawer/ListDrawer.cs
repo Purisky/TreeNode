@@ -15,15 +15,15 @@ namespace TreeNode.Editor
     public class ListDrawer : BaseDrawer
     {
         public override Type DrawType => typeof(List<>);
-        public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, PropertyPath path, Action action)
+        public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, string path, Action action)
         {
             ShowInNodeAttribute showInNode = memberMeta.ShowInNode;
             LabelInfoAttribute labelInfo = memberMeta.LabelInfo;
             ListView listView = NewListView(labelInfo);
-            listView.dataSourcePath = path;
+            listView.dataSourcePath =new( path);
             Button addBtn = NewAddBtn();
             listView.Q<TextField>("unity-list-view__size-field").Add(addBtn);
-            IList list = node.Data.GetValue<IList>(in path);
+            IList list = node.Data.GetValue<IList>(path);
             listView.viewController.itemsSource = list;
             listView.bindItem = (element, i) =>
             {
@@ -33,14 +33,14 @@ namespace TreeNode.Editor
             };
             Type gType = memberMeta.Type.GetGenericArguments()[0];
             bool dirty = memberMeta.Json;
-            object parent = node.Data.GetParent(in path);
+            object parent = node.Data.GetParent( path);
             action = memberMeta.OnChangeMethod.GetOnChangeAction(parent) + action;
             addBtn.clicked += () =>
             {
                 if (listView.viewController.itemsSource is null)
                 {
                     IList list = (IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(gType));
-                    node.Data.SetValue(in path, list);
+                    node.Data.SetValue(path, list);
                     listView.viewController.itemsSource = list;
                 }
                 if (gType.GetConstructor(Type.EmptyTypes) == null)
@@ -137,7 +137,7 @@ namespace TreeNode.Editor
         public IntegerField IndexField;
         public PropertyElement Value;
         public ViewNode ViewNode;
-        public PropertyPath Path;
+        public string Path;
         public MemberMeta Meta;
 
 
@@ -146,7 +146,7 @@ namespace TreeNode.Editor
         Action Action;
         public bool HasPort;
         public List<ChildPort> ChildPorts;
-        public ListItem(MemberMeta meta, ViewNode node, BaseDrawer baseDrawer, PropertyPath path, bool dirty, Action action)
+        public ListItem(MemberMeta meta, ViewNode node, BaseDrawer baseDrawer, string path, bool dirty, Action action)
         {
             Action = action;
             Meta = meta;
@@ -246,7 +246,8 @@ namespace TreeNode.Editor
         {
             IndexLabel.text = index.ToString();
             IndexField.value = index;
-            PropertyPath propertyPath = PropertyPath.AppendIndex(Path, index);
+
+            string propertyPath =$"{Path}[{index}]";
 
 
             if (Value == null)

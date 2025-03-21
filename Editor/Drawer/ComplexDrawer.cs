@@ -100,12 +100,15 @@ namespace TreeNode.Editor
 
 
         }
-        public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, PropertyPath path, Action action)
+        public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, string path, Action action)
         {
             PropertyElement propertyElement = new(memberMeta, node, path, this);
-            
-            object parent = node.Data.GetParent(path);
-            action = memberMeta.OnChangeMethod.GetOnChangeAction(parent) + action;
+
+            if (!string.IsNullOrEmpty(path))
+            {
+                object parent = node.Data.GetParent(path);
+                action = memberMeta.OnChangeMethod.GetOnChangeAction(parent) + action;
+            }
             Label label = CreateLabel(memberMeta.LabelInfo);
             label.style.marginLeft = 4;
             label.style.width = 70;
@@ -120,7 +123,7 @@ namespace TreeNode.Editor
             propertyElement.Add(content);
             if (TitlePortMember != null)
             {
-                PropertyPath propertyPath = PropertyPath.AppendName(path, TitlePortMember.Name);
+                string propertyPath = $"{path}{TitlePortMember.Name}";
                 MemberMeta meta = new(TitlePortMember, propertyPath);
                 meta.LabelInfo.Hide = true;
                 bool multi = TitlePortMember.GetValueType().Inherited(typeof(IList));
@@ -170,7 +173,7 @@ namespace TreeNode.Editor
                 }
             }
 
-            public ShowIfElement Draw(ViewNode node, PropertyPath path, Action action)
+            public ShowIfElement Draw(ViewNode node, string path, Action action)
             {
                 ShowIfElement groupVE = new()
                 {
@@ -214,7 +217,8 @@ namespace TreeNode.Editor
                     if (PortMembers.Count > i)
                     {
                         MemberInfo member = PortMembers[i];
-                        PropertyPath propertyPath = PropertyPath.AppendName(path, member.Name);
+
+                        string propertyPath = string.IsNullOrEmpty(path)? member.Name: $"{path}.{member.Name}";
                         MemberMeta meta = new(member, propertyPath);
                         if (meta.Type== typeof(NumValue)||meta.Type.Inherited(typeof(NumValue)))
                         {
@@ -255,10 +259,8 @@ namespace TreeNode.Editor
                             Debug.LogError($"this value type drawer not exist [{Members[j].GetValueType()}]");
                             continue;
                         }
-                        PropertyPath propertyPath = PropertyPath.AppendName(path, Members[j].Name);
+                        string propertyPath = string.IsNullOrEmpty(path) ? Members[j].Name : $"{path}.{Members[j].Name}";
                         MemberMeta meta = new(Members[j], propertyPath);
-
-
                         PropertyElement propertyElement = baseDrawer.Create(meta, node, propertyPath, action);
                         GroupAttribute groupAttribute = Members[j].GetCustomAttribute<GroupAttribute>();
                         if (groupAttribute != null)

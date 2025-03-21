@@ -6,13 +6,14 @@ using Unity.Properties;
 using UnityEngine.UIElements;
 using UnityEngine;
 using TreeNode.Utility;
+using UnityEngine.Experimental.GlobalIllumination;
 
 namespace TreeNode.Editor
 {
     public class PropertyElement : ShowIfElement
     {
         public ViewNode ViewNode;
-        public PropertyPath LocalPath;
+        public string LocalPath;
         public MemberMeta MemberMeta;
 
         public BaseDrawer Drawer;
@@ -21,7 +22,7 @@ namespace TreeNode.Editor
         public NodePrefabAsset NodePrefabAsset => GraphView.AssetData;
         public NodePrefabGraphView GraphView;
         static readonly StyleSheet StyleSheet = ResourcesUtil.LoadStyleSheet("PropertyElement");
-        public PropertyElement(MemberMeta memberMeta, ViewNode viewNode, PropertyPath path, BaseDrawer drawer, VisualElement visualElement = null)
+        public PropertyElement(MemberMeta memberMeta, ViewNode viewNode, string path, BaseDrawer drawer, VisualElement visualElement = null)
         {
             MemberMeta = memberMeta;
             ViewNode = viewNode;
@@ -60,7 +61,6 @@ namespace TreeNode.Editor
             }
             RegisterPrefab();
         }
-
 
 
         public void RegisterPrefab()
@@ -177,7 +177,7 @@ namespace TreeNode.Editor
 
 
 
-        public PropertyPath GetGlobalPath() => PropertyPath.Combine(ViewNode.GetNodePath(), LocalPath);
+        public string GetGlobalPath() => $"{ViewNode.GetNodePath()}.{LocalPath}";
 
         void OnMouseEnter(MouseOverEvent evt)
         {
@@ -223,7 +223,7 @@ namespace TreeNode.Editor
 
     public struct MemberMeta
     {
-        public PropertyPath Path;
+        public string Path;
         public Type DeclaringType;
         public Type Type;
         public LabelInfoAttribute LabelInfo;
@@ -233,7 +233,7 @@ namespace TreeNode.Editor
         public MethodInfo OnChangeMethod;
         public string DropdownKey;
 
-        public MemberMeta(MemberInfo member, PropertyPath path)
+        public MemberMeta(MemberInfo member, string path)
         {
             Type = member.GetValueType();
             DeclaringType = member.DeclaringType;

@@ -16,7 +16,7 @@ namespace TreeNode.Editor
     public class DropdownDrawer<T> : BaseDrawer
     {
         public override Type DrawType => typeof(DropdownList<T>);
-        public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, PropertyPath path, Action action)
+        public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, string path, Action action)
         {
             DropdownElement<T> dropdownElement;
             if (memberMeta.Dropdown.Flat)
@@ -38,6 +38,7 @@ namespace TreeNode.Editor
         public TextElement TextElement;
         protected VisualElement ArrowElement;
         public MemberMeta Meta;
+        public string Path;
         public object Data;
         protected bool Dirty;
         protected Action OnChange;
@@ -62,12 +63,12 @@ namespace TreeNode.Editor
             style.flexGrow = 1;
             Add(visualInput);
         }
-        public virtual void Init(MemberMeta meta,ViewNode node, PropertyPath path, Action action)
+        public virtual void Init(MemberMeta meta,ViewNode node, string path, Action action)
         {
             Meta = meta;
-            dataSourcePath = path;
+            Path =path;
             Node = node;
-            Data = Node.Data.GetParent(in path);
+            Data = Node.Data.GetParent(path);
             ShowInNodeAttribute showInNodeAttribute = Meta.ShowInNode;
             LabelInfoAttribute labelInfo = Meta.LabelInfo;
             if (Meta.Type == typeof(List<T>)) { labelInfo.Hide = true; }
@@ -77,7 +78,7 @@ namespace TreeNode.Editor
             Dirty = meta.Json;
             OnChange = Meta.OnChangeMethod.GetOnChangeAction(Data) + action;
             SetEnabled(!showInNodeAttribute.ReadOnly);
-            T TValue = Node.Data.GetValue<T>(in path);
+            T TValue = Node.Data.GetValue<T>( path.ToString());
             SetValueWithoutNotify(TValue);
             TextElement.text = GetValueText(GetList(), TValue);
             SetCallbacks();
@@ -191,7 +192,7 @@ namespace TreeNode.Editor
                 DropdownItem<T> item = items[i];
                 dropMenu.Add(item, () =>
                 {
-                    Node.Data.SetValue(dataSourcePath, item.Value);
+                    Node.Data.SetValue(Path, item.Value);
                     SetValueWithoutNotify(item.Value);
                     TextElement.text = item.FullText;
                     if (Dirty)
@@ -472,7 +473,7 @@ namespace TreeNode.Editor
     {
         public T Nothing;
         public T Everything;
-        public override void Init(MemberMeta meta, ViewNode node, PropertyPath path, Action action)
+        public override void Init(MemberMeta meta, ViewNode node, string path, Action action)
         {
             base.Init(meta, node, path, action);
             Type underlyingType = Enum.GetUnderlyingType(typeof(T));
@@ -593,7 +594,7 @@ namespace TreeNode.Editor
             DropMenu dropMenu = new(this);
             dropMenu.Add(new DropdownItem<T>(I18n.EnumNothing, Nothing), () =>
             {
-                Node.Data.SetValue(dataSourcePath, Nothing);
+                Node.Data.SetValue(Path, Nothing);
                 SetValueWithoutNotify(Nothing);
                 TextElement.text = I18n.EnumNothing;
                 if (Dirty)
@@ -608,7 +609,7 @@ namespace TreeNode.Editor
                 DropdownItem<T> item = items[i];
                 dropMenu.Add(item, () =>
                 {
-                    T value = Node.Data.GetValue<T>(dataSourcePath);
+                    T value = Node.Data.GetValue<T>(Path);
                     if (value.HasFlag(item.Value))
                     {
                         value = BitwiseAndNot(Enum.GetUnderlyingType(typeof(T)), value, item.Value);
@@ -617,7 +618,7 @@ namespace TreeNode.Editor
                     {
                         value = BitwiseOr(Enum.GetUnderlyingType(typeof(T)), value, item.Value);
                     }
-                    Node.Data.SetValue(dataSourcePath, value);
+                    Node.Data.SetValue(Path, value);
                     SetValueWithoutNotify(value);
                     TextElement.text = GetValueText(GetList(), value);
                     if (Dirty)
@@ -630,7 +631,7 @@ namespace TreeNode.Editor
             }
             dropMenu.Add(new DropdownItem<T>(I18n.EnumEverything, Everything), () =>
             {
-                Node.Data.SetValue(dataSourcePath, Everything);
+                Node.Data.SetValue(Path, Everything);
                 SetValueWithoutNotify(Everything);
                 TextElement.text = I18n.EnumEverything;
                 if (Dirty)
@@ -752,7 +753,7 @@ namespace TreeNode.Editor
                 DropdownItem<T> item = items[i];
                 dropMenu.Add(item, () =>
                 {
-                    Node.Data.SetValue(dataSourcePath, item.Value);
+                    Node.Data.SetValue(Path, item.Value);
                     SetValueWithoutNotify(item.Value);
                     TextElement.text = item.FullText;
                     if (Dirty)
@@ -864,7 +865,7 @@ namespace TreeNode.Editor
                 DropdownItem<T> item = items[i];
                 dropMenu.Add(item, () =>
                 {
-                    Node.Data.SetValue(dataSourcePath, item.Value);
+                    Node.Data.SetValue(Path, item.Value);
                     SetValueWithoutNotify(item.Value);
                     TextElement.text = item.FullText;
                     if (Dirty)
@@ -900,7 +901,7 @@ namespace TreeNode.Editor
     public class EnumDrawer<T> : BaseDrawer where T : Enum
     {
         public override Type DrawType => typeof(T);
-        public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, PropertyPath path, Action action)
+        public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, string path, Action action)
         {
             DropdownElement<T> dropdownElement;
             if (memberMeta.Type.GetCustomAttribute<FlagsAttribute>() != null)
@@ -916,7 +917,7 @@ namespace TreeNode.Editor
                 dropdownElement = new TreeDropDownElement<T>();
             }
             dropdownElement.Init(memberMeta, node, path, action);
-            return new PropertyElement(memberMeta, node, path, this, dropdownElement);
+            return new PropertyElement(memberMeta, node, path.ToString(), this, dropdownElement);
         }
     }
 

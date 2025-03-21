@@ -26,7 +26,7 @@ namespace TreeNode.Editor
             for (int i = 0; i < ppData.Fields.Count; i++)
             {
                 BaseDrawer baseDrawer = DrawerManager.Get(ppData.Fields[i].Type);
-                PropertyPath path = new($"PrefabData._{ppData.Fields[i].ID}");
+                string path = $"PrefabData._{ppData.Fields[i].ID}";
                 if (baseDrawer != null)
                 {
                     //MemberInfo memberInfo = new MemberInfo()

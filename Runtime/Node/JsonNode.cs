@@ -1,4 +1,5 @@
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using TreeNode.Utility;
@@ -15,44 +16,25 @@ namespace TreeNode.Runtime
         public Vec2 Position;
         [JsonProperty]
         public PrefabData PrefabData;
-        public virtual T GetValue<T>(in PropertyPath path)
-        {
+        public virtual T GetValue<T>(string path)=> PropertyAccessor.GetValue<T>(this, path);
+        //public virtual T GetValue<T>(in PropertyPath path) => PropertyAccessor.GetValue<T>(this, path.ToString());
+        public virtual void SetValue<T>(string path, T value) => PropertyAccessor.SetValue<T>(this, path, value);
+        //public virtual void SetValue<T>(in PropertyPath path, T value) => PropertyAccessor.SetValue<T>(this, path.ToString(), value);
 
-            if (PropertyContainer.TryGetValue(this, in path, out T Value))
-            {
-                return Value;
-            }
-            object parent = GetParent(in path);
-            return (T)parent.GetType().GetMember(path[^1].Name)[0].GetValue(parent);
-        }
-        public virtual void SetValue<T>(in PropertyPath path, T value)
+        public object GetParent(string path)
         {
-            try
-            {
-                PropertyContainer.SetValue(this, in path, value);
-            }
-            catch
-            {
-                //Debug.Log(e);
-                object parent = GetParent(in path);
-                parent.GetType().GetMember(path[^1].Name)[0].SetValue(parent, value);
-                //Debug.Log(parent);
-            }
-        }
-        public virtual void SetValueInternal<T>(in PropertyPath path, T value)
-        {
-            PropertyContainer.SetValue(this, in path, value);
-        }
-        public object GetParent(in PropertyPath path)
-        {
-            if (path.Length <=1)
-            {
+            string parentPath = PropertyAccessor.PopPath(path);
+            if (parentPath == null)
+            { 
                 return this;
             }
-            PropertyPath propertyPath = PropertyPath.Pop(path);
-            return GetValue<object>(in propertyPath);
-
+            return GetValue<object>(parentPath);
         }
+        //public object GetParent(in PropertyPath path)
+        //{
+        //    string parentPath = PropertyAccessor.PopPath(path.ToString());
+        //    return GetValue<object>(parentPath);
+        //}
     }
 
 

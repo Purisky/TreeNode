@@ -73,21 +73,21 @@ namespace TreeNode.Editor
             SetNumState(connected);
         }
 
-        public void InitNumValue(PropertyPath path)
+        public void InitNumValue(string path)
         {
-            NumValue = node.Data.GetValue<NumValue>(in path);
+            NumValue = node.Data.GetValue<NumValue>(path);
             //Debug.Log($"{path}  :  {Json.ToJson(NumValue)}");
             if (NumValue == null)
             {
                 NumValue = Activator.CreateInstance(Meta.Type) as NumValue;
-                node.Data.SetValue(in path, NumValue);
+                node.Data.SetValue(path, NumValue);
             }
             FloatField.SetValueWithoutNotify(NumValue.Value);
             TryPopUpText();
         }
-        public void SetOnChange(PropertyPath path, Action action)
+        public void SetOnChange(string path, Action action)
         {
-            object parent = node.Data.GetParent(in path);
+            object parent = node.Data.GetParent(path);
             OnChange = Meta.OnChangeMethod.GetOnChangeAction(parent) + action;
             FloatField.RegisterValueChangedCallback(evt =>
             {

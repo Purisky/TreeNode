@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using TreeNode.Runtime;
 using TreeNode.Utility;
+using Unity.Properties;
 using UnityEditor;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine;
@@ -381,6 +382,17 @@ namespace TreeNode.Editor
             Asset.Data.Nodes = Asset.Data.Nodes.Distinct().ToList();
             File.WriteAllText(Window.Path, Json.ToJson(Asset));
         }
+
+        //public ChildPort GetPort(PropertyPath path)
+        //{
+
+
+        //}
+        //public JsonNode GetLastNode(PropertyPath path)
+        //{
+
+
+        //}
     }
 
 }

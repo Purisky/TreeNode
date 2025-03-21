@@ -23,6 +23,7 @@ namespace TreeNode.Editor
         public {property.Type} _{property.ID};";
             }
             string code = $@"using Newtonsoft.Json;
+using TreeNode.Utility;
 namespace TreeNode.Runtime.Gen
 {{
     public class {name} : PrefabData
@@ -31,6 +32,7 @@ namespace TreeNode.Runtime.Gen
         [JsonIgnore]public override string Name => ""{asset.Name}"";{fieldsText}
     }}
 }}";
+            Directory.CreateDirectory($"{Application.dataPath}/{RootPath}");
             File.WriteAllText(path, code);
             CompilationPipeline.RequestScriptCompilation();
         }

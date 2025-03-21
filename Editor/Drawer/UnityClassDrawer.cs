@@ -43,27 +43,27 @@ namespace TreeNode.Editor
         //    field.SetEnabled(!showInNode.ReadOnly);
         //    return new PropertyElement(memberInfo, node, path, this, field);
         //}
-        public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, PropertyPath path, Action action)
+        public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, string path, Action action)
         {
             ShowInNodeAttribute showInNode = memberMeta.ShowInNode;
             LabelInfoAttribute labelInfo = memberMeta.LabelInfo;
             T field = new()
             {
                 name = labelInfo.Text,
-                dataSourcePath = path
+                dataSourcePath = new(path)
             };
             field.style.flexGrow = 1;
             field.style.height = 20;
             field.Insert(0, CreateLabel(labelInfo));
 
-            Tv value = node.Data.GetValue<Tv>(in path);
+            Tv value = node.Data.GetValue<Tv>(path);
             field.SetValueWithoutNotify(value);
             object parent = node.Data.GetParent(path);
             action = memberMeta.OnChangeMethod.GetOnChangeAction(parent) + action;
             bool dirty = memberMeta.Json;
             field.RegisterValueChangedCallback(evt =>
             {
-                node.Data.SetValue(in path, evt.newValue);
+                node.Data.SetValue( path, evt.newValue);
                 if (dirty)
                 {
                     field.SetDirty();

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq.Expressions;
 using System.Reflection;
 using TreeNode.Utility;
+using UnityEngine;
 
 namespace TreeNode.Runtime
 {
@@ -33,7 +34,6 @@ namespace TreeNode.Runtime
 
         private static readonly ConcurrentDictionary<AccessorKey, object> GetterCache = new();
         private static readonly ConcurrentDictionary<AccessorKey, object> SetterCache = new();
-        private static readonly ConcurrentDictionary<Type, Delegate> TemplateCache = new();
         private static readonly ConcurrentDictionary<string, string[]> PathCache = new();
         private static int cacheUsageCount = 0;
         private const int CacheUsageThreshold = 1000;
@@ -42,7 +42,6 @@ namespace TreeNode.Runtime
         {
             GetterCache.Clear();
             SetterCache.Clear();
-            TemplateCache.Clear();
             PathCache.Clear();
             cacheUsageCount = 0;
         }
@@ -52,16 +51,37 @@ namespace TreeNode.Runtime
             obj.ThrowIfNull(nameof(obj));
             path.ThrowIfNullOrEmpty(nameof(path));
 
-            var getter = GetOrCreateGetter<T>(obj.GetType(), path);
+            var currentObj = obj;
+            var members = PathCache.GetOrAdd(path, p => p.Split('.'));
+
+            foreach (var member in members[..^1])
+            {
+                var getter = GetOrCreateGetter<object>(currentObj.GetType(), member);
+                currentObj =  getter(currentObj);
+            }
+            var getter_ = GetOrCreateGetter<T>(currentObj.GetType(), members[^1]);
             IncrementCacheUsage();
-            return getter(obj);
+            return getter_(currentObj);
         }
 
         public static void SetValue<T>(object obj, string path, T value)
         {
             obj.ThrowIfNull(nameof(obj));
             path.ThrowIfNullOrEmpty(nameof(path));
-            var setter = GetOrCreateSetter<T>(obj.GetType(), path);
+
+
+
+
+            var currentObj = obj;
+            var members = PathCache.GetOrAdd(path, p => p.Split('.'));
+
+            foreach (var member in members[..^1])
+            {
+                var getter = GetOrCreateGetter<object>(currentObj.GetType(), member);
+                currentObj = getter(currentObj);
+            }
+            var setter = GetOrCreateSetter<T>(currentObj.GetType(), members[^1]);
+            //Debug.Log($"{currentObj.GetType()}({currentObj}).{members[^1]},{typeof(T)}");
             IncrementCacheUsage();
             setter(obj, value);
         }
@@ -77,25 +97,14 @@ namespace TreeNode.Runtime
 
         private static Func<object, T> GetOrCreateGetter<T>(Type type, string propertyPath)
         {
+            //Debug.Log($"{type.Name}=>{propertyPath}");
             var key = new AccessorKey(type, propertyPath.GetHashCode(), typeof(T));
             if (GetterCache.TryGetValue(key, out var cachedGetter))
             {
                 return (Func<object, T>)cachedGetter;
             }
-
-            if (TemplateCache.TryGetValue(type, out var template))
-            {
-                return (Func<object, T>)template;
-            }
-
             var getter = CreateGetter<T>(type, propertyPath);
             GetterCache[key] = getter;
-
-            if (propertyPath == string.Empty)
-            {
-                TemplateCache[type] = getter;
-            }
-
             return getter;
         }
 
@@ -121,6 +130,9 @@ namespace TreeNode.Runtime
 
             var param = Expression.Parameter(typeof(object), "obj");
             var current = Expression.Convert(param, type);
+
+
+
 
             var members = PathCache.GetOrAdd(propertyPath, path => path.Split('.'));
             var expressionCache = new List<Expression>(members.Length);
@@ -154,19 +166,23 @@ namespace TreeNode.Runtime
                     var arrayName = memberName[..indexStart];
                     var index = int.Parse(memberName.Substring(indexStart + 1, indexEnd - indexStart - 1));
 
-                    var arrayProperty = type.GetProperty(arrayName);
-                    if (arrayProperty != null)
+                    if (!string.IsNullOrEmpty(arrayName))
                     {
-                        current = Expression.Convert(Expression.Property(current, arrayProperty), arrayProperty.PropertyType);
-                        type = arrayProperty.PropertyType;
+                        var arrayProperty = type.GetProperty(arrayName);
+                        if (arrayProperty != null)
+                        {
+                            current = Expression.Convert(Expression.Property(current, arrayProperty), arrayProperty.PropertyType);
+                            type = arrayProperty.PropertyType;
+                        }
+                        else
+                        {
+                            var arrayField = type.GetField(arrayName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                                ?? throw new ArgumentException($"Member {arrayName}({memberName}) not found on type {type.Name}=>{propertyPath}");
+                            current = Expression.Convert(Expression.Field(current, arrayField), arrayField.FieldType);
+                            type = arrayField.FieldType;
+                        }
                     }
-                    else
-                    {
-                        var arrayField = type.GetField(arrayName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                            ?? throw new ArgumentException($"Member {arrayName} not found on type {type.Name}");
-                        current = Expression.Convert(Expression.Field(current, arrayField), arrayField.FieldType);
-                        type = arrayField.FieldType;
-                    }
+
 
                     var indexer = type.GetProperty("Item")
                         ?? throw new ArgumentException($"Type {type.Name} does not have an indexer");
@@ -184,7 +200,7 @@ namespace TreeNode.Runtime
                     else
                     {
                         var field = type.GetField(memberName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                            ?? throw new ArgumentException($"Member {memberName} not found on type {type.Name}");
+                            ?? throw new ArgumentException($"Member {memberName} not found on type {type.Name}=>{propertyPath}");
                         current = Expression.Convert(Expression.Field(current, field), field.FieldType);
                         type = field.FieldType;
                     }
@@ -192,7 +208,7 @@ namespace TreeNode.Runtime
                 expressionCache.Add(current);
             }
 
-            if (typeof(T) != typeof(object) && typeof(T) != type)
+            if (!typeof(T).IsAssignableFrom(type))
             {
                 throw new InvalidCastException($"Type mismatch: expected {typeof(T).Name}, actual {type.Name}");
             }
@@ -217,7 +233,7 @@ namespace TreeNode.Runtime
                 var property = type.GetProperty(memberName);
                 if (property != null)
                 {
-                    if (typeof(T) != property.PropertyType)
+                    if (!typeof(T).IsAssignableFrom(property.PropertyType))
                     {
                         throw new InvalidCastException($"Type mismatch: expected {typeof(T).Name}, actual {property.PropertyType.Name}");
                     }
@@ -230,11 +246,11 @@ namespace TreeNode.Runtime
                 var field = type.GetField(memberName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
                 if (field != null)
                 {
-                    if (typeof(T) != field.FieldType)
+                    if (!typeof(T).IsAssignableFrom(field.FieldType))
                     {
                         throw new InvalidCastException($"Type mismatch: expected {typeof(T).Name}, actual {field.FieldType.Name}");
                     }
-
+                    
                     var fieldExpr = Expression.Field(current, field);
                     var assignExpr = Expression.Assign(fieldExpr, Expression.Convert(valueParam, field.FieldType));
                     return Expression.Lambda<Action<object, T>>(assignExpr, param, valueParam).Compile();
@@ -294,7 +310,7 @@ namespace TreeNode.Runtime
             var lastProperty = type.GetProperty(lastMemberName);
             if (lastProperty != null)
             {
-                if (typeof(T) != lastProperty.PropertyType)
+                if (!typeof(T).IsAssignableFrom(lastProperty.PropertyType))
                 {
                     throw new InvalidCastException($"Type mismatch: expected {typeof(T).Name}, actual {lastProperty.PropertyType.Name}");
                 }
@@ -307,7 +323,7 @@ namespace TreeNode.Runtime
             {
                 var lastField = type.GetField(lastMemberName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
                     ?? throw new ArgumentException($"Member {lastMemberName} not found on type {type.Name}");
-                if (typeof(T) != lastField.FieldType)
+                if (!typeof(T).IsAssignableFrom(lastField.FieldType))
                 {
                     throw new InvalidCastException($"Type mismatch: expected {typeof(T).Name}, actual {lastField.FieldType.Name}");
                 }
@@ -317,5 +333,20 @@ namespace TreeNode.Runtime
                 return Expression.Lambda<Action<object, T>>(assignExpr, param, valueParam).Compile();
             }
         }
+        public static string PopPath(string path)
+        {
+            if (string.IsNullOrEmpty(path)) { return path; }
+            //path.ThrowIfNullOrEmpty(nameof(path));
+            int lastDotIndex = path.LastIndexOf('.');
+            int lastBracketIndex = path.LastIndexOf('[');
+
+            if (lastDotIndex == -1 && lastBracketIndex == -1)
+            {
+                return null;
+            }
+            return path[..Math.Max(lastDotIndex, lastBracketIndex)];
+        }
+
+
     }
 }

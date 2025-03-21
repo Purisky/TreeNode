@@ -141,7 +141,7 @@ namespace TreeNode.Editor
                     Type = Data.GetType(),
                     LabelInfo = new() { Text = Data.GetType().Name,Hide = true },
                 };
-                VisualElement visualElement = baseDrawer.Create(meta, this, new PropertyPath(),OnChange);
+                VisualElement visualElement = baseDrawer.Create(meta, this,null,OnChange);
                 Content.Add(visualElement);
             }
         }
@@ -195,22 +195,22 @@ namespace TreeNode.Editor
         }
 
 
-        public PropertyPath GetNodePath()
+        public string GetNodePath()
         {
             ViewNode parentNode = GetParent();
             if (parentNode == null)
             {
                 int index = View.Asset.Data.Nodes.IndexOf(Data);
-                return PropertyPath.FromIndex(index);
+                return $"[{index}]";
             }
             ChildPort childPort = ParentPort.connections.First().ChildPort();
             PropertyElement element = childPort.GetFirstAncestorOfType<PropertyElement>();
-            PropertyPath path = element.LocalPath;
+            string path = element.LocalPath;
             if (childPort is NumPort)
             {
-                path = PropertyPath.Combine(path, PropertyPath.FromName("Node"));
+                path = $"{path}.Node";
             }
-            return PropertyPath.Combine(parentNode.GetNodePath(), path);
+            return $"{parentNode.GetNodePath()}.{path}";
         }
 
         public int GetIndex()

@@ -9,7 +9,7 @@ namespace TreeNode.Editor
     public abstract class TextValueFieldDrawer<T, Tv> : BaseDrawer where T : TextInputBaseField<Tv>, new()
     {
         public override Type DrawType => typeof(Tv);
-        public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, PropertyPath path, Action action)
+        public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, string path, Action action)
         {
             ShowInNodeAttribute showInNode = memberMeta.ShowInNode;
             LabelInfoAttribute labelInfo = memberMeta.LabelInfo;
@@ -20,7 +20,7 @@ namespace TreeNode.Editor
             field.style.flexGrow = 1;
             field.style.height = 20;
             field.Insert(0, CreateLabel(labelInfo));
-            Tv value = node.Data.GetValue<Tv>(in path);
+            Tv value = node.Data.GetValue<Tv>(path);
 
             field.SetValueWithoutNotify(value);
             object parent = node.Data.GetParent(path);
@@ -28,7 +28,7 @@ namespace TreeNode.Editor
             bool dirty = memberMeta.Json;
             field.RegisterValueChangedCallback(evt =>
             {
-                node.Data.SetValue(in path, evt.newValue);
+                node.Data.SetValue(path, evt.newValue);
                 if (dirty)
                 {
                     field.SetDirty();
@@ -36,7 +36,7 @@ namespace TreeNode.Editor
                 action?.Invoke();
             });
             field.SetEnabled(!showInNode.ReadOnly);
-            return new(memberMeta, node, path, this, field);
+            return new(memberMeta, node, path.ToString(), this, field);
         }
     }
     public class FloatDrawer : TextValueFieldDrawer<FloatField, float> { }
@@ -45,20 +45,20 @@ namespace TreeNode.Editor
     public class BoolDrawer : BaseDrawer
     {
         public override Type DrawType => typeof(bool);
-        public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, PropertyPath path, Action action)
+        public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, string path, Action action)
         {
             ShowInNodeAttribute showInNode = memberMeta.ShowInNode;
             LabelInfoAttribute labelInfo = memberMeta.LabelInfo;
             Toggle Toggle = NewToggle(labelInfo);
             Toggle.SetEnabled(!showInNode.ReadOnly);
-            bool value = node.Data.GetValue<bool>(in path);
+            bool value = node.Data.GetValue<bool>(path);
             Toggle.SetValueWithoutNotify(value);
-            object parent = node.Data.GetParent(in path);
+            object parent = node.Data.GetParent(path);
             action = memberMeta.OnChangeMethod.GetOnChangeAction(parent) + action;
             bool dirty = memberMeta.Json;
             Toggle.RegisterValueChangedCallback(evt =>
             {
-                node.Data.SetValue(in path, evt.newValue);
+                node.Data.SetValue(path, evt.newValue);
                 if (dirty)
                 {
                     Toggle.SetDirty();

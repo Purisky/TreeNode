@@ -156,8 +156,8 @@ namespace TreeNode.Editor
         }
         public PropertyElement FindPropertyElement(PrefabProperty property)
         {
-            (PropertyPath node, PropertyPath local) = DividePath(property.Path);
-            JsonNode jsonNode = GraphView.AssetData.GetValue<JsonNode>(in node);
+            (string node, string local) = DividePath(property.Path);
+            JsonNode jsonNode = GraphView.AssetData.GetValue<JsonNode>(node);
             ViewNode viewNode = GraphView.NodeDic[jsonNode];
             List<PropertyElement> propertyElements = viewNode.Query<PropertyElement>().ToList();
             for (int i = 0; i < propertyElements.Count; i++)
@@ -169,30 +169,25 @@ namespace TreeNode.Editor
             }
             return null;
         }
-        public (PropertyPath node, PropertyPath local) DividePath(PropertyPath global)
+        public (string node, string local) DividePath(string global)
         {
-            JsonNode jsonNode = GraphView.AssetData.Nodes[global[0].Index];
-            PropertyPath node = PropertyPath.FromIndex(global[0].Index);
-            for (int i = 1; i < global.Length; i++)
+            int popCount = global.Split('.', '[').Length;
+            string node = global;
+            if (popCount <= 1)
+            { 
+                return (global, "");
+            }
+            for (int i = 0; i < popCount; i++)
             {
-                PropertyPath path = PropertyPath.SubPath(global, 1, i);
-                try
-                {
-                    object value = jsonNode.GetValue<object>(path);
-                    if (value is JsonNode)
-                    {
-                        node = PropertyPath.SubPath(global, 0, i + 1);
-                    }
-                }
-                catch (Exception)
-                {
-                    break;
+                node = PropertyAccessor.PopPath(node);
+                object value = GraphView.AssetData.GetValue<object>(node);
+                if (value is JsonNode)
+                { 
+                    return (node, global[(node.Length + 1)..]);
                 }
             }
-            PropertyPath local = PropertyPath.SubPath(global, node.Length);
-            return (node, local);
+            return (global, "");
         }
-
     }
 
 
@@ -260,13 +255,14 @@ namespace TreeNode.Editor
 
 
 
-        string GetPathName(PropertyPath path)
+        string GetPathName(string path)
         {
-            if (path[^1].IsIndex)
+            int index = path.LastIndexOf('.');
+            if (index < 0)
             {
-                return PropertyPath.SubPath(path, path.Length - 2).ToString();
+                return path;
             }
-            return PropertyPath.SubPath(path, path.Length - 1).ToString();
+            return path[(index + 1)..];
         }
         public bool UpdatePath()
         {
