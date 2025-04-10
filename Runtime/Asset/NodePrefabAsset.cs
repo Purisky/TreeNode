@@ -27,10 +27,7 @@ namespace TreeNode.Runtime
                 return null;
             }
         }
-        public T GetValue<T>(string path)
-        {
-           return PropertyAccessor.GetValue< T>(Nodes, path);
-        }
+
 
 
 

@@ -26,7 +26,7 @@ namespace TreeNode.Editor
             return x;
         }
 
-        private void FormatNodes()
+        public void FormatNodes()
         {
             if (ViewNodes.Count <= 1) return;
             maxWidthPerDepth = new int[256];

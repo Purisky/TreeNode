@@ -12,13 +12,17 @@ namespace TreeNode.Editor
 {
     public class ViewNode : Node
     {
-        public JsonNode Data;
+
         public TreeNodeGraphView View;
         public ParentPort ParentPort;
         public List<ChildPort> ChildPorts;
         public VisualElement Content;
 
         static readonly StyleSheet StyleSheet = ResourcesUtil.LoadStyleSheet("ViewNode");
+
+        public JsonNode Data;
+
+
 
         public ViewNode(JsonNode data, TreeNodeGraphView view, ChildPort childPort = null)
         {
@@ -47,7 +51,6 @@ namespace TreeNode.Editor
             Draw(childPort);
             OnChange();
         }
-
 
         public virtual void Draw(ChildPort childPort = null)
         {
@@ -261,7 +264,10 @@ namespace TreeNode.Editor
                 item.Refresh();
             }
         }
-
+        public PropertyElement FindByLocalPath(string path)
+        {
+           return this.Q<PropertyElement>(path);
+        }
 
     }
 }

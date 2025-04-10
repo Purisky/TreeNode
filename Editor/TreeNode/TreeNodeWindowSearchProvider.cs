@@ -7,7 +7,6 @@ using TreeNode.Utility;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine;
 using UnityEngine.UIElements;
-using static UnityEditor.Progress;
 namespace TreeNode.Editor
 {
     public struct SearchContextElement

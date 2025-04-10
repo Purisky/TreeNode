@@ -78,7 +78,7 @@ namespace TreeNode.Editor
             Dirty = meta.Json;
             OnChange = Meta.OnChangeMethod.GetOnChangeAction(Data) + action;
             SetEnabled(!showInNodeAttribute.ReadOnly);
-            T TValue = Node.Data.GetValue<T>( path.ToString());
+            T TValue = Node.Data.GetValue<T>( path);
             SetValueWithoutNotify(TValue);
             TextElement.text = GetValueText(GetList(), TValue);
             SetCallbacks();

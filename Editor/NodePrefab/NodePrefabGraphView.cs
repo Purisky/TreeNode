@@ -54,7 +54,6 @@ namespace TreeNode.Editor
 
         public override void AddNode(JsonNode node)
         {
-            
             base.AddNode(node);
             if (AssetData.Nodes.Count == 1)
             {

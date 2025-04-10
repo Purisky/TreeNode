@@ -26,6 +26,7 @@ namespace TreeNode.Editor
         {
             MemberMeta = memberMeta;
             ViewNode = viewNode;
+            name = path?? $"_{memberMeta.Type.Name}";
             LocalPath = path;
             Drawer = drawer;
             if (visualElement != null)
@@ -59,8 +60,15 @@ namespace TreeNode.Editor
                     viewNode.ShowIfElements.Add(this);
                 }
             }
+            this.AddManipulator(new ContextualMenuManipulator(BuildContextualMenu));
             RegisterPrefab();
         }
+
+
+
+
+
+
 
 
         public void RegisterPrefab()
@@ -102,8 +110,9 @@ namespace TreeNode.Editor
                 }
             }
         }
-
-
+        public virtual void BuildContextualMenu(ContextualMenuPopulateEvent evt)
+        {
+        }
 
         public bool Selected;
         public bool Output;

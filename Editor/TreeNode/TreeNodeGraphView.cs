@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -8,6 +9,7 @@ using Unity.Properties;
 using UnityEditor;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine;
+using UnityEngine.SocialPlatforms;
 using UnityEngine.UIElements;
 
 namespace TreeNode.Editor
@@ -35,7 +37,7 @@ namespace TreeNode.Editor
             SearchProvider.Graph = this;
             this.nodeCreationRequest = ShowSearchWindow;
             graphViewChanged = OnGraphViewChanged;
-            
+
 
 
             ViewContainer = this.Q("contentViewContainer");
@@ -55,7 +57,7 @@ namespace TreeNode.Editor
             canPasteSerializedData = CanPaste;
             serializeGraphElements = Copy;
             unserializeAndPaste = Paste;
-            
+
         }
 
         public virtual string Copy(IEnumerable<GraphElement> elements)
@@ -77,9 +79,10 @@ namespace TreeNode.Editor
 
         public override void BuildContextualMenu(ContextualMenuPopulateEvent evt)
         {
+            //Debug.Log(evt.target.GetType());
             if (evt.target is PrefabViewNode node)
             {
-                evt.menu.AppendAction(I18n.Goto,(d)=> { node.OpenPrefabAsset(); }, DropdownMenuAction.AlwaysEnabled);
+                evt.menu.AppendAction(I18n.Goto, (d) => { node.OpenPrefabAsset(); }, DropdownMenuAction.AlwaysEnabled);
                 evt.menu.AppendSeparator();
             }
             if (evt.target is GraphView && nodeCreationRequest != null)
@@ -87,20 +90,30 @@ namespace TreeNode.Editor
                 evt.menu.AppendAction(I18n.CreateNode, OnContextMenuNodeCreate, DropdownMenuAction.AlwaysEnabled);
                 evt.menu.AppendSeparator();
             }
-
-            if ( evt.target is ViewNode viewNode)
+            if (evt.target is PropertyElement element)
+            {
+                evt.menu.AppendAction(I18n.PrintFieldPath, delegate
+                {
+                    string path = element.GetGlobalPath();
+                    Debug.Log(path);
+                });
+                evt.menu.AppendSeparator();
+            }
+            if (evt.target is ViewNode viewNode)
             {
                 evt.menu.AppendAction(I18n.EditNode, delegate
                 {
                     EditNodeScript(viewNode.Data.GetType());
                 });
                 evt.menu.AppendSeparator();
-                evt.menu.AppendAction("Print Path", delegate
+                evt.menu.AppendAction(I18n.PrintNodePath, delegate
                 {
                     Debug.Log(viewNode.GetNodePath());
                 });
                 evt.menu.AppendSeparator();
             }
+
+
             if (evt.target is GraphView || evt.target is Node || evt.target is Group || evt.target is Edge)
             {
                 evt.menu.AppendAction(I18n.Delete, delegate
@@ -341,14 +354,39 @@ namespace TreeNode.Editor
             Window.History.AddStep();
             AddViewNode(node);
         }
+
+        public bool SetNodeByPath(JsonNode node, string path)
+        {
+            try
+            {
+                object parent = PropertyAccessor.TryGetParent(Asset.Data.Nodes, path, out string last);
+                object oldValue = PropertyAccessor.GetValue<object>(parent, last);
+                if (oldValue is IList list)
+                {
+                    list.Add(node);
+                }
+                else
+                {
+                    PropertyAccessor.SetValue(parent, last, node);
+                }
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+
         void RemoveNode(JsonNode node)
         {
             Asset.Data.Nodes.Remove(node);
         }
-        public ViewNode AddViewNode(JsonNode node,ChildPort childPort = null)
+        public ViewNode AddViewNode(JsonNode node, ChildPort childPort = null)
         {
-            if (NodeDic.TryGetValue(node, out ViewNode viewNode)) { return viewNode; };
-            if (node.PrefabData!=null)
+            if (NodeDic.TryGetValue(node, out ViewNode viewNode)) { return viewNode; }
+            ;
+            if (node.PrefabData != null)
             {
                 viewNode = new PrefabViewNode(node, this, childPort);
             }
@@ -388,16 +426,14 @@ namespace TreeNode.Editor
             File.WriteAllText(Window.Path, Json.ToJson(Asset));
         }
 
-        //public ChildPort GetPort(PropertyPath path)
-        //{
-
-
-        //}
-        //public JsonNode GetLastNode(PropertyPath path)
-        //{
-
-
-        //}
+        public PropertyElement Find(string path)
+        {
+            JsonNode node = PropertyAccessor.GetLast<JsonNode>(Asset.Data.Nodes, path, false, out int index);
+            if (node is null) { return null; }
+            if (index >= path.Length - 1) { return null; }
+            string local = path[index..];
+            return NodeDic[node]?.FindByLocalPath(local);
+        }
+        public ChildPort GetPort(string path) => Find(path)?.Q<ChildPort>();
     }
-
 }

@@ -22,6 +22,8 @@ namespace TreeNode.Utility
         public const string Hotkeys = Current.Hotkeys;
         public const string ForceReloadIcon = Current.ForceReloadIcon;
         public const string CreateNode = Current.CreateNode;
+        public const string PrintNodePath = Current.PrintNodePath;
+        public const string PrintFieldPath = Current.PrintFieldPath;
         public const string Copy = Current.Copy;
         public const string Paste = Current.Paste;
         public const string Cut = Current.Cut;

@@ -169,6 +169,7 @@ namespace TreeNode.Editor
             TWindow[] windows = Resources.FindObjectsOfTypeAll<TWindow>();
             for (int i = 0; i < windows.Length; i++)
             {
+                Debug.Log($"{windows[i].Path}=>{path}");
                 if (windows[i].Path == path)
                 {
                     windows[i].Show();

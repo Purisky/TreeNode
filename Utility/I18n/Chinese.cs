@@ -12,6 +12,8 @@ namespace TreeNode.Utility
         public const string ForceReloadIcon = "刷新图标";
 
         public const string CreateNode = "创建节点";
+        public const string PrintNodePath = "打印节点路径";
+        public const string PrintFieldPath = "打印字段路径";
         public const string Copy = "复制";
         public const string Paste = "粘贴";
         public const string Cut = "剪切";

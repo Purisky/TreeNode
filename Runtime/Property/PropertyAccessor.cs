@@ -37,36 +37,83 @@ namespace TreeNode.Runtime
         private static readonly ConcurrentDictionary<string, string[]> PathCache = new();
         public static T GetValue<T>(object obj, string path)
         {
-            obj.ThrowIfNull(nameof(obj));
-            path.ThrowIfNullOrEmpty(nameof(path));
-            object parent = GetParent(obj, path, out var last);
+            object parent = TryGetParent(obj, path, out var last);
             var getter_ = GetOrCreateGetter<T>(parent.GetType(), last);
             return getter_(parent);
         }
-
         public static void SetValue<T>(object obj, string path, T value)
         {
-            obj.ThrowIfNull(nameof(obj));
-            path.ThrowIfNullOrEmpty(nameof(path));
-
-            object parent = GetParent(obj, path, out var last);
+            object parent = TryGetParent(obj, path, out var last);
             var setter = GetOrCreateSetter<T>(parent.GetType(), last);
             setter(parent, value);
         }
-        static object GetParent(object obj, string path,out string last)
+        /// <summary>
+        /// Get the parent object of the path
+        /// </summary>
+        /// <param name="obj"></param>
+        /// <param name="path"></param>
+        /// <param name="last"></param>
+        /// <returns>return obj if path has no parent</returns>
+        public static object TryGetParent(object obj, string path, out string last)
+        {
+            obj.ThrowIfNull(nameof(obj));
+            path.ThrowIfNullOrEmpty(nameof(path));
+            string parentPath = PopPath(path);
+            if (parentPath == null) { last = path; return obj; }
+            last = path[parentPath.Length..].TrimStart('.');
+            var currentObj = obj;
+            var members = PathCache.GetOrAdd(parentPath, p => p.Split('.'));
+            for (int i = 0; i < members.Length; i++)
+            {
+                TryGetValue(currentObj, members[i], out currentObj);
+                currentObj.ThrowIfNull(string.Join('.', members[..i]));
+            }
+            return currentObj;
+        }
+        public static bool TryGetValue<T>(object obj, string path, out T ret)
+        {
+            var getter = GetOrCreateGetter<T>(obj.GetType(), path);
+            ret = getter(obj);
+            return ret != null;
+        }
+
+
+
+        public static T GetLast<T>(object obj, string path, bool includeEnd, out int index)
         {
             obj.ThrowIfNull(nameof(obj));
             path.ThrowIfNullOrEmpty(nameof(path));
             var currentObj = obj;
             var members = PathCache.GetOrAdd(path, p => p.Split('.'));
-            foreach (var member in members[..^1])
+            T result = default;
+            index = 0;
+            int indexcount = 0;
+            for (int i = 0; i < members.Length - 1; i++)
             {
-                var getter = GetOrCreateGetter<object>(currentObj.GetType(), member);
+                var getter = GetOrCreateGetter<object>(currentObj.GetType(), members[i]);
                 currentObj = getter(currentObj);
+                indexcount += members[i].Length + 1;
+                if (currentObj is T t)
+                {
+                    result = t;
+                    index = indexcount;
+                }
             }
-            last = members[^1];
-            return currentObj;
+            if (includeEnd)
+            {
+                var getter = GetOrCreateGetter<object>(currentObj.GetType(), members[^1]);
+                currentObj = getter(currentObj);
+                indexcount += members[^1].Length + 1;
+                if (currentObj is T t)
+                {
+                    result = t;
+                    index = indexcount;
+                }
+            }
+            return result;
         }
+
+
         private static Func<object, T> GetOrCreateGetter<T>(Type type, string memberName)
         {
             var key = new AccessorKey(type, memberName.GetHashCode(), typeof(T));

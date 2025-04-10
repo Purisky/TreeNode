@@ -6,6 +6,12 @@ namespace TreeNode.Runtime
     public abstract class TreeNodeAsset
     {
         public List<JsonNode> Nodes = new();
+
+
+        public T GetValue<T>(string path)
+        {
+            return PropertyAccessor.GetValue<T>(Nodes, path);
+        }
     }
 
 }
