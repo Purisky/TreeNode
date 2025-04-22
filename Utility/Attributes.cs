@@ -32,7 +32,6 @@ namespace TreeNode.Utility
         public int Width;
         public Color Color;
         static Color DefaultColor = new(63 / 256f, 63 / 256f, 63 / 256f, 204 / 256f);
-        //public bool OutputList;
         public bool Unique;
         public NodeInfoAttribute(Type type, string title, int width, string menuItem = "", string color = "#3F3F3F")
         {
@@ -144,20 +143,17 @@ namespace TreeNode.Utility
         public bool Allowed;
         public bool BanPrefab;
         public HashSet<Type> Types;
-        //public bool Unique;
         public AssetFilterAttribute(bool allowed, bool banPrefab, params Type[] types)
         {
             Allowed = allowed;
             BanPrefab = banPrefab;
             Types = new HashSet<Type>(types);
-            //Unique = unique;
         }
         public AssetFilterAttribute(bool allowed, params Type[] types)
         {
             Allowed = allowed;
             BanPrefab = false;
             Types = new HashSet<Type>(types);
-            //Unique = false;
         }
 
 
@@ -166,11 +162,11 @@ namespace TreeNode.Utility
     public class HideEnumAttribute : Attribute
     {
     }
-    [AttributeUsage(AttributeTargets.Field| AttributeTargets.Class| AttributeTargets.Property| AttributeTargets.Struct)]
-    public class RagDocAttribute : Attribute
+    [AttributeUsage(AttributeTargets.Field| AttributeTargets.Class| AttributeTargets.Property| AttributeTargets.Struct,Inherited =false)]
+    public class PromptAttribute : Attribute
     {
         public string Desc;
-        public RagDocAttribute(string desc)
+        public PromptAttribute(string desc)
         {
             Desc = desc;
         }
