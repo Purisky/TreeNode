@@ -1,4 +1,4 @@
-using UnityEditor.Callbacks;
+﻿using UnityEditor.Callbacks;
 using UnityEditor;
 using UnityEngine;
 using Newtonsoft.Json.Linq;
@@ -58,7 +58,7 @@ namespace TreeNode.Editor
 
         public static TreeNodeGraphWindow OpenJsonAsset(string filePath)
         {
-            JsonAsset jsonAsset = JsonAsset. GetJsonAsset(filePath);
+            JsonAsset jsonAsset = JsonAsset.GetJsonAsset(filePath);
             if (jsonAsset == null) { return null; }
             Type assetType = jsonAsset.Data.GetType();
             if (!AssetWindows.TryGetValue(assetType, out  Type window))

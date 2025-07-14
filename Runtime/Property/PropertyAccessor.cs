@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq.Expressions;
@@ -47,6 +47,36 @@ namespace TreeNode.Runtime
             var setter = GetOrCreateSetter<T>(parent.GetType(), last);
             setter(parent, value);
         }
+        /// <summary>
+        /// Attempts to set a value at the specified path within the given object.
+        /// </summary>
+        /// <remarks>The method does not throw an exception if the path is invalid or if the value cannot
+        /// be set; instead, it returns <see langword="false"/>.</remarks>
+        /// <param name="obj">The object on which the value is to be set. Cannot be <see langword="null"/>.</param>
+        /// <param name="path">The path within the object where the value should be set. This must be a valid path string.</param>
+        /// <param name="value">The value to set at the specified path.</param>
+        /// <returns><see langword="true"/> if the value was successfully set; otherwise, <see langword="false"/>.</returns>
+        public static bool TrySetValue(object obj, string path, object value)
+        { 
+            
+            obj.ThrowIfNull(nameof(obj));
+            path.ThrowIfNullOrEmpty(nameof(path));
+            if (string.IsNullOrEmpty(path)) { return false; }
+            object parent = TryGetParent(obj, path, out var last);
+            if (parent == null) { return false; }
+            var setter = GetOrCreateSetter<object>(parent.GetType(), last);
+            try
+            {
+                setter(parent, value);
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+
         /// <summary>
         /// Get the parent object of the path
         /// </summary>

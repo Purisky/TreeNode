@@ -1,7 +1,8 @@
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using TreeNode.Utility;
 using Unity.Properties;
 using UnityEngine;
@@ -20,6 +21,30 @@ namespace TreeNode.Runtime
         //public virtual T GetValue<T>(in PropertyPath path) => PropertyAccessor.GetValue<T>(this, path.ToString());
         public virtual void SetValue<T>(string path, T value) => PropertyAccessor.SetValue<T>(this, path, value);
         //public virtual void SetValue<T>(in PropertyPath path, T value) => PropertyAccessor.SetValue<T>(this, path.ToString(), value);
+
+        public bool SetValue(Type type,string key, JToken value)
+        {
+            if (type == null || string.IsNullOrEmpty(key))
+            {
+                return false;
+            }
+            MemberInfo  memberInfo = type.GetMember(key)[0];
+            if (memberInfo == null)
+            {
+                return false;
+            }
+            try
+            {
+                object obj = value.ToObject(memberInfo.GetValueType());
+                memberInfo.SetValue(this, obj);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Error setting value: {e.Message}");
+                return false;
+            }
+            return true;
+        }
 
         public object GetParent(string path)
         {
