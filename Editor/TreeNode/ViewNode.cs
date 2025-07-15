@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -55,7 +55,7 @@ namespace TreeNode.Editor
         public virtual void Draw(ChildPort childPort = null)
         {
             NodeInfoAttribute nodeInfo = Data.GetType().GetCustomAttribute<NodeInfoAttribute>();
-            DrawParentPort(nodeInfo.Type,childPort);
+            DrawParentPort(nodeInfo.Type, childPort);
             DrawPropertiesAndPorts();
         }
 
@@ -142,9 +142,9 @@ namespace TreeNode.Editor
                 MemberMeta meta = new()
                 {
                     Type = Data.GetType(),
-                    LabelInfo = new() { Text = Data.GetType().Name,Hide = true },
+                    LabelInfo = new() { Text = Data.GetType().Name, Hide = true },
                 };
-                VisualElement visualElement = baseDrawer.Create(meta, this,null,OnChange);
+                VisualElement visualElement = baseDrawer.Create(meta, this, null, OnChange);
                 Content.Add(visualElement);
             }
         }
@@ -266,8 +266,23 @@ namespace TreeNode.Editor
         }
         public PropertyElement FindByLocalPath(string path)
         {
-           return this.Q<PropertyElement>(path);
+            return this.Q<PropertyElement>(path);
         }
 
+        public bool Validate(out string msg)
+        {
+            msg = $"{GetNodePath()}:{Data.GetType().Name}";
+            List<VisualElement> list = this.Query<VisualElement>().Where(n => n is IValidator).ToList();
+            bool success = true;
+            foreach (VisualElement item in list)
+            {
+                if (item is IValidator validator&& !validator.Validate(out string errorMsg))
+                {
+                    success = false;
+                    msg += $"\n  {errorMsg}";
+                }
+            }
+            return success;
+        }
     }
 }

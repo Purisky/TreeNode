@@ -418,6 +418,8 @@ namespace TreeNode.Editor
             NodeDic.Remove(node.Data);
         }
 
+
+
         public void MakeDirty()
         {
             Window.MakeDirty();
@@ -439,5 +441,24 @@ namespace TreeNode.Editor
             return NodeDic[node]?.FindByLocalPath(local);
         }
         public ChildPort GetPort(string path) => Find(path)?.Q<ChildPort>();
+
+        public virtual string Validate()
+        {
+            string result = "";
+            for (int i = 0; i < ViewNodes.Count; i++)
+            {
+                if (!ViewNodes[i].Validate(out string msg))
+                {
+                    result += msg;
+                }
+            }
+            if (result.Length > 0)
+            {
+                return result;
+            }
+            return "Success";
+        }
+
+
     }
 }

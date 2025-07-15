@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Reflection;
 using TreeNode.Runtime;
@@ -226,7 +226,6 @@ namespace TreeNode.Editor
                 GraphView.Window.History.AddStep();
             }
         }
-
     }
 
 

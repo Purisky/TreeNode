@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using TreeNode.Runtime;
 using TreeNode.Utility;
@@ -7,7 +7,7 @@ using UnityEngine;
 
 namespace TreeNode.Editor
 {
-    public abstract class ChildPort : BasePort
+    public abstract class ChildPort : BasePort,IValidator
     {
         public MemberMeta Meta;
         public bool Require;
@@ -62,5 +62,14 @@ namespace TreeNode.Editor
 
         }
 
+        public bool Validate(out string msg)
+        {
+            msg = $"{Meta.Path}:{portType.Name} is null but required";
+            if (Require && !connected)
+            {
+                return false;
+            }
+            return true;
+        }
     }
 }

@@ -1,6 +1,8 @@
+﻿using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using TreeNode.Runtime;
@@ -31,7 +33,7 @@ namespace TreeNode.Editor
             return new PropertyElement(memberMeta, node, path, this, dropdownElement);
         }
     }
-    public abstract class DropdownElement<T> : BaseField<T>
+    public abstract class DropdownElement<T> : BaseField<T>, IValidator
     {
         protected VisualElement visualInput;
         public VisualElement VisualInput => visualInput;
@@ -78,7 +80,7 @@ namespace TreeNode.Editor
             Dirty = meta.Json;
             OnChange = Meta.OnChangeMethod.GetOnChangeAction(Data) + action;
             SetEnabled(!showInNodeAttribute.ReadOnly);
-            T TValue = Node.Data.GetValue<T>( path);
+            T TValue = Node.Data.GetValue<T>(path);
             SetValueWithoutNotify(TValue);
             TextElement.text = GetValueText(GetList(), TValue);
             SetCallbacks();
@@ -95,6 +97,23 @@ namespace TreeNode.Editor
             return "Null";
 
         }
+
+        public bool Validate(out string msg)
+        {
+            DropdownList<T> list = GetList();
+            T value = Node.Data.GetValue<T>(Path);
+            msg = $"{Path}:{Meta.Type.Name}({value}) must in the list[{string.Join(',', list.Select(n => n.Value))}]";
+            foreach (var item in list)
+            {
+                if (item.ValueEquals(value))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+
 
         protected void InitListGetter(MemberMeta meta)
         {
