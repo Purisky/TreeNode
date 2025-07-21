@@ -366,6 +366,16 @@ namespace TreeNode.Editor
             {
                 object parent = PropertyAccessor.TryGetParent(Asset.Data.Nodes, path, out string last);
                 object oldValue = PropertyAccessor.GetValue<object>(parent, last);
+                if (oldValue is null)
+                {
+                    Type parentType = parent.GetType();
+                    Type valueType = parentType.GetMember(last).First().GetValueType();
+                    if (valueType.Inherited(typeof(IList)))
+                    {
+                        oldValue = Activator.CreateInstance(valueType);
+                        PropertyAccessor.SetValue(parent, last, oldValue);
+                    }
+                }
                 if (oldValue is IList list)
                 {
                     list.Add(node);
