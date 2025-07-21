@@ -137,12 +137,11 @@ namespace TreeNode.Runtime
         /// <param name="index">The index in the path string where validation stopped (used to separate valid and invalid parts)</param>
         /// <param name="validPathObject">The object at the valid part of the path</param>
         /// <returns>True if the entire path is valid, false otherwise</returns>
-        public static bool GetValidPath(object obj, string path, out int index, out object validPathObject)
+        public static bool GetValidPath(object obj, string path, out int index)
         {
             obj.ThrowIfNull(nameof(obj));
             path.ThrowIfNullOrEmpty(nameof(path));
             var currentObj = obj;
-            validPathObject = obj;
             var members = path.Split('.');
             index = 0;
             
@@ -168,16 +167,6 @@ namespace TreeNode.Runtime
                     {
                         if (TryValidateMember(currentObj, member))
                         {
-                            try
-                            {
-                                var getter = GetOrCreateGetter<object>(currentType, member);
-                                object memberValue = getter(currentObj);
-                                validPathObject = memberValue;
-                            }
-                            catch
-                            {
-                                validPathObject = currentObj;
-                            }
                             index = path.Length;
                             return true;
                         }
@@ -207,21 +196,10 @@ namespace TreeNode.Runtime
                                 
                                 if (baseExists)
                                 {
-                                    try
-                                    {
-                                        var collectionGetter = GetOrCreateGetter<object>(currentType, baseName);
-                                        validPathObject = collectionGetter(currentObj);
-                                    }
-                                    catch
-                                    {
-                                        validPathObject = lastValidObj;
-                                    }
-                                    
                                     index = memberStartPosition + bracketIndex;
                                     return false;
                                 }
                             }
-                            validPathObject = lastValidObj;
                             index = memberStartPosition;
                             return false;
                         }
@@ -233,7 +211,6 @@ namespace TreeNode.Runtime
                         
                         if (nextObj == null)
                         {
-                            validPathObject = lastValidObj;
                             index = currentPosition;
                             return false;
                         }
@@ -283,21 +260,18 @@ namespace TreeNode.Runtime
                                     
                                     if (isCollection)
                                     {
-                                        validPathObject = baseObj;
                                         index = memberStartPosition + bracketIndex;
                                         return false;
                                     }
                                 }
                             }
                         }
-                        validPathObject = lastValidObj;
                         index = memberStartPosition;
                         return false;
                     }
                 }
                 catch
                 {
-                    validPathObject = lastValidObj;
                     index = memberStartPosition;
                     return false;
                 }
@@ -307,19 +281,7 @@ namespace TreeNode.Runtime
                     currentPosition++;
                 }
             }
-            validPathObject = currentObj;
             return true;
-        }
-        
-        /// <summary>
-        /// Validates a path through an object hierarchy.
-        /// /// <param name="obj">The root object to validate path from</param>
-        /// <param name="path">The path to validate</param>
-        /// <param name="index">The index in the path string where validation stopped (used to separate valid and invalid parts)</param>
-        /// <returns>True if the entire path is valid, false otherwise</returns>
-        public static bool GetValidPath(object obj, string path, out int index)
-        {
-            return GetValidPath(obj, path, out index, out _);
         }
 
         private static bool TryValidateMember(object obj, string memberName)

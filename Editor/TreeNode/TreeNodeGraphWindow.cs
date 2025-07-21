@@ -166,6 +166,11 @@ namespace TreeNode.Editor
     {
         public static TWindow Open<TWindow,T>(T target, string path) where T : TreeNodeAsset where TWindow : TreeNodeGraphWindow
         {
+            if (!path.StartsWith("Assets/"))
+            { 
+                int index = path.IndexOf("Assets/");
+                path = path[index..];
+            }
             TWindow[] windows = Resources.FindObjectsOfTypeAll<TWindow>();
             for (int i = 0; i < windows.Length; i++)
             {
