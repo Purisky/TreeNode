@@ -357,6 +357,11 @@ namespace TreeNode.Editor
 
         public bool SetNodeByPath(JsonNode node, string path)
         {
+            if(string.IsNullOrEmpty(path))
+            {
+                Asset.Data.Nodes.Add(node);
+                return true;
+            }
             try
             {
                 object parent = PropertyAccessor.TryGetParent(Asset.Data.Nodes, path, out string last);
@@ -371,8 +376,9 @@ namespace TreeNode.Editor
                 }
                 return true;
             }
-            catch (Exception)
+            catch (Exception e)
             {
+                Debug.LogError($"Error setting node by path: {e.Message}");
                 return false;
             }
         }
