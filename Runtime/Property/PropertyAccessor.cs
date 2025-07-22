@@ -46,12 +46,22 @@ namespace TreeNode.Runtime
             var getter_ = GetOrCreateGetter<T>(parent.GetType(), last);
             return getter_(parent);
         }
-        
+
         public static void SetValue<T>(object obj, string path, T value)
         {
+            Json.Log(value);
+            Debug.Log($"SetValueStart: {path}");
             object parent = TryGetParent(obj, path, out var last);
+            Debug.Log($"{parent.GetType().Name} TryGetParent: {last}");
             var setter = GetOrCreateSetter<T>(parent.GetType(), last);
             setter(parent, value);
+            Json.Log(parent);
+            Debug.Log($"SetValue: {parent.GetType().Name}:{parent.GetType().IsValueType} to {value} on {parent}");
+            if (parent.GetType().IsValueType)
+            {
+                SetValue<object>(obj, path[..^(last.Length + 1)], parent);
+            }
+            //Json.Log(parent);
         }
         
         public static void SetValueNull(object obj, string path)
@@ -164,7 +174,7 @@ namespace TreeNode.Runtime
         /// </summary>
         private static bool IsJsonNodeType(Type type)
         {
-            return type.IsSubclassOf(typeof(JsonNode));
+            return type ==typeof(JsonNode);
         }
 
         /// <summary>
@@ -264,16 +274,17 @@ namespace TreeNode.Runtime
                                     memberType = field.FieldType;
                                 }
                             }
+                            Debug.Log($"Member: {member}, Type: {memberType?.Name ?? "null"}");
 
                             // Check if the type can be initialized
                             if (memberType != null && 
                                 !IsJsonNodeType(memberType) && 
                                 HasValidParameterlessConstructor(memberType))
                             {
-                                // Create a new instance and set it
                                 nextObj = Activator.CreateInstance(memberType);
-                                var setter = GetOrCreateSetter<object>(currentType, member);
-                                setter(currentObj, nextObj);
+                                SetValue(obj, path[..currentPosition], nextObj);
+                                //var setter = GetOrCreateSetter<object>(currentType, member);
+                                //setter(currentObj, nextObj);
                             }
                             else
                             {
