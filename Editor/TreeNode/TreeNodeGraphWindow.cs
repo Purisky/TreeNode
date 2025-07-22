@@ -62,7 +62,7 @@ namespace TreeNode.Editor
                 // Close windows with deleted files
                 foreach (var window in windowsToClose)
                 {
-                    Debug.Log($"Closing window for deleted asset: {window.Path}");
+                    //Debug.Log($"Closing window for deleted asset: {window.Path}");
                     window.Close();
                     UnregisterWindow(window);
                 }
