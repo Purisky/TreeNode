@@ -49,19 +49,30 @@ namespace TreeNode.Runtime
 
         public static void SetValue<T>(object obj, string path, T value)
         {
-            Json.Log(value);
-            Debug.Log($"SetValueStart: {path}");
             object parent = TryGetParent(obj, path, out var last);
-            Debug.Log($"{parent.GetType().Name} TryGetParent: {last}");
-            var setter = GetOrCreateSetter<T>(parent.GetType(), last);
-            setter(parent, value);
-            Json.Log(parent);
-            Debug.Log($"SetValue: {parent.GetType().Name}:{parent.GetType().IsValueType} to {value} on {parent}");
+            
+            // 如果parent是值类型，需要特殊处理
             if (parent.GetType().IsValueType)
             {
-                SetValue<object>(obj, path[..^(last.Length + 1)], parent);
+                // 对于值类型，我们需要直接使用反射设置值，然后将整个struct设置回去
+                object parentCopy = SetValueOnStruct(parent, last, value);
+                // 将修改后的副本设置回原始位置
+                string parentPath = path[..^(last.Length + 1)];
+                if (!string.IsNullOrEmpty(parentPath))
+                {
+                    SetValue<object>(obj, parentPath, parentCopy);
+                }
+                else
+                {
+                    // 如果没有父路径，说明要修改的就是根对象本身
+                    throw new InvalidOperationException("Cannot modify root object when it's a value type");
+                }
             }
-            //Json.Log(parent);
+            else
+            {
+                var setter = GetOrCreateSetter<T>(parent.GetType(), last);
+                setter(parent, value);
+            }
         }
         
         public static void SetValueNull(object obj, string path)
@@ -598,6 +609,80 @@ namespace TreeNode.Runtime
             }
 
             return current;
+        }
+
+        /// <summary>
+        /// 在值类型上设置属性值，返回修改后的副本
+        /// </summary>
+        private static object SetValueOnStruct<T>(object structObj, string memberName, T value)
+        {
+            Type structType = structObj.GetType();
+            
+            if (memberName.EndsWith("]"))
+            {
+                // 处理数组或索引器访问
+                var indexStart = memberName.IndexOf('[');
+                var indexEnd = memberName.IndexOf(']');
+                var arrayName = memberName[..indexStart];
+                var index = int.Parse(memberName.Substring(indexStart + 1, indexEnd - indexStart - 1));
+
+                if (!string.IsNullOrEmpty(arrayName))
+                {
+                    // 获取数组/集合属性
+                    var arrayProperty = structType.GetProperty(arrayName);
+                    if (arrayProperty != null)
+                    {
+                        var collection = arrayProperty.GetValue(structObj);
+                        if (collection is IList list)
+                        {
+                            list[index] = value;
+                        }
+                        else if (collection is Array array)
+                        {
+                            array.SetValue(value, index);
+                        }
+                        return structObj;
+                    }
+                    else
+                    {
+                        var arrayField = structType.GetField(arrayName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                        if (arrayField != null)
+                        {
+                            var collection = arrayField.GetValue(structObj);
+                            if (collection is IList list)
+                            {
+                                list[index] = value;
+                            }
+                            else if (collection is Array array)
+                            {
+                                array.SetValue(value, index);
+                            }
+                            return structObj;
+                        }
+                    }
+                }
+            }
+            else
+            {
+                // 处理普通属性或字段
+                var property = structType.GetProperty(memberName);
+                if (property != null && property.CanWrite)
+                {
+                    property.SetValue(structObj, value);
+                    return structObj;
+                }
+                else
+                {
+                    var field = structType.GetField(memberName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    if (field != null)
+                    {
+                        field.SetValue(structObj, value);
+                        return structObj;
+                    }
+                }
+            }
+            
+            throw new ArgumentException($"Member {memberName} not found or not writable on type {structType.Name}");
         }
     }
 }
