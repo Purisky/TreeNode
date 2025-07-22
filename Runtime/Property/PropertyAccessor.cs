@@ -37,18 +37,23 @@ namespace TreeNode.Runtime
         private static readonly ConcurrentDictionary<AccessorKey, object> GetterCache = new();
         private static readonly ConcurrentDictionary<AccessorKey, object> SetterCache = new();
         private static readonly ConcurrentDictionary<string, string[]> PathCache = new();
+        // Cache to store types that have parameterless constructors
+        private static readonly ConcurrentDictionary<Type, bool> HasParameterlessConstructorCache = new();
+        
         public static T GetValue<T>(object obj, string path)
         {
             object parent = TryGetParent(obj, path, out var last);
             var getter_ = GetOrCreateGetter<T>(parent.GetType(), last);
             return getter_(parent);
         }
+        
         public static void SetValue<T>(object obj, string path, T value)
         {
             object parent = TryGetParent(obj, path, out var last);
             var setter = GetOrCreateSetter<T>(parent.GetType(), last);
             setter(parent, value);
         }
+        
         public static void SetValueNull(object obj, string path)
         {
             object parent = TryGetParent(obj, path, out var last);
@@ -87,14 +92,13 @@ namespace TreeNode.Runtime
             }
             return currentObj;
         }
+        
         public static bool TryGetValue<T>(object obj, string path, out T ret)
         {
             var getter = GetOrCreateGetter<T>(obj.GetType(), path);
             ret = getter(obj);
             return ret != null;
         }
-
-
 
         public static T GetLast<T>(object obj, string path, bool includeEnd, out int index)
         {
@@ -128,6 +132,39 @@ namespace TreeNode.Runtime
                 }
             }
             return result;
+        }
+        
+        /// <summary>
+        /// Checks if a type has a parameterless constructor and is not abstract
+        /// </summary>
+        private static bool HasValidParameterlessConstructor(Type type)
+        {
+            if (HasParameterlessConstructorCache.TryGetValue(type, out bool hasConstructor))
+            {
+                return hasConstructor;
+            }
+            
+            // Check if type is abstract
+            if (type.IsAbstract)
+            {
+                HasParameterlessConstructorCache[type] = false;
+                return false;
+            }
+            
+            // Check for parameterless constructor
+            var constructor = type.GetConstructor(Type.EmptyTypes);
+            hasConstructor = constructor != null;
+            HasParameterlessConstructorCache[type] = hasConstructor;
+            
+            return hasConstructor;
+        }
+        
+        /// <summary>
+        /// Checks if a type inherits from JsonNode
+        /// </summary>
+        private static bool IsJsonNodeType(Type type)
+        {
+            return type.IsSubclassOf(typeof(JsonNode));
         }
 
         /// <summary>
@@ -209,11 +246,42 @@ namespace TreeNode.Runtime
                         var getter = GetOrCreateGetter<object>(currentType, member);
                         object nextObj = getter(currentObj);
                         
+                        // Check if the object is null and can be automatically created
                         if (nextObj == null)
                         {
-                            index = currentPosition;
-                            return false;
+                            // Get the field or property type
+                            Type memberType = null;
+                            var property = currentType.GetProperty(member);
+                            if (property != null)
+                            {
+                                memberType = property.PropertyType;
+                            }
+                            else 
+                            {
+                                var field = currentType.GetField(member, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                                if (field != null)
+                                {
+                                    memberType = field.FieldType;
+                                }
+                            }
+
+                            // Check if the type can be initialized
+                            if (memberType != null && 
+                                !IsJsonNodeType(memberType) && 
+                                HasValidParameterlessConstructor(memberType))
+                            {
+                                // Create a new instance and set it
+                                nextObj = Activator.CreateInstance(memberType);
+                                var setter = GetOrCreateSetter<object>(currentType, member);
+                                setter(currentObj, nextObj);
+                            }
+                            else
+                            {
+                                index = currentPosition;
+                                return false;
+                            }
                         }
+                        
                         lastValidObj = currentObj;
                         lastValidPosition = currentPosition;
                         currentObj = nextObj;
@@ -393,7 +461,6 @@ namespace TreeNode.Runtime
                 return field != null;
             }
         }
-
 
         private static Func<object, T> GetOrCreateGetter<T>(Type type, string memberName)
         {
