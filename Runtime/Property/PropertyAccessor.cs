@@ -491,15 +491,26 @@ namespace TreeNode.Runtime
             {
                 Expression valueExpression;
                 
-                // 如果目标类型与T相同或可直接赋值，直接使用
-                if (typeof(T) == targetType || typeof(T).IsAssignableFrom(targetType))
+                // 如果目标类型与T相同，直接使用
+                if (typeof(T) == targetType)
                 {
                     valueExpression = valueParam;
+                }
+                // 如果T是object，需要运行时类型转换
+                else if (typeof(T) == typeof(object))
+                {
+                    // 对于object类型的输入值，在运行时进行类型转换
+                    valueExpression = CreateRuntimeTypeConversion(valueParam, targetType);
                 }
                 // 如果目标类型可以从T赋值，进行转换
                 else if (targetType.IsAssignableFrom(typeof(T)))
                 {
                     valueExpression = Expression.Convert(valueParam, targetType);
+                }
+                // 如果T可以赋值给目标类型，进行转换
+                else if (typeof(T).IsAssignableFrom(targetType))
+                {
+                    valueExpression = valueParam;
                 }
                 // 如果两者都是数值类型，尝试转换
                 else if (IsNumericType(typeof(T)) && IsNumericType(targetType))
@@ -522,6 +533,26 @@ namespace TreeNode.Runtime
             catch (Exception ex)
             {
                 throw new InvalidOperationException($"创建Setter失败: 类型={type.Name}, 成员={memberName}, 值类型={typeof(T).Name}, 目标类型={targetType.Name}, 错误={ex.Message}", ex);
+            }
+        }
+
+        /// <summary>
+        /// 创建运行时类型转换表达式
+        /// </summary>
+        private static Expression CreateRuntimeTypeConversion(ParameterExpression valueParam, Type targetType)
+        {
+            // 使用Convert.ChangeType进行运行时类型转换
+            var changeTypeMethod = typeof(Convert).GetMethod("ChangeType", new[] { typeof(object), typeof(Type) });
+            var convertCall = Expression.Call(changeTypeMethod, valueParam, Expression.Constant(targetType));
+            
+            // 如果目标类型是值类型，需要拆箱
+            if (targetType.IsValueType)
+            {
+                return Expression.Convert(convertCall, targetType);
+            }
+            else
+            {
+                return Expression.Convert(convertCall, targetType);
             }
         }
 
@@ -633,8 +664,8 @@ namespace TreeNode.Runtime
             // 优化：区分Array和普通索引器处理
             if (type.IsArray)
             {
-                // 对于数组类型，使用Expression.ArrayIndex优化性能
-                current = Expression.ArrayIndex(current, Expression.Constant(index));
+                // 对于数组类型，使用Expression.ArrayAccess，它支持读写操作
+                current = Expression.ArrayAccess(current, Expression.Constant(index));
                 type = type.GetElementType();
             }
             else
