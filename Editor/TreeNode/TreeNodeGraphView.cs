@@ -364,7 +364,7 @@ namespace TreeNode.Editor
             }
             try
             {
-                object parent = PropertyAccessor.TryGetParent(Asset.Data.Nodes, path, out string last);
+                object parent = PropertyAccessor.GetParentObject(Asset.Data.Nodes, path, out string last);
                 object oldValue = PropertyAccessor.GetValue<object>(parent, last);
                 if (oldValue is null)
                 {

@@ -48,7 +48,7 @@ namespace TreeNode.Runtime
 
         public object GetParent(string path)
         {
-            string parentPath = PropertyAccessor.PopPath(path);
+            string parentPath = PropertyAccessor.ExtractParentPath(path);
             if (parentPath == null)
             { 
                 return this;

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using TreeNode.Runtime;
 using TreeNode.Utility;
@@ -179,7 +179,7 @@ namespace TreeNode.Editor
             }
             for (int i = 0; i < popCount; i++)
             {
-                node = PropertyAccessor.PopPath(node);
+                node = PropertyAccessor.ExtractParentPath(node);
                 object value = GraphView.AssetData.GetValue<object>(node);
                 if (value is JsonNode)
                 { 
