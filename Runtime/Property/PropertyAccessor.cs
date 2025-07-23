@@ -14,6 +14,7 @@ namespace TreeNode.Runtime
     /// <summary>
     /// 高性能属性访问器 - 支持通过字符串路径访问对象属性
     /// 重构后采用模块化设计提升可维护性和性能
+    /// 增强了对Array类型的直接支持
     /// </summary>
     public static class PropertyAccessor
     {
@@ -56,15 +57,17 @@ namespace TreeNode.Runtime
             public readonly FieldInfo Field;
             public readonly bool IsProperty;
             public readonly bool IsIndexer;
+            public readonly bool IsArray;
             public readonly string CollectionName;
             public readonly bool HasCollectionName;
 
-            public MemberMetadata(PropertyInfo property, FieldInfo field, bool isIndexer, string collectionName)
+            public MemberMetadata(PropertyInfo property, FieldInfo field, bool isIndexer, bool isArray, string collectionName)
             {
                 Property = property;
                 Field = field;
                 IsProperty = property != null;
                 IsIndexer = isIndexer;
+                IsArray = isArray;
                 CollectionName = collectionName;
                 HasCollectionName = !string.IsNullOrEmpty(collectionName);
             }
@@ -174,6 +177,15 @@ namespace TreeNode.Runtime
             {
                 var index = ExtractIndexFromPath(lastMember);
                 list.RemoveAt(index);
+            }
+            // Array类型不支持RemoveAt操作，只能设置为null/default
+            else if (parent.GetType().IsArray && IsIndexerAccess(lastMember))
+            {
+                var index = ExtractIndexFromPath(lastMember);
+                var array = (Array)parent;
+                var elementType = array.GetType().GetElementType();
+                var defaultValue = elementType.IsValueType ? Activator.CreateInstance(elementType) : null;
+                array.SetValue(defaultValue, index);
             }
             else
             {
@@ -292,6 +304,7 @@ namespace TreeNode.Runtime
             
             return result;
         }
+
         /// <summary>
         /// 获取父对象
         /// </summary>
@@ -320,10 +333,52 @@ namespace TreeNode.Runtime
             return currentObj;
         }
 
+        /// <summary>
+        /// 获取数组长度
+        /// </summary>
+        /// <param name="obj">目标对象</param>
+        /// <param name="arrayPath">数组路径</param>
+        /// <returns>数组长度，如果不是数组则返回-1</returns>
+        public static int GetArrayLength(object obj, string arrayPath)
+        {
+            try
+            {
+                var arrayObj = GetValue<object>(obj, arrayPath);
+                return arrayObj switch
+                {
+                    Array array => array.Length,
+                    ICollection collection => collection.Count,
+                    _ => -1
+                };
+            }
+            catch
+            {
+                return -1;
+            }
+        }
+
+        /// <summary>
+        /// 检查指定路径是否为数组类型
+        /// </summary>
+        /// <param name="obj">目标对象</param>
+        /// <param name="path">属性路径</param>
+        /// <returns>是否为数组类型</returns>
+        public static bool IsArrayPath(object obj, string path)
+        {
+            try
+            {
+                var targetObj = GetValue<object>(obj, path);
+                return targetObj is Array || targetObj is IList;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         #endregion
 
         #region 私有核心方法
-
 
         /// <summary>
         /// 处理值类型的设置操作
@@ -413,13 +468,134 @@ namespace TreeNode.Runtime
             var param = Expression.Parameter(typeof(object), "obj");
             var valueParam = Expression.Parameter(typeof(T), "value");
             var current = Expression.Convert(param, type);
-            var target = BuildMemberAccess(current, memberName, ref type);
+            Expression target;
+            Type targetType;
 
-            if (!typeof(T).IsAssignableFrom(type))
-                throw new InvalidCastException($"类型不匹配: 期望 {typeof(T).Name}, 实际 {type.Name}");
+            try
+            {
+                targetType = type;
+                target = BuildMemberAccess(current, memberName, ref targetType);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"无法构建成员访问表达式: 类型={type.Name}, 成员={memberName}, 错误={ex.Message}", ex);
+            }
 
-            var assignExpr = Expression.Assign(target, Expression.Convert(valueParam, type));
-            return Expression.Lambda<Action<object, T>>(assignExpr, param, valueParam).Compile();
+            // 检查是否可以写入
+            if (!CanWriteToMember(type, memberName))
+            {
+                throw new InvalidOperationException($"成员 {memberName} 在类型 {type.Name} 中为只读或不可写");
+            }
+
+            try
+            {
+                Expression valueExpression;
+                
+                // 如果目标类型与T相同或可直接赋值，直接使用
+                if (typeof(T) == targetType || typeof(T).IsAssignableFrom(targetType))
+                {
+                    valueExpression = valueParam;
+                }
+                // 如果目标类型可以从T赋值，进行转换
+                else if (targetType.IsAssignableFrom(typeof(T)))
+                {
+                    valueExpression = Expression.Convert(valueParam, targetType);
+                }
+                // 如果两者都是数值类型，尝试转换
+                else if (IsNumericType(typeof(T)) && IsNumericType(targetType))
+                {
+                    valueExpression = Expression.Convert(valueParam, targetType);
+                }
+                // 如果目标是object类型，装箱
+                else if (targetType == typeof(object))
+                {
+                    valueExpression = Expression.Convert(valueParam, typeof(object));
+                }
+                else
+                {
+                    throw new InvalidCastException($"无法将类型 {typeof(T).Name} 转换为 {targetType.Name}");
+                }
+
+                var assignExpr = Expression.Assign(target, valueExpression);
+                return Expression.Lambda<Action<object, T>>(assignExpr, param, valueParam).Compile();
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"创建Setter失败: 类型={type.Name}, 成员={memberName}, 值类型={typeof(T).Name}, 目标类型={targetType.Name}, 错误={ex.Message}", ex);
+            }
+        }
+
+        /// <summary>
+        /// 检查成员是否可写
+        /// </summary>
+        private static bool CanWriteToMember(Type type, string memberName)
+        {
+            if (IsIndexerAccess(memberName))
+            {
+                var (collectionName, _) = ParseIndexerAccess(memberName);
+                
+                if (!string.IsNullOrEmpty(collectionName))
+                {
+                    // 检查集合属性/字段
+                    var property = type.GetProperty(collectionName);
+                    if (property != null)
+                    {
+                        // 集合本身存在且索引器可写（数组或IList）
+                        return property.PropertyType.IsArray || typeof(IList).IsAssignableFrom(property.PropertyType);
+                    }
+                    
+                    var field = type.GetField(collectionName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    if (field != null && !field.IsInitOnly)
+                    {
+                        return field.FieldType.IsArray || typeof(IList).IsAssignableFrom(field.FieldType);
+                    }
+                    
+                    return false;
+                }
+                else
+                {
+                    // 直接对类型进行索引访问
+                    return type.IsArray || typeof(IList).IsAssignableFrom(type);
+                }
+            }
+            else
+            {
+                // 普通属性/字段访问
+                var property = type.GetProperty(memberName);
+                if (property != null)
+                {
+                    return property.CanWrite;
+                }
+                
+                var field = type.GetField(memberName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                return field != null && !field.IsInitOnly;
+            }
+        }
+
+        /// <summary>
+        /// 检查是否为数值类型
+        /// </summary>
+        private static bool IsNumericType(Type type)
+        {
+            if (type.IsEnum) return false;
+            
+            switch (Type.GetTypeCode(type))
+            {
+                case TypeCode.Byte:
+                case TypeCode.SByte:
+                case TypeCode.UInt16:
+                case TypeCode.UInt32:
+                case TypeCode.UInt64:
+                case TypeCode.Int16:
+                case TypeCode.Int32:
+                case TypeCode.Int64:
+                case TypeCode.Decimal:
+                case TypeCode.Double:
+                case TypeCode.Single:
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         #endregion
@@ -442,7 +618,7 @@ namespace TreeNode.Runtime
         }
 
         /// <summary>
-        /// 构建索引器访问表达式
+        /// 构建索引器访问表达式（增强Array支持）
         /// </summary>
         private static Expression BuildIndexerAccess(Expression current, string memberName, ref Type type)
         {
@@ -454,11 +630,24 @@ namespace TreeNode.Runtime
                 current = BuildPropertyOrFieldAccess(current, collectionName, ref type);
             }
 
-            // 然后访问索引器
-            var indexer = type.GetProperty("Item") 
-                ?? throw new ArgumentException($"类型 {type.Name} 不支持索引器");
-            current = Expression.MakeIndex(current, indexer, new[] { Expression.Constant(index) });
-            type = indexer.PropertyType;
+            // 优化：区分Array和普通索引器处理
+            if (type.IsArray)
+            {
+                // 对于数组类型，使用Expression.ArrayIndex优化性能
+                current = Expression.ArrayIndex(current, Expression.Constant(index));
+                type = type.GetElementType();
+            }
+            else
+            {
+                // 对于其他集合类型，使用索引器
+                var indexer = type.GetProperty("Item");
+                if (indexer == null)
+                {
+                    throw new ArgumentException($"类型 {type.Name} 不支持索引器访问");
+                }
+                current = Expression.MakeIndex(current, indexer, new[] { Expression.Constant(index) });
+                type = indexer.PropertyType;
+            }
 
             return current;
         }
@@ -560,13 +749,14 @@ namespace TreeNode.Runtime
         }
 
         /// <summary>
-        /// 创建成员元数据
+        /// 创建成员元数据（增强Array检测）
         /// </summary>
         private static MemberMetadata CreateMemberMetadata(Type type, string memberName)
         {
             PropertyInfo property = null;
             FieldInfo field = null;
             bool isIndexer = false;
+            bool isArray = false;
             string collectionName = null;
 
             if (IsIndexerAccess(memberName))
@@ -582,6 +772,15 @@ namespace TreeNode.Runtime
                     {
                         field = type.GetField(collectionName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
                     }
+                    
+                    // 检查是否为数组类型
+                    var memberType = property?.PropertyType ?? field?.FieldType;
+                    isArray = memberType?.IsArray == true;
+                }
+                else
+                {
+                    // 直接对当前对象进行索引访问
+                    isArray = type.IsArray;
                 }
             }
             else
@@ -593,7 +792,7 @@ namespace TreeNode.Runtime
                 }
             }
 
-            return new MemberMetadata(property, field, isIndexer, collectionName);
+            return new MemberMetadata(property, field, isIndexer, isArray, collectionName);
         }
 
         #endregion
@@ -621,7 +820,7 @@ namespace TreeNode.Runtime
         }
 
         /// <summary>
-        /// 验证索引器访问
+        /// 验证索引器访问（增强Array验证）
         /// </summary>
         private static bool ValidateIndexerAccess(object obj, string memberName, MemberMetadata metadata)
         {
@@ -657,14 +856,17 @@ namespace TreeNode.Runtime
 
             if (collection == null) return false;
 
-            if (collection is IList list)
-            {
-                return index >= 0 && index < list.Count;
-            }
-            else if (collectionType.IsArray && collection is Array array)
+            // 优先检查Array类型
+            if (collectionType.IsArray && collection is Array array)
             {
                 return index >= 0 && index < array.Length;
             }
+            // 然后检查IList类型
+            else if (collection is IList list)
+            {
+                return index >= 0 && index < list.Count;
+            }
+            // 最后检查是否有索引器
             else
             {
                 return collectionType.GetProperty("Item") != null;
@@ -769,8 +971,8 @@ namespace TreeNode.Runtime
                     var collection = property?.GetValue(currentObj) ?? field?.GetValue(currentObj);
                     if (collection != null)
                     {
-                        bool isCollection = typeof(IList).IsAssignableFrom(property?.PropertyType ?? field?.FieldType) || 
-                                          (property?.PropertyType ?? field?.FieldType).IsArray;
+                        var memberType = property?.PropertyType ?? field?.FieldType;
+                        bool isCollection = typeof(IList).IsAssignableFrom(memberType) || memberType.IsArray;
                         
                         if (isCollection)
                         {
@@ -871,7 +1073,7 @@ namespace TreeNode.Runtime
         }
 
         /// <summary>
-        /// 创建索引器设置表达式
+        /// 创建索引器设置表达式（增强Array支持）
         /// </summary>
         private static Expression CreateIndexerSetExpression<T>(Type structType, string memberName, 
             ParameterExpression structVariable, ParameterExpression valueParam)
@@ -885,21 +1087,41 @@ namespace TreeNode.Runtime
             if (property != null)
             {
                 var arrayAccess = Expression.Property(structVariable, property);
-                var indexAccess = Expression.MakeIndex(arrayAccess, arrayAccess.Type.GetProperty("Item"), 
-                    new[] { Expression.Constant(index) });
-                return Expression.Assign(indexAccess, Expression.Convert(valueParam, indexAccess.Type));
+                return CreateIndexAccessExpression<T>(arrayAccess, index, valueParam);
             }
             
             var field = structType.GetField(collectionName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
             if (field != null)
             {
                 var arrayAccess = Expression.Field(structVariable, field);
-                var indexAccess = Expression.MakeIndex(arrayAccess, arrayAccess.Type.GetProperty("Item"), 
-                    new[] { Expression.Constant(index) });
-                return Expression.Assign(indexAccess, Expression.Convert(valueParam, indexAccess.Type));
+                return CreateIndexAccessExpression<T>(arrayAccess, index, valueParam);
             }
             
             throw new ArgumentException($"集合成员 {collectionName} 在类型 {structType.Name} 中未找到");
+        }
+
+        /// <summary>
+        /// 创建索引访问表达式（区分Array和索引器）
+        /// </summary>
+        private static Expression CreateIndexAccessExpression<T>(Expression arrayAccess, int index, ParameterExpression valueParam)
+        {
+            if (arrayAccess.Type.IsArray)
+            {
+                // 对数组使用ArrayIndex优化
+                var indexAccess = Expression.ArrayAccess(arrayAccess, Expression.Constant(index));
+                return Expression.Assign(indexAccess, Expression.Convert(valueParam, indexAccess.Type));
+            }
+            else
+            {
+                // 对其他集合使用索引器
+                var indexer = arrayAccess.Type.GetProperty("Item");
+                if (indexer == null)
+                {
+                    throw new ArgumentException($"类型 {arrayAccess.Type.Name} 不支持索引器");
+                }
+                var indexAccess = Expression.MakeIndex(arrayAccess, indexer, new[] { Expression.Constant(index) });
+                return Expression.Assign(indexAccess, Expression.Convert(valueParam, indexAccess.Type));
+            }
         }
 
         /// <summary>

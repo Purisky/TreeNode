@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Reflection;
 using TreeNode.Runtime;
 using TreeNode.Runtime.Property.Extensions;
 using Unity.Properties;
@@ -553,10 +554,38 @@ public static class PropertyBenchmark
         {
             for (int i = 0; i < TestCount; i++)
             {
-                var value = PropertyAccessor.GetValue<object>(obj, pth);
-                if (value is int intVal)
+                try
                 {
-                    PropertyAccessor.SetValue(obj, pth, intVal + 1);
+                    var value = PropertyAccessor.GetValue<object>(obj, pth);
+                    if (value is int intVal)
+                    {
+                        PropertyAccessor.SetValue(obj, pth, intVal + 1);
+                    }
+                    else if (value is float floatVal)
+                    {
+                        PropertyAccessor.SetValue(obj, pth, floatVal + 1.0f);
+                    }
+                    else if (value is double doubleVal)
+                    {
+                        PropertyAccessor.SetValue(obj, pth, doubleVal + 1.0);
+                    }
+                    else if (value is string stringVal)
+                    {
+                        PropertyAccessor.SetValue(obj, pth, stringVal + ".");
+                    }
+                    else if (value != null)
+                    {
+                        // 对于其他类型，尝试简单的重新设置相同值
+                        PropertyAccessor.SetValue<object>(obj, pth, value);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // 记录但不中断测试
+                    if (i == 0) // 只在第一次失败时记录，避免日志泛滥
+                    {
+                        Debug.LogWarning($"PropertyAccessor写入失败 (路径: {pth}, 迭代: {i}): {ex.Message}");
+                    }
                 }
             }
         });
@@ -572,10 +601,36 @@ public static class PropertyBenchmark
                 var propertyPath = new PropertyPath(pth);
                 for (int i = 0; i < TestCount; i++)
                 {
-                    var value = PropertyContainer.GetValue<TestClass, object>((TestClass)obj, propertyPath);
-                    if (value is int intVal)
+                    try
                     {
-                        PropertyContainer.SetValue((TestClass)obj, propertyPath, intVal + 1);
+                        var value = PropertyContainer.GetValue<TestClass, object>((TestClass)obj, propertyPath);
+                        if (value is int intVal)
+                        {
+                            PropertyContainer.SetValue((TestClass)obj, propertyPath, intVal + 1);
+                        }
+                        else if (value is float floatVal)
+                        {
+                            PropertyContainer.SetValue((TestClass)obj, propertyPath, floatVal + 1.0f);
+                        }
+                        else if (value is double doubleVal)
+                        {
+                            PropertyContainer.SetValue((TestClass)obj, propertyPath, doubleVal + 1.0);
+                        }
+                        else if (value is string stringVal)
+                        {
+                            PropertyContainer.SetValue((TestClass)obj, propertyPath, stringVal + ".");
+                        }
+                        else if (value != null)
+                        {
+                            PropertyContainer.SetValue((TestClass)obj, propertyPath, value);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        if (i == 0)
+                        {
+                            Debug.LogWarning($"PropertyContainer写入失败 (路径: {pth}, 迭代: {i}): {ex.Message}");
+                        }
                     }
                 }
             });
@@ -586,10 +641,36 @@ public static class PropertyBenchmark
         {
             for (int i = 0; i < TestCount; i++)
             {
-                var value = ((TestClass)obj).GetValueOrDefault<object>(pth, null);
-                if (value is int intVal)
+                try
                 {
-                    ((TestClass)obj).TrySetValue(pth, intVal + 1);
+                    var value = ((TestClass)obj).GetValueOrDefault<object>(pth, null);
+                    if (value is int intVal)
+                    {
+                        ((TestClass)obj).TrySetValue(pth, intVal + 1);
+                    }
+                    else if (value is float floatVal)
+                    {
+                        ((TestClass)obj).TrySetValue(pth, floatVal + 1.0f);
+                    }
+                    else if (value is double doubleVal)
+                    {
+                        ((TestClass)obj).TrySetValue(pth, doubleVal + 1.0);
+                    }
+                    else if (value is string stringVal)
+                    {
+                        ((TestClass)obj).TrySetValue(pth, stringVal + ".");
+                    }
+                    else if (value != null)
+                    {
+                        ((TestClass)obj).TrySetValue(pth, value);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    if (i == 0)
+                    {
+                        Debug.LogWarning($"扩展方法写入失败 (路径: {pth}, 迭代: {i}): {ex.Message}");
+                    }
                 }
             }
         });
@@ -801,6 +882,187 @@ public static class PropertyBenchmark
         }
         
         Debug.Log(result);
+    }
+
+    /// <summary>
+    /// 诊断写入问题的辅助方法
+    /// </summary>
+    public static void DiagnoseWriteIssues()
+    {
+        Debug.Log("=== PropertyAccessor 写入问题诊断 ===");
+        
+        try
+        {
+            var testObj = SafeCreateTestObject();
+            if (testObj == null)
+            {
+                Debug.LogError("无法创建测试对象");
+                return;
+            }
+
+            var testPaths = new[]
+            {
+                "PropertyValue",
+                "FieldValue",
+                "Name",
+                "Array[0]",
+                "Items[0].PropertyValue",
+                "Child.PropertyValue",
+                "StructField.StructValue"
+            };
+
+            foreach (var path in testPaths)
+            {
+                DiagnosePath(testObj, path);
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"诊断过程中发生异常: {ex.Message}");
+        }
+        
+        Debug.Log("=== 诊断完成 ===");
+    }
+
+    /// <summary>
+    /// 诊断单个路径的写入问题
+    /// </summary>
+    private static void DiagnosePath(object testObj, string path)
+    {
+        Debug.Log($"--- 诊断路径: {path} ---");
+        
+        try
+        {
+            // 1. 检查路径有效性
+            if (!SafeIsPathValid(testObj, path))
+            {
+                Debug.LogWarning($"  路径无效: {path}");
+                return;
+            }
+
+            // 2. 尝试读取当前值
+            object currentValue;
+            try
+            {
+                currentValue = PropertyAccessor.GetValue<object>(testObj, path);
+                Debug.Log($"  当前值: {currentValue} (类型: {currentValue?.GetType().Name ?? "null"})");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"  读取失败: {ex.Message}");
+                return;
+            }
+
+            // 3. 检查写入权限
+            var parent = PropertyAccessor.GetParentObject(testObj, path, out var lastMember);
+            var parentType = parent.GetType();
+            
+            if (IsIndexerAccess(lastMember))
+            {
+                var (collectionName, index) = ParseIndexerAccess(lastMember);
+                if (!string.IsNullOrEmpty(collectionName))
+                {
+                    var collectionMember = parentType.GetProperty(collectionName) ?? 
+                                          (MemberInfo)parentType.GetField(collectionName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    if (collectionMember == null)
+                    {
+                        Debug.LogWarning($"  集合成员不存在: {collectionName}");
+                        return;
+                    }
+                    Debug.Log($"  集合成员: {collectionName} (类型: {collectionMember.GetValueType().Name})");
+                }
+            }
+            else
+            {
+                var member = parentType.GetProperty(lastMember) ?? 
+                           (MemberInfo)parentType.GetField(lastMember, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (member == null)
+                {
+                    Debug.LogWarning($"  成员不存在: {lastMember}");
+                    return;
+                }
+                
+                bool canWrite = member is PropertyInfo prop ? prop.CanWrite : 
+                               member is FieldInfo field ? !field.IsInitOnly : false;
+                Debug.Log($"  成员: {lastMember} (类型: {member.GetValueType().Name}, 可写: {canWrite})");
+                
+                if (!canWrite)
+                {
+                    Debug.LogWarning($"  成员为只读: {lastMember}");
+                    return;
+                }
+            }
+
+            // 4. 尝试写入测试
+            try
+            {
+                object testValue = currentValue switch
+                {
+                    int intVal => intVal + 1,
+                    float floatVal => floatVal + 1.0f,
+                    double doubleVal => doubleVal + 1.0,
+                    string stringVal => stringVal + "_test",
+                    bool boolVal => !boolVal,
+                    _ => currentValue
+                };
+
+                PropertyAccessor.SetValue<object>(testObj, path, testValue);
+                Debug.Log($"  ✓ 写入成功: {testValue}");
+
+                // 验证写入结果
+                var newValue = PropertyAccessor.GetValue<object>(testObj, path);
+                if (Equals(newValue, testValue))
+                {
+                    Debug.Log($"  ✓ 验证成功: 值已正确更新");
+                }
+                else
+                {
+                    Debug.LogWarning($"  ⚠ 验证失败: 期望{testValue}, 实际{newValue}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"  ✗ 写入失败: {ex.Message}");
+                Debug.LogError($"  异常详情: {ex}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"  诊断异常: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 解析索引器访问（从PropertyAccessor复制）
+    /// </summary>
+    private static (string collectionName, int index) ParseIndexerAccess(string memberName)
+    {
+        int bracketStart = memberName.IndexOf('[');
+        int bracketEnd = memberName.IndexOf(']');
+        
+        string collectionName = memberName[..bracketStart];
+        int index = int.Parse(memberName.Substring(bracketStart + 1, bracketEnd - bracketStart - 1));
+        
+        return (collectionName, index);
+    }
+
+    /// <summary>
+    /// 检查是否为索引器访问（从PropertyAccessor复制）
+    /// </summary>
+    private static bool IsIndexerAccess(string memberName) =>
+        memberName.EndsWith("]");
+    
+    /// <summary>
+    /// 获取成员的值类型
+    /// </summary>
+    private static Type GetValueType(this MemberInfo member)
+    {
+        return member switch
+        {
+            PropertyInfo property => property.PropertyType,
+            FieldInfo field => field.FieldType,
+            _ => throw new ArgumentException($"不支持的成员类型: {member.GetType().Name}")
+        };
     }
 
     /// <summary>
