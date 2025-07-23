@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Linq.Expressions;
 using TreeNode.Runtime;
 using TreeNode.Runtime.Property.Extensions;
 using Unity.Properties;
@@ -11,1317 +10,848 @@ using Debug = UnityEngine.Debug;
 
 /// <summary>
 /// PropertyAccessor 性能基准测试工具
-/// 提供静态方法进行各种PropertyAccessor和PropertyContainer功能的性能测试
+/// 专注于PropertyAccessor和PropertyContainer之间的性能对比测试
 /// </summary>
 public static class PropertyBenchmark
 {
-    private const int WarmupCount = 100;
-    private const int TestCount = 1000;
-    private const int MinDepth = 3; // 降低最小深度避免过深路径问题
-    private const int MaxDepth = 6;  // 降低最大深度
+    #region 测试配置
 
-    // 复杂测试数据结构
+    private const int WarmupCount = 1000;
+    private const int TestCount = 10000;
+    private const int MinDepth = 1;
+    private const int MaxDepth = 5;
+    private const int HeavyTestCount = 100000; // 用于重型测试
+
+    #endregion
+
+    #region 测试状态跟踪
+
+    private static int totalTests = 0;
+    private static int successfulTests = 0;
+    private static int failedTests = 0;
+    private static List<string> testErrors = new List<string>();
+
+    #endregion
+
+    #region 测试数据结构
+
     private struct TestStruct
     {
         public int StructValue;
         public string StructName;
         public Vector3 Position;
-        public TestClass NestedClass;
     }
 
     private class TestClass
     {
-        // 属性 (Property)
         public TestClass Child { get; set; }
         public int PropertyValue { get; set; }
         public string Name { get; set; }
-        
-        // 字段 (Field)
         public int FieldValue;
         public TestStruct StructField;
-        
-        // 集合类型
         public List<TestClass> Items { get; set; }
         public int[] Array { get; set; }
         public TestClass[] ClassArray { get; set; }
         public Dictionary<string, TestClass> Dictionary { get; set; }
         public Dictionary<int, string> SimpleDict { get; set; }
-        
-        // 嵌套复杂类型
-        public TestComplexData ComplexData { get; set; }
-        
-        // 只读属性
-        public int ReadOnlyProperty => PropertyValue * 2;
-        
-        // 私有字段
-        private string privateField = "private";
-        public string GetPrivateField() => privateField;
-        public void SetPrivateField(string value) => privateField = value;
     }
 
-    private class TestComplexData
-    {
-        public Matrix4x4 Matrix { get; set; }
-        public Color[] Colors { get; set; }
-        public Dictionary<string, Dictionary<int, TestStruct>> NestedDict { get; set; }
-        public List<TestStruct[]> StructArrayList { get; set; }
-    }
+    #endregion
+
+    #region 公共API
 
     /// <summary>
     /// 运行完整的性能基准测试套件
     /// </summary>
-    public static void RunAllTests()
+    public static void RunAllPerformanceTests()
     {
-        Debug.Log("=== PropertyAccessor 全面性能基准测试开始 ===");
+        InitializeTestSession();
+        Debug.Log("=== PropertyAccessor vs PropertyContainer 性能基准测试 ===");
         
-        // 预热
-        var testObj = CreateComplexTestObject();
-        Debug.Log("--- 功能预验证阶段 ---");
-        PreValidateFeatures(testObj);
-        
-        RunBasicPerformanceTest(MinDepth, true);
-        
-        // 基础性能测试
-        Debug.Log("--- 基础嵌套深度性能测试 ---");
-        for (int depth = MinDepth; depth <= MaxDepth; depth++)
+        try
         {
-            RunBasicPerformanceTest(depth);
+            // 1. 基础性能测试
+            SafeExecuteTest("基础性能对比", RunBasicPerformanceComparison);
+            
+            // 2. 嵌套深度性能测试
+            SafeExecuteTest("嵌套深度性能对比", RunNestedDepthComparison);
+            
+            // 3. 不同访问类型性能测试
+            SafeExecuteTest("访问类型性能对比", RunAccessTypeComparison);
+            
+            // 4. 集合访问性能测试
+            SafeExecuteTest("集合访问性能对比", RunCollectionPerformanceComparison);
+            
+            // 5. 缓存效果测试
+            SafeExecuteTest("缓存效果测试", RunCachePerformanceTest);
+            
+            // 6. 大数据量测试
+            SafeExecuteTest("大数据量测试", RunBulkOperationTest);
         }
-
-        // 字段 vs 属性性能测试
-        Debug.Log("--- 字段 vs 属性性能对比 ---");
-        RunFieldVsPropertyTest();
-
-        // 结构体性能测试
-        Debug.Log("--- 结构体访问性能测试 ---");
-        RunStructTest();
-
-        // 集合类型性能测试
-        Debug.Log("--- 集合类型性能测试 ---");
-        RunCollectionTests();
-
-        // 字典性能测试
-        Debug.Log("--- 字典访问性能测试 ---");
-        RunDictionaryTests();
-
-        // 复杂路径性能测试
-        Debug.Log("--- 复杂路径性能测试 ---");
-        RunComplexPathTests();
-
-        // PropertyContainer专项测试
-        Debug.Log("--- PropertyContainer专项测试 ---");
-        RunPropertyContainerTests();
-
-        // 扩展方法功能测试
-        Debug.Log("--- 扩展方法功能测试 ---");
-        TestNewExtensions();
-
-        // 缓存效果测试
-        Debug.Log("--- 缓存效果测试 ---");
-        RunCacheEffectivenessTest();
-
-        // 异常处理性能测试
-        Debug.Log("--- 异常路径性能测试 ---");
-        RunExceptionPathTests();
+        finally
+        {
+            LogTestSummary();
+        }
 
         Debug.Log("=== 所有性能测试完成 ===");
     }
 
     /// <summary>
-    /// 运行快速验证测试（仅验证功能可用性）
+    /// 运行快速性能验证
     /// </summary>
-    public static void RunQuickValidation()
+    public static void RunQuickPerformanceTest()
     {
-        Debug.Log("=== PropertyAccessor 快速功能验证 ===");
-        var testObj = CreateComplexTestObject();
-        PreValidateFeatures(testObj);
+        InitializeTestSession();
+        Debug.Log("=== 快速性能验证测试 ===");
+        
+        try
+        {
+            var testObj = SafeCreateTestObject();
+            if (testObj == null)
+            {
+                Debug.LogError("无法创建测试对象，快速验证终止");
+                return;
+            }
+            
+            // 快速验证两个系统的基础功能
+            SafeExecuteTest("基础功能验证", () => ValidateBasicFunctionality(testObj));
+            
+            // 简单性能对比
+            SafeExecuteTest("简单性能对比", () => RunSimplePerformanceComparison(testObj));
+        }
+        finally
+        {
+            LogTestSummary();
+        }
+        
         Debug.Log("=== 快速验证完成 ===");
     }
 
     /// <summary>
-    /// 运行特定的性能测试
+    /// 运行指定类型的性能测试
     /// </summary>
-    /// <param name="testType">测试类型</param>
-    public static void RunSpecificTest(BenchmarkTestType testType)
+    public static void RunSpecificPerformanceTest(PerformanceTestType testType)
     {
-        var testObj = CreateComplexTestObject();
+        InitializeTestSession();
         
-        switch (testType)
+        try
         {
-            case BenchmarkTestType.BasicPerformance:
-                Debug.Log("--- 基础性能测试 ---");
-                for (int depth = MinDepth; depth <= MaxDepth; depth++)
-                {
-                    RunBasicPerformanceTest(depth);
-                }
-                break;
-                
-            case BenchmarkTestType.FieldVsProperty:
-                Debug.Log("--- 字段 vs 属性测试 ---");
-                RunFieldVsPropertyTest();
-                break;
-                
-            case BenchmarkTestType.StructAccess:
-                Debug.Log("--- 结构体访问测试 ---");
-                RunStructTest();
-                break;
-                
-            case BenchmarkTestType.Collections:
-                Debug.Log("--- 集合访问测试 ---");
-                RunCollectionTests();
-                break;
-                
-            case BenchmarkTestType.Dictionary:
-                Debug.Log("--- 字典访问测试 ---");
-                RunDictionaryTests();
-                break;
-                
-            case BenchmarkTestType.PropertyContainer:
-                Debug.Log("--- PropertyContainer测试 ---");
-                RunPropertyContainerTests();
-                break;
-                
-            case BenchmarkTestType.Extensions:
-                Debug.Log("--- 扩展方法测试 ---");
-                TestNewExtensions();
-                break;
-                
-            case BenchmarkTestType.Cache:
-                Debug.Log("--- 缓存效果测试 ---");
-                RunCacheEffectivenessTest();
-                break;
-                
-            case BenchmarkTestType.Validation:
-                Debug.Log("--- 功能验证测试 ---");
-                PreValidateFeatures(testObj);
-                break;
+            string testName = testType.ToString();
+            Action testAction = testType switch
+            {
+                PerformanceTestType.BasicComparison => RunBasicPerformanceComparison,
+                PerformanceTestType.NestedDepth => RunNestedDepthComparison,
+                PerformanceTestType.AccessTypes => RunAccessTypeComparison,
+                PerformanceTestType.Collections => RunCollectionPerformanceComparison,
+                PerformanceTestType.Cache => RunCachePerformanceTest,
+                PerformanceTestType.BulkOperations => RunBulkOperationTest,
+                _ => () => Debug.LogWarning($"未知的测试类型: {testType}")
+            };
+            
+            SafeExecuteTest(testName, testAction);
+        }
+        finally
+        {
+            LogTestSummary();
         }
     }
 
-    /// <summary>
-    /// 测试类型枚举
-    /// </summary>
-    public enum BenchmarkTestType
+    public enum PerformanceTestType
     {
-        BasicPerformance,
-        FieldVsProperty,
-        StructAccess,
+        BasicComparison,
+        NestedDepth,
+        AccessTypes,
         Collections,
-        Dictionary,
-        PropertyContainer,
-        Extensions,
         Cache,
-        Validation
+        BulkOperations
+    }
+
+    #endregion
+
+    #region 安全执行包装器
+
+    /// <summary>
+    /// 初始化测试会话
+    /// </summary>
+    private static void InitializeTestSession()
+    {
+        totalTests = 0;
+        successfulTests = 0;
+        failedTests = 0;
+        testErrors.Clear();
     }
 
     /// <summary>
-    /// 预验证各种功能的可用性
+    /// 安全执行测试
     /// </summary>
-    private static void PreValidateFeatures(TestClass testObj)
+    private static void SafeExecuteTest(string testName, Action testAction)
     {
-        var validationResults = new List<(string feature, bool supported, string reason)>();
+        totalTests++;
+        try
+        {
+            testAction?.Invoke();
+            successfulTests++;
+        }
+        catch (Exception ex)
+        {
+            failedTests++;
+            string errorMsg = $"{testName}测试失败: {ex.Message}";
+            testErrors.Add(errorMsg);
+            Debug.LogError(errorMsg);
+            Debug.LogException(ex);
+        }
+    }
 
-        // 验证PropertyAccessor基础功能
-        validationResults.Add(ValidateBasicAccess(testObj));
-        validationResults.Add(ValidateStructAccess(testObj));
-        validationResults.Add(ValidateCollectionAccess(testObj));
-        validationResults.Add(ValidateDictionaryAccess(testObj));
-        validationResults.Add(ValidateExtensionMethods(testObj));
+    /// <summary>
+    /// 安全创建测试对象
+    /// </summary>
+    private static TestClass SafeCreateTestObject()
+    {
+        try
+        {
+            return CreateTestObject();
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"创建测试对象失败: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 记录测试总结
+    /// </summary>
+    private static void LogTestSummary()
+    {
+        Debug.Log($"=== 测试会话总结 ===");
+        Debug.Log($"总测试数: {totalTests}, 成功: {successfulTests}, 失败: {failedTests}");
         
-        // 验证PropertyContainer功能
-        validationResults.Add(ValidatePropertyContainer(testObj));
-        validationResults.Add(ValidatePropertyContainerAdvanced(testObj));
-
-        // 输出验证结果
-        Debug.Log("\n=== 功能支持检测结果 ===");
-        foreach (var (feature, supported, reason) in validationResults)
+        if (testErrors.Count > 0)
         {
-            string status = supported ? "✓ 支持" : "✗ 不支持";
-            Debug.Log($"{status} - {feature}: {reason}");
+            Debug.LogWarning($"失败的测试错误列表:");
+            foreach (var error in testErrors)
+            {
+                Debug.LogWarning($"  - {error}");
+            }
         }
-        Debug.Log("========================\n");
     }
 
+    #endregion
+
+    #region 核心性能测试
+
     /// <summary>
-    /// 验证基础访问功能
+    /// 基础性能对比测试
     /// </summary>
-    private static (string, bool, string) ValidateBasicAccess(TestClass testObj)
+    private static void RunBasicPerformanceComparison()
     {
-        try
+        Debug.Log("--- 基础性能对比测试 ---");
+        var testObj = SafeCreateTestObject();
+        if (testObj == null) return;
+        
+        var testScenarios = new[]
         {
-            // 测试读取
-            int value = PropertyAccessor.GetValue<int>(testObj, "PropertyValue");
-            
-            // 测试写入
-            PropertyAccessor.SetValue(testObj, "PropertyValue", value + 1);
-            
-            // 验证写入成功
-            int newValue = PropertyAccessor.GetValue<int>(testObj, "PropertyValue");
-            
-            if (newValue == value + 1)
-            {
-                return ("PropertyAccessor基础访问", true, "读写操作正常");
-            }
-            else
-            {
-                return ("PropertyAccessor基础访问", false, "写入操作失败");
-            }
-        }
-        catch (Exception ex)
+            ("简单属性访问", "PropertyValue"),
+            ("字段访问", "FieldValue"),
+            ("字符串属性", "Name"),
+            ("嵌套属性", "Child.PropertyValue")
+        };
+
+        foreach (var (testName, path) in testScenarios)
         {
-            return ("PropertyAccessor基础访问", false, $"异常: {ex.Message}");
+            SafeExecuteTest($"基础性能-{testName}", () => PerformAccessorVsContainerTest(testObj, path, testName));
         }
     }
 
     /// <summary>
-    /// 验证结构体访问功能
+    /// 嵌套深度性能对比
     /// </summary>
-    private static (string, bool, string) ValidateStructAccess(TestClass testObj)
+    private static void RunNestedDepthComparison()
     {
-        try
+        Debug.Log("--- 嵌套深度性能对比 ---");
+        
+        for (int depth = MinDepth; depth <= MaxDepth; depth++)
         {
-            // 测试读取结构体字段
-            int value = PropertyAccessor.GetValue<int>(testObj, "StructField.StructValue");
-            
-            // 测试写入结构体字段
-            PropertyAccessor.SetValue(testObj, "StructField.StructValue", value + 1);
-            
-            // 验证写入成功
-            int newValue = PropertyAccessor.GetValue<int>(testObj, "StructField.StructValue");
-            
-            if (newValue == value + 1)
+            int currentDepth = depth; // 避免闭包问题
+            SafeExecuteTest($"嵌套深度-{currentDepth}", () => 
             {
-                return ("PropertyAccessor结构体访问", true, "结构体字段读写正常");
-            }
-            else
-            {
-                return ("PropertyAccessor结构体访问", false, "结构体字段写入失败");
-            }
-        }
-        catch (Exception ex)
-        {
-            return ("PropertyAccessor结构体访问", false, $"异常: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// 验证集合访问功能
-    /// </summary>
-    private static (string, bool, string) ValidateCollectionAccess(TestClass testObj)
-    {
-        try
-        {
-            // 测试List索引访问
-            if (testObj.Items.Count > 0)
-            {
-                int value = PropertyAccessor.GetValue<int>(testObj, "Items[0].PropertyValue");
-                PropertyAccessor.SetValue(testObj, "Items[0].PropertyValue", value + 1);
-                int newValue = PropertyAccessor.GetValue<int>(testObj, "Items[0].PropertyValue");
+                var testObj = CreateNestedObject(currentDepth);
+                string path = GetPropertyPath(currentDepth);
                 
-                if (newValue != value + 1)
+                if (SafeIsPathValid(testObj, path))
                 {
-                    return ("PropertyAccessor集合访问", false, "List索引写入失败");
-                }
-            }
-            
-            // 测试数组索引访问
-            if (testObj.Array.Length > 0)
-            {
-                int value = PropertyAccessor.GetValue<int>(testObj, "Array[0]");
-                PropertyAccessor.SetValue(testObj, "Array[0]", value + 1);
-                int newValue = PropertyAccessor.GetValue<int>(testObj, "Array[0]");
-                
-                if (newValue != value + 1)
-                {
-                    return ("PropertyAccessor集合访问", false, "数组索引写入失败");
-                }
-            }
-            
-            return ("PropertyAccessor集合访问", true, "List和数组索引读写正常");
-        }
-        catch (Exception ex)
-        {
-            return ("PropertyAccessor集合访问", false, $"异常: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// 验证字典访问功能
-    /// </summary>
-    private static (string, bool, string) ValidateDictionaryAccess(TestClass testObj)
-    {
-        try
-        {
-            // 测试字典访问
-            string value = PropertyAccessor.GetValue<string>(testObj, "SimpleDict[1]");
-            PropertyAccessor.SetValue(testObj, "SimpleDict[1]", "test_validation");
-            string newValue = PropertyAccessor.GetValue<string>(testObj, "SimpleDict[1]");
-            
-            if (newValue == "test_validation")
-            {
-                return ("PropertyAccessor字典访问", true, "字典读写正常");
-            }
-            else
-            {
-                return ("PropertyAccessor字典访问", false, "字典写入失败");
-            }
-        }
-        catch (Exception ex)
-        {
-            return ("PropertyAccessor字典访问", false, $"不支持或异常: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// 验证扩展方法功能
-    /// </summary>
-    private static (string, bool, string) ValidateExtensionMethods(TestClass testObj)
-    {
-        try
-        {
-            // 测试安全访问方法
-            int value = testObj.GetValueOrDefault<int>("PropertyValue", -1);
-            bool setSuccess = testObj.TrySetValue("PropertyValue", value + 1);
-            bool hasPath = testObj.HasPath("PropertyValue");
-            
-            if (value != -1 && setSuccess && hasPath)
-            {
-                return ("PropertyAccessor扩展方法", true, "安全访问、设置、路径检查正常");
-            }
-            else
-            {
-                return ("PropertyAccessor扩展方法", false, $"部分功能失败: value={value}, setSuccess={setSuccess}, hasPath={hasPath}");
-            }
-        }
-        catch (Exception ex)
-        {
-            return ("PropertyAccessor扩展方法", false, $"异常: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// 验证PropertyContainer基础功能
-    /// </summary>
-    private static (string, bool, string) ValidatePropertyContainer(TestClass testObj)
-    {
-        try
-        {
-            PropertyPath propertyPath = new PropertyPath("PropertyValue");
-            int value = PropertyContainer.GetValue<TestClass, int>(testObj, propertyPath);
-            PropertyContainer.SetValue(testObj, propertyPath, value + 1);
-            int newValue = PropertyContainer.GetValue<TestClass, int>(testObj, propertyPath);
-            
-            if (newValue == value + 1)
-            {
-                return ("PropertyContainer基础访问", true, "Unity PropertyContainer读写正常");
-            }
-            else
-            {
-                return ("PropertyContainer基础访问", false, "PropertyContainer写入失败");
-            }
-        }
-        catch (Exception ex)
-        {
-            return ("PropertyContainer基础访问", false, $"异常: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// 验证PropertyContainer高级功能
-    /// </summary>
-    private static (string, bool, string) ValidatePropertyContainerAdvanced(TestClass testObj)
-    {
-        var supportedFeatures = new List<string>();
-        var failedFeatures = new List<string>();
-
-        // 测试嵌套路径访问
-        try
-        {
-            PropertyPath nestedPath = new PropertyPath("Child.PropertyValue");
-            int value = PropertyContainer.GetValue<TestClass, int>(testObj, nestedPath);
-            PropertyContainer.SetValue(testObj, nestedPath, value + 1);
-            int newValue = PropertyContainer.GetValue<TestClass, int>(testObj, nestedPath);
-            
-            if (newValue == value + 1)
-            {
-                supportedFeatures.Add("嵌套路径");
-            }
-            else
-            {
-                failedFeatures.Add("嵌套路径写入失败");
-            }
-        }
-        catch
-        {
-            failedFeatures.Add("嵌套路径异常");
-        }
-
-        // 测试字段访问
-        try
-        {
-            PropertyPath fieldPath = new PropertyPath("FieldValue");
-            int value = PropertyContainer.GetValue<TestClass, int>(testObj, fieldPath);
-            PropertyContainer.SetValue(testObj, fieldPath, value + 1);
-            int newValue = PropertyContainer.GetValue<TestClass, int>(testObj, fieldPath);
-            
-            if (newValue == value + 1)
-            {
-                supportedFeatures.Add("字段访问");
-            }
-            else
-            {
-                failedFeatures.Add("字段访问写入失败");
-            }
-        }
-        catch
-        {
-            failedFeatures.Add("字段访问异常");
-        }
-
-        // 测试结构体访问
-        try
-        {
-            PropertyPath structPath = new PropertyPath("StructField.StructValue");
-            int value = PropertyContainer.GetValue<TestClass, int>(testObj, structPath);
-            PropertyContainer.SetValue(testObj, structPath, value + 1);
-            int newValue = PropertyContainer.GetValue<TestClass, int>(testObj, structPath);
-            
-            if (newValue == value + 1)
-            {
-                supportedFeatures.Add("结构体字段");
-            }
-            else
-            {
-                failedFeatures.Add("结构体字段写入失败");
-            }
-        }
-        catch
-        {
-            failedFeatures.Add("结构体字段异常");
-        }
-
-        // 测试集合访问
-        try
-        {
-            PropertyPath collectionPath = new PropertyPath("Items[0].PropertyValue");
-            int value = PropertyContainer.GetValue<TestClass, int>(testObj, collectionPath);
-            PropertyContainer.SetValue(testObj, collectionPath, value + 1);
-            int newValue = PropertyContainer.GetValue<TestClass, int>(testObj, collectionPath);
-            
-            if (newValue == value + 1)
-            {
-                supportedFeatures.Add("集合索引");
-            }
-            else
-            {
-                failedFeatures.Add("集合索引写入失败");
-            }
-        }
-        catch
-        {
-            failedFeatures.Add("集合索引异常");
-        }
-
-        // 测试数组访问
-        try
-        {
-            PropertyPath arrayPath = new PropertyPath("Array[0]");
-            int value = PropertyContainer.GetValue<TestClass, int>(testObj, arrayPath);
-            PropertyContainer.SetValue(testObj, arrayPath, value + 1);
-            int newValue = PropertyContainer.GetValue<TestClass, int>(testObj, arrayPath);
-            
-            if (newValue == value + 1)
-            {
-                supportedFeatures.Add("数组索引");
-            }
-            else
-            {
-                failedFeatures.Add("数组索引写入失败");
-            }
-        }
-        catch
-        {
-            failedFeatures.Add("数组索引异常");
-        }
-
-        // 汇总结果
-        bool hasAnySupport = supportedFeatures.Count > 0;
-        string details = "";
-        
-        if (supportedFeatures.Count > 0)
-        {
-            details += $"支持: {string.Join(", ", supportedFeatures)}";
-        }
-        
-        if (failedFeatures.Count > 0)
-        {
-            if (details.Length > 0) details += "; ";
-            details += $"不支持: {string.Join(", ", failedFeatures)}";
-        }
-
-        return ("PropertyContainer高级功能", hasAnySupport, details);
-    }
-
-    /// <summary>
-    /// 基础性能测试 - 添加路径验证和PropertyContainer检测
-    /// </summary>
-    private static void RunBasicPerformanceTest(int depth, bool warmup = false)
-    {
-        var root = CreateNestedObject(depth);
-        string path = GetPropertyPath(depth);
-        
-        // 先验证路径是否有效
-        if (!root.HasPath(path))
-        {
-            Debug.LogWarning($"深度{depth}的路径无效，跳过测试: {path}");
-            return;
-        }
-
-        // 检测PropertyContainer对该路径的支持
-        bool propertyContainerSupported = false;
-        try
-        {
-            PropertyPath propertyPath = new PropertyPath(path);
-            int testValue = PropertyContainer.GetValue<TestClass, int>(root, propertyPath);
-            PropertyContainer.SetValue(root, propertyPath, testValue + 1);
-            int newTestValue = PropertyContainer.GetValue<TestClass, int>(root, propertyPath);
-            propertyContainerSupported = (newTestValue == testValue + 1);
-            
-            // 恢复原值
-            PropertyContainer.SetValue(root, propertyPath, testValue);
-        }
-        catch (Exception ex)
-        {
-            if (!warmup)
-            {
-                Debug.LogWarning($"PropertyContainer不支持深度{depth}路径: {ex.Message}");
-            }
-        }
-
-        try
-        {
-            // 测试PropertyAccessor
-            var sw = Stopwatch.StartNew();
-            for (int i = 0; i < (warmup ? WarmupCount : TestCount); i++)
-            {
-                int value = PropertyAccessor.GetValue<int>(root, path);
-                value++;
-                PropertyAccessor.SetValue(root, path, value);
-            }
-            PropertyAccessor.SetValue(root, path, 0);
-            sw.Stop();
-            var accessorTime = sw.ElapsedTicks;
-
-            long containerTime = 0;
-            // 测试PropertyContainer（仅在支持时）
-            if (propertyContainerSupported)
-            {
-                sw.Restart();
-                PropertyPath propertyPath = new PropertyPath(path);
-                for (int i = 0; i < (warmup ? WarmupCount : TestCount); i++)
-                {
-                    int value = PropertyContainer.GetValue<TestClass,int>(root, propertyPath);
-                    value++;
-                    PropertyContainer.SetValue(root, propertyPath, value);
-                }
-                sw.Stop();
-                containerTime = sw.ElapsedTicks;
-            }
-
-            // 测试扩展方法性能
-            sw.Restart();
-            for (int i = 0; i < (warmup ? WarmupCount : TestCount); i++)
-            {
-                int value = root.GetValueOrDefault<int>(path, 0);
-                value++;
-                root.TrySetValue(path, value);
-            }
-            sw.Stop();
-            var extensionTime = sw.ElapsedTicks;
-
-            if (!warmup)
-            {
-                if (propertyContainerSupported)
-                {
-                    float rate1 = (float)accessorTime / containerTime;
-                    float rate2 = (float)extensionTime / accessorTime;
-                    Debug.Log($"深度{depth}: PropertyAccessor={accessorTime}ticks, PropertyContainer={containerTime}ticks, 扩展方法={extensionTime}ticks");
-                    Debug.Log($"  比率 -> PA/PC: {rate1:F2}x, 扩展/PA: {rate2:F2}x");
+                    PerformAccessorVsContainerTest(testObj, path, $"深度{currentDepth}");
                 }
                 else
                 {
-                    float rate2 = (float)extensionTime / accessorTime;
-                    Debug.Log($"深度{depth}: PropertyAccessor={accessorTime}ticks, PropertyContainer=不支持, 扩展方法={extensionTime}ticks");
-                    Debug.Log($"  比率 -> 扩展/PA: {rate2:F2}x");
+                    Debug.LogWarning($"深度{currentDepth}路径无效: {path}");
                 }
-            }
-        }
-        catch (Exception ex)
-        {
-            Debug.LogError($"深度{depth}测试失败: {ex.Message}");
+            });
         }
     }
 
     /// <summary>
-    /// 字段 vs 属性性能对比测试 - 添加预验证
+    /// 访问类型性能对比
     /// </summary>
-    private static void RunFieldVsPropertyTest()
+    private static void RunAccessTypeComparison()
     {
-        var testObj = CreateComplexTestObject();
+        Debug.Log("--- 访问类型性能对比 ---");
+        var testObj = SafeCreateTestObject();
+        if (testObj == null) return;
         
-        // 预验证路径
-        var testPaths = new[] { "PropertyValue", "FieldValue", "Child.PropertyValue", "Child.FieldValue" };
-        var validPaths = testPaths.Where(path => testObj.HasPath(path)).ToList();
-        
-        Debug.Log($"有效测试路径: {string.Join(", ", validPaths)}");
-        
-        if (!validPaths.Contains("PropertyValue"))
+        var accessTypes = new Dictionary<string, string>
         {
-            Debug.LogWarning("属性访问测试路径无效，跳过属性测试");
-            return;
-        }
-
-        try
-        {
-            // 测试属性访问
-            var sw = Stopwatch.StartNew();
-            for (int i = 0; i < TestCount; i++)
-            {
-                int value = PropertyAccessor.GetValue<int>(testObj, "PropertyValue");
-                PropertyAccessor.SetValue(testObj, "PropertyValue", value + 1);
-            }
-            sw.Stop();
-            var propertyTime = sw.ElapsedTicks;
-
-            // 测试字段访问
-            sw.Restart();
-            for (int i = 0; i < TestCount; i++)
-            {
-                int value = PropertyAccessor.GetValue<int>(testObj, "FieldValue");
-                PropertyAccessor.SetValue(testObj, "FieldValue", value + 1);
-            }
-            sw.Stop();
-            var fieldTime = sw.ElapsedTicks;
-
-            // 测试嵌套属性访问
-            long nestedPropertyTime = 0;
-            if (validPaths.Contains("Child.PropertyValue"))
-            {
-                sw.Restart();
-                for (int i = 0; i < TestCount; i++)
-                {
-                    int value = PropertyAccessor.GetValue<int>(testObj, "Child.PropertyValue");
-                    PropertyAccessor.SetValue(testObj, "Child.PropertyValue", value + 1);
-                }
-                sw.Stop();
-                nestedPropertyTime = sw.ElapsedTicks;
-            }
-
-            // 测试嵌套字段访问
-            long nestedFieldTime = 0;
-            if (validPaths.Contains("Child.FieldValue"))
-            {
-                sw.Restart();
-                for (int i = 0; i < TestCount; i++)
-                {
-                    int value = PropertyAccessor.GetValue<int>(testObj, "Child.FieldValue");
-                    PropertyAccessor.SetValue(testObj, "Child.FieldValue", value + 1);
-                }
-                sw.Stop();
-                nestedFieldTime = sw.ElapsedTicks;
-            }
-
-            Debug.Log($"属性访问: {propertyTime}ticks, 字段访问: {fieldTime}ticks (字段/属性: {(float)fieldTime/propertyTime:F2}x)");
-            
-            if (nestedPropertyTime > 0 && nestedFieldTime > 0)
-            {
-                Debug.Log($"嵌套属性: {nestedPropertyTime}ticks, 嵌套字段: {nestedFieldTime}ticks (嵌套字段/嵌套属性: {(float)nestedFieldTime/nestedPropertyTime:F2}x)");
-            }
-        }
-        catch (Exception ex)
-        {
-            Debug.LogError($"字段vs属性测试失败: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// 结构体访问性能测试 - 添加预验证
-    /// </summary>
-    private static void RunStructTest()
-    {
-        var testObj = CreateComplexTestObject();
-        
-        var testPaths = new[] { "StructField.StructValue", "StructField.StructName", "StructField.Position.x" };
-        var validPaths = testPaths.Where(path => testObj.HasPath(path)).ToList();
-        
-        Debug.Log($"结构体测试有效路径: {string.Join(", ", validPaths)}");
-
-        try
-        {
-            // 测试结构体字段访问
-            if (validPaths.Contains("StructField.StructValue"))
-            {
-                var sw = Stopwatch.StartNew();
-                for (int i = 0; i < TestCount; i++)
-                {
-                    int value = PropertyAccessor.GetValue<int>(testObj, "StructField.StructValue");
-                    PropertyAccessor.SetValue(testObj, "StructField.StructValue", value + 1);
-                }
-                sw.Stop();
-                Debug.Log($"结构体int字段: {sw.ElapsedTicks}ticks");
-            }
-
-            // 测试结构体内字符串字段
-            if (validPaths.Contains("StructField.StructName"))
-            {
-                var sw = Stopwatch.StartNew();
-                for (int i = 0; i < TestCount; i++)
-                {
-                    string value = PropertyAccessor.GetValue<string>(testObj, "StructField.StructName");
-                    PropertyAccessor.SetValue(testObj, "StructField.StructName", "test" + i);
-                }
-                sw.Stop();
-                Debug.Log($"结构体string字段: {sw.ElapsedTicks}ticks");
-            }
-
-            // 测试Vector3结构体访问
-            if (validPaths.Contains("StructField.Position.x"))
-            {
-                var sw = Stopwatch.StartNew();
-                for (int i = 0; i < TestCount; i++)
-                {
-                    float x = PropertyAccessor.GetValue<float>(testObj, "StructField.Position.x");
-                    PropertyAccessor.SetValue(testObj, "StructField.Position.x", x + 0.1f);
-                }
-                sw.Stop();
-                Debug.Log($"Vector3.x字段: {sw.ElapsedTicks}ticks");
-            }
-        }
-        catch (Exception ex)
-        {
-            Debug.LogError($"结构体测试失败: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// 集合类型性能测试 - 添加预验证
-    /// </summary>
-    private static void RunCollectionTests()
-    {
-        var testObj = CreateComplexTestObject();
-        
-        var testPaths = new[] { 
-            "Items[0].PropertyValue", 
-            "Array[0]", 
-            "ClassArray[0].PropertyValue",
-            "Items[0].Array[1]"
-        };
-        var validPaths = testPaths.Where(path => testObj.HasPath(path)).ToList();
-        
-        Debug.Log($"集合测试有效路径: {string.Join(", ", validPaths)}");
-
-        try
-        {
-            // List索引访问
-            if (validPaths.Contains("Items[0].PropertyValue"))
-            {
-                var sw = Stopwatch.StartNew();
-                for (int i = 0; i < TestCount; i++)
-                {
-                    int value = PropertyAccessor.GetValue<int>(testObj, "Items[0].PropertyValue");
-                    PropertyAccessor.SetValue(testObj, "Items[0].PropertyValue", value + 1);
-                }
-                sw.Stop();
-                Debug.Log($"List[0]访问: {sw.ElapsedTicks}ticks");
-            }
-
-            // 数组索引访问
-            if (validPaths.Contains("Array[0]"))
-            {
-                var sw = Stopwatch.StartNew();
-                for (int i = 0; i < TestCount; i++)
-                {
-                    int value = PropertyAccessor.GetValue<int>(testObj, "Array[0]");
-                    PropertyAccessor.SetValue(testObj, "Array[0]", value + 1);
-                }
-                sw.Stop();
-                Debug.Log($"Array[0]访问: {sw.ElapsedTicks}ticks");
-            }
-
-            // 对象数组访问
-            if (validPaths.Contains("ClassArray[0].PropertyValue"))
-            {
-                var sw = Stopwatch.StartNew();
-                for (int i = 0; i < TestCount; i++)
-                {
-                    int value = PropertyAccessor.GetValue<int>(testObj, "ClassArray[0].PropertyValue");
-                    PropertyAccessor.SetValue(testObj, "ClassArray[0].PropertyValue", value + 1);
-                }
-                sw.Stop();
-                Debug.Log($"ClassArray[0]访问: {sw.ElapsedTicks}ticks");
-            }
-
-            // 多维数组访问模拟
-            if (validPaths.Contains("Items[0].Array[1]"))
-            {
-                var sw = Stopwatch.StartNew();
-                for (int i = 0; i < TestCount; i++)
-                {
-                    int value = PropertyAccessor.GetValue<int>(testObj, "Items[0].Array[1]");
-                    PropertyAccessor.SetValue(testObj, "Items[0].Array[1]", value + 1);
-                }
-                sw.Stop();
-                Debug.Log($"嵌套数组访问: {sw.ElapsedTicks}ticks");
-            }
-        }
-        catch (Exception ex)
-        {
-            Debug.LogError($"集合测试失败: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// 字典访问性能测试 - 添加预验证
-    /// </summary>
-    private static void RunDictionaryTests()
-    {
-        var testObj = CreateComplexTestObject();
-        
-        // 测试字典访问（预验证）
-        bool simpleDictSupported = false;
-        try
-        {
-            string testValue = PropertyAccessor.GetValue<string>(testObj, "SimpleDict[1]");
-            PropertyAccessor.SetValue(testObj, "SimpleDict[1]", "test_check");
-            string newValue = PropertyAccessor.GetValue<string>(testObj, "SimpleDict[1]");
-            simpleDictSupported = newValue == "test_check";
-        }
-        catch (Exception ex)
-        {
-            Debug.Log($"字典访问不支持: {ex.Message}");
-        }
-
-        if (simpleDictSupported)
-        {
-            try
-            {
-                var sw = Stopwatch.StartNew();
-                for (int i = 0; i < TestCount / 10; i++)
-                {
-                    string value = PropertyAccessor.GetValue<string>(testObj, "SimpleDict[1]");
-                    PropertyAccessor.SetValue(testObj, "SimpleDict[1]", "test" + i);
-                }
-                sw.Stop();
-                Debug.Log($"简单字典[int]访问: {sw.ElapsedTicks}ticks");
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"字典性能测试失败: {ex.Message}");
-            }
-        }
-        else
-        {
-            Debug.Log("字典索引访问功能不支持，跳过字典性能测试");
-        }
-
-        // 测试字典相关的扩展方法
-        bool hasSimpleDict = testObj.HasPath("SimpleDict");
-        bool hasNestedDict = testObj.HasPath("ComplexData.NestedDict");
-        Debug.Log($"字典路径检测 - SimpleDict: {hasSimpleDict}, NestedDict: {hasNestedDict}");
-    }
-
-    /// <summary>
-    /// 复杂路径性能测试 - 添加路径预验证
-    /// </summary>
-    private static void RunComplexPathTests()
-    {
-        var testObj = CreateComplexTestObject();
-        
-        var testPaths = new[] {
-            "Child.Items[0].StructField.StructValue",
-            "ComplexData.Matrix.m00",
-            "Child.Items[0].PropertyValue"  // 简化超复杂路径
+            ["属性访问"] = "PropertyValue",
+            ["字段访问"] = "FieldValue", 
+            ["结构体字段"] = "StructField.StructValue",
+            ["结构体字符串"] = "StructField.StructName"
         };
 
-        foreach (var path in testPaths)
+        foreach (var kvp in accessTypes)
         {
-            bool pathValid = testObj.HasPath(path);
-            Debug.Log($"路径 '{path}' 有效性: {pathValid}");
-            
-            if (!pathValid) continue;
-
-            try
+            SafeExecuteTest($"访问类型-{kvp.Key}", () =>
             {
-                var sw = Stopwatch.StartNew();
-                for (int i = 0; i < TestCount / 10; i++)
+                if (SafeIsPathValid(testObj, kvp.Value))
                 {
-                    var result = testObj.GetValueOrDefault<object>(path, null);
-                    if (result != null)
-                    {
-                        // 尝试写入测试（只对支持的类型）
-                        if (result is int intVal)
-                        {
-                            testObj.TrySetValue(path, intVal + 1);
-                        }
-                        else if (result is float floatVal)
-                        {
-                            testObj.TrySetValue(path, floatVal + 0.1f);
-                        }
-                    }
+                    PerformAccessorVsContainerTest(testObj, kvp.Value, kvp.Key);
                 }
-                sw.Stop();
-                Debug.Log($"路径 '{path}': {sw.ElapsedTicks}ticks");
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"路径 '{path}' 测试异常: {ex.Message}");
-            }
+                else
+                {
+                    Debug.LogWarning($"{kvp.Key}路径无效: {kvp.Value}");
+                }
+            });
         }
     }
 
     /// <summary>
-    /// 缓存效果测试 - 添加路径预验证
+    /// 集合访问性能对比
     /// </summary>
-    private static void RunCacheEffectivenessTest()
+    private static void RunCollectionPerformanceComparison()
     {
-        var testObj = CreateComplexTestObject();
-        string[] testPaths = {
-            "PropertyValue",
-            "FieldValue",
-            "Child.PropertyValue",
-            "Items[0].Name",
-            "Array[0]",
-            "StructField.StructValue"
+        Debug.Log("--- 集合访问性能对比 ---");
+        var testObj = SafeCreateTestObject();
+        if (testObj == null) return;
+        
+        var collectionTests = new Dictionary<string, string>
+        {
+            ["List索引"] = "Items[0].PropertyValue",
+            ["数组索引"] = "Array[0]",
+            ["对象数组"] = "ClassArray[0].PropertyValue"
         };
 
-        // 过滤有效路径
-        var validPaths = testPaths.Where(path => testObj.HasPath(path)).ToArray();
-        Debug.Log($"缓存测试有效路径: {string.Join(", ", validPaths)}");
+        foreach (var kvp in collectionTests)
+        {
+            SafeExecuteTest($"集合访问-{kvp.Key}", () =>
+            {
+                if (SafeIsPathValid(testObj, kvp.Value))
+                {
+                    PerformAccessorVsContainerTest(testObj, kvp.Value, kvp.Key);
+                }
+                else
+                {
+                    Debug.LogWarning($"{kvp.Key}路径无效: {kvp.Value}");
+                }
+            });
+        }
+    }
 
-        if (validPaths.Length == 0)
+    /// <summary>
+    /// 缓存效果性能测试
+    /// </summary>
+    private static void RunCachePerformanceTest()
+    {
+        Debug.Log("--- 缓存效果性能测试 ---");
+        var testObj = SafeCreateTestObject();
+        if (testObj == null) return;
+        
+        var testPaths = new[] { "PropertyValue", "FieldValue", "Child.PropertyValue", "Array[0]" }
+            .Where(path => SafeIsPathValid(testObj, path))
+            .ToArray();
+
+        if (testPaths.Length == 0)
         {
             Debug.LogWarning("没有有效路径进行缓存测试");
             return;
         }
 
-        try
+        // PropertyAccessor 缓存测试
+        var paFirstRun = SafeRunCacheTest("PropertyAccessor首次", testPaths, (path) =>
         {
-            // 第一次运行（冷缓存)
-            var sw = Stopwatch.StartNew();
-            foreach (var path in validPaths)
-            {
-                for (int i = 0; i < TestCount / 10; i++)
-                {
-                    PropertyAccessor.GetValue<object>(testObj, path);
-                }
-            }
-            sw.Stop();
-            var coldCacheTime = sw.ElapsedTicks;
-
-            // 第二次运行（热缓存)
-            sw.Restart();
-            foreach (var path in validPaths)
-            {
-                for (int i = 0; i < TestCount / 10; i++)
-                {
-                    PropertyAccessor.GetValue<object>(testObj, path);
-                }
-            }
-            sw.Stop();
-            var hotCacheTime = sw.ElapsedTicks;
-
-            float cacheRatio = (float)coldCacheTime / hotCacheTime;
-            Debug.Log($"冷缓存: {coldCacheTime}ticks, 热缓存: {hotCacheTime}ticks");
-            Debug.Log($"缓存效果: {cacheRatio:F2}x 性能提升");
-        }
-        catch (Exception ex)
-        {
-            Debug.LogError($"缓存效果测试失败: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// 异常路径性能测试 - 增强异常处理
-    /// </summary>
-    private static void RunExceptionPathTests()
-    {
-        var testObj = CreateComplexTestObject();
-        
-        try
-        {
-            // 测试不存在路径的性能
-            var sw = Stopwatch.StartNew();
-            for (int i = 0; i < TestCount / 10; i++)
-            {
-                testObj.GetValueOrDefault<int>("NonExistent.Path.Here", -1);
-            }
-            sw.Stop();
-            var safeAccessTime = sw.ElapsedTicks;
-
-            // 测试路径验证性能
-            sw.Restart();
-            for (int i = 0; i < TestCount / 10; i++)
-            {
-                testObj.ValidatePropertyPath("Items[999].NonExistent");
-            }
-            sw.Stop();
-            var validationTime = sw.ElapsedTicks;
-
-            // 测试HasPath性能
-            sw.Restart();
             for (int i = 0; i < TestCount; i++)
             {
-                testObj.HasPath("PropertyValue");
-                testObj.HasPath("NonExistent.Path");
+                PropertyAccessor.GetValue<object>(testObj, path);
             }
-            sw.Stop();
-            var hasPathTime = sw.ElapsedTicks;
+        });
 
-            Debug.Log($"安全访问不存在路径: {safeAccessTime}ticks");
-            Debug.Log($"路径验证: {validationTime}ticks");
-            Debug.Log($"HasPath检测: {hasPathTime}ticks");
-        }
-        catch (Exception ex)
+        var paSecondRun = SafeRunCacheTest("PropertyAccessor再次", testPaths, (path) =>
         {
-            Debug.LogError($"异常路径测试失败: {ex.Message}");
+            for (int i = 0; i < TestCount; i++)
+            {
+                PropertyAccessor.GetValue<object>(testObj, path);
+            }
+        });
+
+        // PropertyContainer 缓存测试
+        var supportedPaths = testPaths.Where(path => SafeIsPropertyContainerSupported(testObj, path)).ToArray();
+        
+        long pcFirstRun = 0, pcSecondRun = 0;
+        if (supportedPaths.Length > 0)
+        {
+            pcFirstRun = SafeRunCacheTest("PropertyContainer首次", supportedPaths, (path) =>
+            {
+                var propertyPath = new PropertyPath(path);
+                for (int i = 0; i < TestCount; i++)
+                {
+                    PropertyContainer.GetValue<TestClass, object>(testObj, propertyPath);
+                }
+            });
+
+            pcSecondRun = SafeRunCacheTest("PropertyContainer再次", supportedPaths, (path) =>
+            {
+                var propertyPath = new PropertyPath(path);
+                for (int i = 0; i < TestCount; i++)
+                {
+                    PropertyContainer.GetValue<TestClass, object>(testObj, propertyPath);
+                }
+            });
+        }
+
+        // 输出缓存测试结果
+        if (paFirstRun > 0 && paSecondRun > 0)
+        {
+            Debug.Log($"PropertyAccessor缓存效果: 首次={paFirstRun}ticks, 再次={paSecondRun}ticks, 改善率={(float)paFirstRun/paSecondRun:F2}x");
+        }
+        if (pcFirstRun > 0 && pcSecondRun > 0)
+        {
+            Debug.Log($"PropertyContainer缓存效果: 首次={pcFirstRun}ticks, 再次={pcSecondRun}ticks, 改善率={(float)pcFirstRun/pcSecondRun:F2}x");
         }
     }
 
     /// <summary>
-    /// 扩展方法功能测试 - 增强错误处理
+    /// 安全运行缓存测试
     /// </summary>
-    private static void TestNewExtensions()
+    private static long SafeRunCacheTest(string testName, string[] paths, Action<string> testAction)
     {
-        var testObj = CreateComplexTestObject();
-        
         try
         {
-            // 测试路径验证
-            var validationResult = testObj.ValidatePropertyPath("Items[0].PropertyValue");
-            Debug.Log($"路径验证结果: {validationResult.IsValid}, 错误: {validationResult.GetAllMessages()}");
-            
-            // 测试批量操作
             var sw = Stopwatch.StartNew();
-            var paths = new[] { "PropertyValue", "FieldValue", "Name" };
-            var validPathsForBatch = paths.Where(path => testObj.HasPath(path)).ToArray();
-            
-            if (validPathsForBatch.Length > 0)
+            foreach (var path in paths)
             {
-                var values = testObj.GetValues<object>(validPathsForBatch);
-                sw.Stop();
-                Debug.Log($"批量获取{validPathsForBatch.Length}个值耗时: {sw.ElapsedTicks}ticks, 结果: [{string.Join(", ", values)}]");
-                
-                // 测试批量设置
-                sw.Restart();
-                var setOperations = new List<(string, object)>();
-                if (testObj.HasPath("PropertyValue")) setOperations.Add(("PropertyValue", 100));
-                if (testObj.HasPath("Name")) setOperations.Add(("Name", "NewName"));
-                
-                if (setOperations.Count > 0)
-                {
-                    testObj.SetValues<object>(setOperations.ToArray());
-                    sw.Stop();
-                    Debug.Log($"批量设置{setOperations.Count}个值耗时: {sw.ElapsedTicks}ticks");
-                }
+                testAction(path);
             }
-            else
-            {
-                Debug.LogWarning("没有有效路径进行批量操作测试");
-            }
-            
-            // 测试路径发现
-            sw.Restart();
-            var allPaths = testObj.GetAllPaths(2);
             sw.Stop();
-            Debug.Log($"发现所有路径（深度2）耗时: {sw.ElapsedTicks}ticks, 共找到 {allPaths.Count} 个路径");
-            if (allPaths.Count > 0)
-            {
-                Debug.Log($"前10个路径: {string.Join(", ", allPaths.Take(10))}");
-            }
-            
-            // 测试类型兼容性验证
-            if (testObj.HasPath("PropertyValue"))
-            {
-                var typeValidation = testObj.ValidateTypeCompatibility<int>("PropertyValue");
-                Debug.Log($"类型兼容性验证: {typeValidation.IsValid}");
-            }
-            
-            // 测试集合索引验证
-            if (testObj.HasPath("Items"))
-            {
-                var indexValidation = testObj.ValidateCollectionIndex("Items", 0);
-                Debug.Log($"集合索引验证: {indexValidation.IsValid}");
-            }
-            
-            // 测试对象完整性验证
-            var integrityPaths = new[] { "PropertyValue", "Name", "Items" }.Where(path => testObj.HasPath(path)).ToArray();
-            if (integrityPaths.Length > 0)
-            {
-                var integrityResult = testObj.ValidateObjectIntegrity(integrityPaths);
-                Debug.Log($"对象完整性验证: {integrityResult.IsValid}, 警告数: {integrityResult.Warnings.Count}");
-            }
-            
-            // 测试安全操作
-            sw.Restart();
-            bool setSuccess = testObj.TrySetValue("NonExistent.Path", 123);
-            var safeValue = testObj.GetValueOrDefault<int>("NonExistent.Path", 999);
-            sw.Stop();
-            Debug.Log($"安全操作测试耗时: {sw.ElapsedTicks}ticks, 设置成功: {setSuccess}, 安全获取值: {safeValue}");
-            
-            // 测试路径存在性检查
-            bool hasValidPath = testObj.HasPath("PropertyValue");
-            bool hasInvalidPath = testObj.HasPath("NonExistent");
-            Debug.Log($"路径存在性检查 - 有效路径: {hasValidPath}, 无效路径: {hasInvalidPath}");
+            return sw.ElapsedTicks;
         }
         catch (Exception ex)
         {
-            Debug.LogError($"扩展方法测试失败: {ex.Message}");
+            Debug.LogError($"{testName}缓存测试失败: {ex.Message}");
+            return 0;
         }
     }
 
     /// <summary>
-    /// PropertyContainer专项测试
+    /// 大数据量操作性能测试
     /// </summary>
-    private static void RunPropertyContainerTests()
+    private static void RunBulkOperationTest()
     {
-        var testObj = CreateComplexTestObject();
+        Debug.Log("--- 大数据量操作性能测试 ---");
+        var testObj = SafeCreateLargeTestObject();
+        if (testObj == null) return;
         
-        var testPaths = new[] {
-            "PropertyValue",
-            "FieldValue", 
-            "Name",
-            "Child.PropertyValue",
-            "Child.FieldValue",
-            "StructField.StructValue",
-            "StructField.StructName",
-            "Items[0].PropertyValue",
-            "Array[0]",
-            "ClassArray[0].PropertyValue"
-        };
-
-        var supportedPaths = new List<string>();
-        var unsupportedPaths = new List<string>();
-
-        Debug.Log("PropertyContainer路径支持性检测:");
-
-        foreach (var path in testPaths)
+        var testPath = "PropertyValue";
+        
+        // PropertyAccessor 大数据量测试
+        long paHeavyTime = SafeRunBulkTest("PropertyAccessor大数据量", testObj, testPath, (obj, path) =>
         {
-            try
+            for (int i = 0; i < HeavyTestCount; i++)
             {
-                PropertyPath propertyPath = new PropertyPath(path);
-                
-                // 尝试读取
-                var value = PropertyContainer.GetValue<TestClass, object>(testObj, propertyPath);
-                
-                // 尝试写入（对于支持的类型）
-                bool writeSuccess = false;
-                if (value is int intVal)
-                {
-                    PropertyContainer.SetValue(testObj, propertyPath, intVal + 1);
-                    var newValue = PropertyContainer.GetValue<TestClass, int>(testObj, propertyPath);
-                    writeSuccess = (newValue == intVal + 1);
-                    // 恢复原值
-                    PropertyContainer.SetValue(testObj, propertyPath, intVal);
-                }
-                else if (value is string strVal)
-                {
-                    PropertyContainer.SetValue(testObj, propertyPath, strVal + "_test");
-                    var newValue = PropertyContainer.GetValue<TestClass, string>(testObj, propertyPath);
-                    writeSuccess = (newValue == strVal + "_test");
-                    // 恢复原值
-                    PropertyContainer.SetValue(testObj, propertyPath, strVal);
-                }
-                else
-                {
-                    writeSuccess = true; // 对于其他类型，只要能读取就算支持
-                }
+                var value = PropertyAccessor.GetValue<int>(obj, path);
+                PropertyAccessor.SetValue(obj, path, value + 1);
+            }
+        });
 
-                if (writeSuccess)
-                {
-                    supportedPaths.Add(path);
-                    Debug.Log($"  ✓ {path} (类型: {value?.GetType().Name ?? "null"})");
-                }
-                else
-                {
-                    unsupportedPaths.Add($"{path} (写入失败)");
-                    Debug.Log($"  ⚠ {path} (读取成功，写入失败)");
-                }
-            }
-            catch (Exception ex)
+        // PropertyContainer 大数据量测试（如果支持）
+        long pcHeavyTime = 0;
+        if (SafeIsPropertyContainerSupported(testObj, testPath))
+        {
+            pcHeavyTime = SafeRunBulkTest("PropertyContainer大数据量", testObj, testPath, (obj, path) =>
             {
-                unsupportedPaths.Add($"{path} ({ex.GetType().Name})");
-                Debug.Log($"  ✗ {path} (异常: {ex.GetType().Name})");
-            }
+                var propertyPath = new PropertyPath(path);
+                for (int i = 0; i < HeavyTestCount; i++)
+                {
+                    var value = PropertyContainer.GetValue<TestClass, int>((TestClass)obj, propertyPath);
+                    PropertyContainer.SetValue((TestClass)obj, propertyPath, value + 1);
+                }
+            });
         }
 
-        Debug.Log($"\nPropertyContainer支持汇总:");
-        Debug.Log($"  支持的路径: {supportedPaths.Count}/{testPaths.Length}");
-        Debug.Log($"  不支持的路径: {unsupportedPaths.Count}/{testPaths.Length}");
-
-        // 对支持的路径进行性能测试
-        if (supportedPaths.Count > 0)
+        // 输出大数据量测试结果
+        Debug.Log($"大数据量测试({HeavyTestCount}次操作):");
+        if (paHeavyTime > 0)
         {
-            Debug.Log("\nPropertyContainer性能测试 (支持的路径):");
-            
+            Debug.Log($"  PropertyAccessor: {paHeavyTime}ticks ({paHeavyTime/(float)HeavyTestCount:F2}ticks/op)");
+        }
+        if (pcHeavyTime > 0)
+        {
+            Debug.Log($"  PropertyContainer: {pcHeavyTime}ticks ({pcHeavyTime/(float)HeavyTestCount:F2}ticks/op)");
+            if (paHeavyTime > 0)
+            {
+                Debug.Log($"  性能比: {(float)paHeavyTime/pcHeavyTime:F2}x");
+            }
+        }
+    }
+
+    /// <summary>
+    /// 安全运行大数据量测试
+    /// </summary>
+    private static long SafeRunBulkTest(string testName, object testObj, string testPath, Action<object, string> testAction)
+    {
+        try
+        {
             var sw = Stopwatch.StartNew();
-            foreach (var path in supportedPaths.Take(3)) // 只测试前3个以节省时间
+            testAction(testObj, testPath);
+            sw.Stop();
+            return sw.ElapsedTicks;
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"{testName}测试失败: {ex.Message}");
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// 安全创建大数据量测试对象
+    /// </summary>
+    private static TestClass SafeCreateLargeTestObject()
+    {
+        try
+        {
+            return CreateLargeTestObject();
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"创建大数据量测试对象失败: {ex.Message}");
+            return null;
+        }
+    }
+
+    #endregion
+
+    #region 核心测试方法
+
+    /// <summary>
+    /// 执行PropertyAccessor vs PropertyContainer性能对比
+    /// </summary>
+    private static void PerformAccessorVsContainerTest(object testObj, string path, string testName)
+    {
+        // 预热
+        SafeWarmupBothSystems(testObj, path);
+
+        // PropertyAccessor测试
+        long accessorTime = SafeRunPerformanceTest("PropertyAccessor", testObj, path, (obj, pth) =>
+        {
+            for (int i = 0; i < TestCount; i++)
             {
-                try
+                var value = PropertyAccessor.GetValue<object>(obj, pth);
+                if (value is int intVal)
                 {
-                    PropertyPath propertyPath = new PropertyPath(path);
-                    for (int i = 0; i < TestCount / 10; i++)
-                    {
-                        var value = PropertyContainer.GetValue<TestClass, object>(testObj, propertyPath);
-                        // 简单的写入测试
-                        if (value is int intVal)
-                        {
-                            PropertyContainer.SetValue(testObj, propertyPath, intVal + 1);
-                        }
-                    }
-                }
-                catch
-                {
-                    // 忽略性能测试中的异常
+                    PropertyAccessor.SetValue(obj, pth, intVal + 1);
                 }
             }
-            sw.Stop();
-            
-            Debug.Log($"  PropertyContainer批量操作耗时: {sw.ElapsedTicks}ticks");
-            
-            // 与PropertyAccessor对比
-            sw.Restart();
-            foreach (var path in supportedPaths.Take(3))
+        });
+
+        // PropertyContainer测试
+        long containerTime = 0;
+        bool containerSupported = SafeIsPropertyContainerSupported(testObj, path);
+        
+        if (containerSupported)
+        {
+            containerTime = SafeRunPerformanceTest("PropertyContainer", testObj, path, (obj, pth) =>
             {
-                try
+                var propertyPath = new PropertyPath(pth);
+                for (int i = 0; i < TestCount; i++)
                 {
-                    for (int i = 0; i < TestCount / 10; i++)
+                    var value = PropertyContainer.GetValue<TestClass, object>((TestClass)obj, propertyPath);
+                    if (value is int intVal)
                     {
-                        var value = PropertyAccessor.GetValue<object>(testObj, path);
-                        if (value is int intVal)
-                        {
-                            PropertyAccessor.SetValue(testObj, path, intVal + 1);
-                        }
+                        PropertyContainer.SetValue((TestClass)obj, propertyPath, intVal + 1);
                     }
                 }
-                catch
+            });
+        }
+
+        // 扩展方法测试（PropertyAccessor的封装）
+        long extensionTime = SafeRunPerformanceTest("扩展方法", testObj, path, (obj, pth) =>
+        {
+            for (int i = 0; i < TestCount; i++)
+            {
+                var value = ((TestClass)obj).GetValueOrDefault<object>(pth, null);
+                if (value is int intVal)
                 {
-                    // 忽略性能测试中的异常
+                    ((TestClass)obj).TrySetValue(pth, intVal + 1);
                 }
             }
+        });
+
+        // 输出结果
+        LogPerformanceResults(testName, accessorTime, containerTime, extensionTime, containerSupported);
+    }
+
+    /// <summary>
+    /// 安全运行性能测试
+    /// </summary>
+    private static long SafeRunPerformanceTest(string testType, object testObj, string path, Action<object, string> testAction)
+    {
+        try
+        {
+            var sw = Stopwatch.StartNew();
+            testAction(testObj, path);
             sw.Stop();
-            
-            Debug.Log($"  PropertyAccessor批量操作耗时: {sw.ElapsedTicks}ticks");
+            return sw.ElapsedTicks;
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"{testType}性能测试失败 (路径: {path}): {ex.Message}");
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// 安全预热两个系统
+    /// </summary>
+    private static void SafeWarmupBothSystems(object testObj, string path)
+    {
+        try
+        {
+            // PropertyAccessor预热
+            for (int i = 0; i < WarmupCount; i++)
+            {
+                PropertyAccessor.GetValue<object>(testObj, path);
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"PropertyAccessor预热失败 (路径: {path}): {ex.Message}");
+        }
+
+        try
+        {
+            // PropertyContainer预热（如果支持）
+            if (SafeIsPropertyContainerSupported(testObj, path))
+            {
+                var propertyPath = new PropertyPath(path);
+                for (int i = 0; i < WarmupCount; i++)
+                {
+                    PropertyContainer.GetValue<TestClass, object>((TestClass)testObj, propertyPath);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"PropertyContainer预热失败 (路径: {path}): {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 记录性能测试结果
+    /// </summary>
+    private static void LogPerformanceResults(string testName, long accessorTime, long containerTime, 
+        long extensionTime, bool containerSupported)
+    {
+        Debug.Log($"{testName} 性能测试结果:");
+        
+        if (accessorTime > 0)
+        {
+            Debug.Log($"  PropertyAccessor: {accessorTime}ticks ({accessorTime/(float)TestCount:F2}ticks/op)");
         }
         else
         {
-            Debug.LogWarning("PropertyContainer无支持的路径，跳过性能测试");
+            Debug.Log($"  PropertyAccessor: 测试失败");
+        }
+        
+        if (containerSupported && containerTime > 0)
+        {
+            float ratio = (float)accessorTime / containerTime;
+            Debug.Log($"  PropertyContainer: {containerTime}ticks ({containerTime/(float)TestCount:F2}ticks/op)");
+            string comparisonText = ratio > 1 ? "(PA较慢)" : "(PA较快)";
+            Debug.Log($"  PA/PC性能比: {ratio:F2}x {comparisonText}");
+        }
+        else if (containerSupported)
+        {
+            Debug.Log($"  PropertyContainer: 测试失败");
+        }
+        else
+        {
+            Debug.Log($"  PropertyContainer: 不支持此路径");
+        }
+        
+        if (extensionTime > 0 && accessorTime > 0)
+        {
+            float extRatio = (float)extensionTime / accessorTime;
+            Debug.Log($"  扩展方法: {extensionTime}ticks ({extensionTime/(float)TestCount:F2}ticks/op)");
+            Debug.Log($"  扩展/PA性能比: {extRatio:F2}x");
+        }
+        else if (extensionTime > 0)
+        {
+            Debug.Log($"  扩展方法: {extensionTime}ticks ({extensionTime/(float)TestCount:F2}ticks/op)");
+        }
+        else
+        {
+            Debug.Log($"  扩展方法: 测试失败");
+        }
+    }
+
+    #endregion
+
+    #region 工具方法
+
+    /// <summary>
+    /// 验证基础功能可用性
+    /// </summary>
+    private static void ValidateBasicFunctionality(TestClass testObj)
+    {
+        bool paWorking = false;
+        bool pcWorking = false;
+
+        // PropertyAccessor基础功能验证
+        try
+        {
+            int value = PropertyAccessor.GetValue<int>(testObj, "PropertyValue");
+            PropertyAccessor.SetValue(testObj, "PropertyValue", value + 1);
+            int newValue = PropertyAccessor.GetValue<int>(testObj, "PropertyValue");
+            paWorking = newValue == value + 1;
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"PropertyAccessor功能验证失败: {ex.Message}");
+        }
+
+        // PropertyContainer基础功能验证
+        try
+        {
+            var propertyPath = new PropertyPath("PropertyValue");
+            int pcValue = PropertyContainer.GetValue<TestClass, int>(testObj, propertyPath);
+            PropertyContainer.SetValue(testObj, propertyPath, pcValue + 1);
+            int pcNewValue = PropertyContainer.GetValue<TestClass, int>(testObj, propertyPath);
+            pcWorking = pcNewValue == pcValue + 1;
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"PropertyContainer功能验证失败: {ex.Message}");
+        }
+
+        Debug.Log($"功能验证: PropertyAccessor={(paWorking ? "✓" : "✗")}, PropertyContainer={(pcWorking ? "✓" : "✗")}");
+    }
+
+    /// <summary>
+    /// 简单性能对比
+    /// </summary>
+    private static void RunSimplePerformanceComparison(TestClass testObj)
+    {
+        const int quickTestCount = 1000;
+        
+        // PropertyAccessor简单测试
+        long paTime = 0;
+        try
+        {
+            var sw = Stopwatch.StartNew();
+            for (int i = 0; i < quickTestCount; i++)
+            {
+                PropertyAccessor.GetValue<int>(testObj, "PropertyValue");
+            }
+            sw.Stop();
+            paTime = sw.ElapsedTicks;
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"PropertyAccessor简单测试失败: {ex.Message}");
+        }
+
+        // PropertyContainer简单测试
+        long pcTime = 0;
+        try
+        {
+            var propertyPath = new PropertyPath("PropertyValue");
+            var sw = Stopwatch.StartNew();
+            for (int i = 0; i < quickTestCount; i++)
+            {
+                PropertyContainer.GetValue<TestClass, int>(testObj, propertyPath);
+            }
+            sw.Stop();
+            pcTime = sw.ElapsedTicks;
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"PropertyContainer简单测试失败: {ex.Message}");
+        }
+
+        string result = $"简单性能对比({quickTestCount}次):";
+        if (paTime > 0)
+        {
+            result += $" PropertyAccessor={paTime}ticks";
+        }
+        if (pcTime > 0)
+        {
+            result += $", PropertyContainer={pcTime}ticks, 比率={(float)paTime/pcTime:F2}x";
+        }
+        else
+        {
+            result += ", PropertyContainer=不支持或失败";
+        }
+        
+        Debug.Log(result);
+    }
+
+    /// <summary>
+    /// 安全检查路径是否有效
+    /// </summary>
+    private static bool SafeIsPathValid(object obj, string path)
+    {
+        try
+        {
+            if (obj is TestClass testObj)
+            {
+                return testObj.HasPath(path);
+            }
+            PropertyAccessor.GetValue<object>(obj, path);
+            return true;
+        }
+        catch
+        {
+            return false;
         }
     }
 
     /// <summary>
-    /// 创建复杂的测试对象
+    /// 安全检查PropertyContainer是否支持指定路径
     /// </summary>
-    private static TestClass CreateComplexTestObject()
+    private static bool SafeIsPropertyContainerSupported(object obj, string path)
+    {
+        try
+        {
+            if (obj is TestClass testObj)
+            {
+                var propertyPath = new PropertyPath(path);
+                PropertyContainer.GetValue<TestClass, object>(testObj, propertyPath);
+                return true;
+            }
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    #endregion
+
+    #region 数据创建方法
+
+    /// <summary>
+    /// 创建标准测试对象
+    /// </summary>
+    private static TestClass CreateTestObject()
     {
         var result = new TestClass
         {
@@ -1332,24 +862,12 @@ public static class PropertyBenchmark
             Array = new int[] { 1, 2, 3, 4, 5 },
             ClassArray = new TestClass[3],
             Dictionary = new Dictionary<string, TestClass>(),
-            SimpleDict = new Dictionary<int, string>
-            {
-                { 1, "One" },
-                { 2, "Two" },
-                { 3, "Three" }
-            },
+            SimpleDict = new Dictionary<int, string> { { 1, "One" }, { 2, "Two" } },
             StructField = new TestStruct
             {
                 StructValue = 100,
                 StructName = "TestStruct",
                 Position = new Vector3(1, 2, 3)
-            },
-            ComplexData = new TestComplexData
-            {
-                Matrix = Matrix4x4.identity,
-                Colors = new Color[] { Color.red, Color.green, Color.blue },
-                NestedDict = new Dictionary<string, Dictionary<int, TestStruct>>(),
-                StructArrayList = new List<TestStruct[]>()
             }
         };
 
@@ -1360,13 +878,7 @@ public static class PropertyBenchmark
             FieldValue = 48,
             Name = "ChildObject",
             Items = new List<TestClass>(),
-            Array = new int[] { 10, 20, 30 },
-            StructField = new TestStruct
-            {
-                StructValue = 200,
-                StructName = "ChildStruct",
-                Position = new Vector3(4, 5, 6)
-            }
+            Array = new int[] { 10, 20, 30 }
         };
 
         // 填充Items列表
@@ -1377,18 +889,10 @@ public static class PropertyBenchmark
                 PropertyValue = i * 10,
                 FieldValue = i * 5,
                 Name = $"Item{i}",
-                Array = new int[] { i, i+1, i+2 },
-                StructField = new TestStruct
-                {
-                    StructValue = i * 100,
-                    StructName = $"ItemStruct{i}",
-                    Position = new Vector3(i, i+1, i+2)
-                },
-                Items = new List<TestClass>()  // 确保嵌套的Items也有初始化
+                Array = new int[] { i, i + 1, i + 2 },
+                Items = new List<TestClass>()
             };
             result.Items.Add(item);
-            if (result.Child.Items != null)
-                result.Child.Items.Add(item);
         }
 
         // 填充ClassArray
@@ -1399,36 +903,37 @@ public static class PropertyBenchmark
                 PropertyValue = i * 20,
                 FieldValue = i * 10,
                 Name = $"ArrayItem{i}",
-                Items = new List<TestClass>()  // 确保数组中的对象也有初始化的Items
+                Items = new List<TestClass>()
             };
         }
-
-        // 填充Dictionary
-        if (result.Items.Count > 1)
-        {
-            result.Dictionary["first"] = result.Items[0];
-            result.Dictionary["second"] = result.Items[1];
-        }
-
-        // 填充复杂的嵌套字典
-        result.ComplexData.NestedDict["group1"] = new Dictionary<int, TestStruct>
-        {
-            { 1, result.StructField },
-            { 2, result.Child.StructField }
-        };
-
-        // 填充结构体数组列表
-        result.ComplexData.StructArrayList.Add(new TestStruct[]
-        {
-            result.StructField,
-            result.Child.StructField
-        });
 
         return result;
     }
 
     /// <summary>
-    /// 创建嵌套对象（优化深度控制，避免过深嵌套）
+    /// 创建大数据量测试对象
+    /// </summary>
+    private static TestClass CreateLargeTestObject()
+    {
+        var result = CreateTestObject();
+        
+        // 扩展Items列表
+        for (int i = result.Items.Count; i < 100; i++)
+        {
+            result.Items.Add(new TestClass
+            {
+                PropertyValue = i,
+                FieldValue = i * 2,
+                Name = $"LargeItem{i}",
+                Array = new int[] { i, i + 1, i + 2 }
+            });
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// 创建嵌套对象
     /// </summary>
     private static TestClass CreateNestedObject(int depth)
     {
@@ -1439,37 +944,34 @@ public static class PropertyBenchmark
             Items = new List<TestClass>(),
             Array = new int[] { 0, 1, 2 }
         };
-        
+
         var current = root;
         for (int i = 1; i < depth; i++)
         {
-            // 确保Items列表有内容
-            var itemToAdd = new TestClass
+            var child = new TestClass
             {
                 PropertyValue = i * 10,
                 FieldValue = i * 10,
                 Items = new List<TestClass>(),
-                Array = new int[] { i*10, i*10+1, i*10+2 }
+                Array = new int[] { i * 10, i * 10 + 1, i * 10 + 2 }
             };
-            
-            current.Items.Add(itemToAdd);
-            
-            // 只有在不是最后一层时才继续嵌套
+
+            current.Items.Add(child);
             if (i < depth - 1)
             {
-                current = current.Items[0];
+                current = child;
             }
         }
         return root;
     }
 
     /// <summary>
-    /// 获取属性路径（优化路径生成，避免过深嵌套）
+    /// 获取指定深度的属性路径
     /// </summary>
     private static string GetPropertyPath(int depth)
     {
         if (depth <= 1) return "PropertyValue";
-        
+
         var path = "Items[0]";
         for (int i = 2; i < depth; i++)
         {
@@ -1477,4 +979,6 @@ public static class PropertyBenchmark
         }
         return path + ".PropertyValue";
     }
+
+    #endregion
 }
