@@ -76,55 +76,55 @@ public static class PropertyBenchmark
         
         // 预热
         var testObj = CreateComplexTestObject();
-        Debug.Log("\n--- 功能预验证阶段 ---");
+        Debug.Log("--- 功能预验证阶段 ---");
         PreValidateFeatures(testObj);
         
         RunBasicPerformanceTest(MinDepth, true);
         
         // 基础性能测试
-        Debug.Log("\n--- 基础嵌套深度性能测试 ---");
+        Debug.Log("--- 基础嵌套深度性能测试 ---");
         for (int depth = MinDepth; depth <= MaxDepth; depth++)
         {
             RunBasicPerformanceTest(depth);
         }
 
         // 字段 vs 属性性能测试
-        Debug.Log("\n--- 字段 vs 属性性能对比 ---");
+        Debug.Log("--- 字段 vs 属性性能对比 ---");
         RunFieldVsPropertyTest();
 
         // 结构体性能测试
-        Debug.Log("\n--- 结构体访问性能测试 ---");
+        Debug.Log("--- 结构体访问性能测试 ---");
         RunStructTest();
 
         // 集合类型性能测试
-        Debug.Log("\n--- 集合类型性能测试 ---");
+        Debug.Log("--- 集合类型性能测试 ---");
         RunCollectionTests();
 
         // 字典性能测试
-        Debug.Log("\n--- 字典访问性能测试 ---");
+        Debug.Log("--- 字典访问性能测试 ---");
         RunDictionaryTests();
 
         // 复杂路径性能测试
-        Debug.Log("\n--- 复杂路径性能测试 ---");
+        Debug.Log("--- 复杂路径性能测试 ---");
         RunComplexPathTests();
 
         // PropertyContainer专项测试
-        Debug.Log("\n--- PropertyContainer专项测试 ---");
+        Debug.Log("--- PropertyContainer专项测试 ---");
         RunPropertyContainerTests();
 
         // 扩展方法功能测试
-        Debug.Log("\n--- 扩展方法功能测试 ---");
+        Debug.Log("--- 扩展方法功能测试 ---");
         TestNewExtensions();
 
         // 缓存效果测试
-        Debug.Log("\n--- 缓存效果测试 ---");
+        Debug.Log("--- 缓存效果测试 ---");
         RunCacheEffectivenessTest();
 
         // 异常处理性能测试
-        Debug.Log("\n--- 异常路径性能测试 ---");
+        Debug.Log("--- 异常路径性能测试 ---");
         RunExceptionPathTests();
 
-        Debug.Log("\n=== 所有性能测试完成 ===");
+        Debug.Log("=== 所有性能测试完成 ===");
     }
 
     /// <summary>
