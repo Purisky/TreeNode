@@ -1,4 +1,4 @@
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
@@ -138,9 +138,7 @@ namespace TreeNode
             {
                 MemberTypes.Field => (Type type) => (member as FieldInfo).GetValue((member as FieldInfo).IsStatic ? null : data) as TResult,
                 MemberTypes.Method => HandleMethod(member as MethodInfo),
-                MemberTypes.Property => (member as PropertyInfo).GetMethod.IsStatic
-                    ? (member as PropertyInfo).GetMethod.CreateDelegate(typeof(MemberGetter<TResult>)) as MemberGetter<TResult>
-                    : (member as PropertyInfo).GetMethod.CreateDelegate(typeof(MemberGetter<TResult>), data) as MemberGetter<TResult>,
+                MemberTypes.Property => (Type type) => (member as PropertyInfo).GetValue((member as PropertyInfo).GetMethod.IsStatic ? null : data) as TResult,
                 _ => throw new InvalidOperationException($"{member.Name} is not a valid member type for MemberGetter")
             };
 
