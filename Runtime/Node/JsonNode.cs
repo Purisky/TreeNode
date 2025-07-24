@@ -17,18 +17,16 @@ namespace TreeNode.Runtime
         public Vec2 Position;
         [JsonProperty]
         public PrefabData PrefabData;
-        public virtual T GetValue<T>(string path)=> PropertyAccessor.GetValue<T>(this, path);
-        //public virtual T GetValue<T>(in PropertyPath path) => PropertyAccessor.GetValue<T>(this, path.ToString());
+        public virtual T GetValue<T>(string path) => PropertyAccessor.GetValue<T>(this, path);
         public virtual void SetValue<T>(string path, T value) => PropertyAccessor.SetValue<T>(this, path, value);
-        //public virtual void SetValue<T>(in PropertyPath path, T value) => PropertyAccessor.SetValue<T>(this, path.ToString(), value);
 
-        public bool SetValue(Type type,string key, JToken value)
+        public bool SetValue(Type type, string key, JToken value)
         {
             if (type == null || string.IsNullOrEmpty(key))
             {
                 return false;
             }
-            MemberInfo  memberInfo = type.GetMember(key)[0];
+            MemberInfo memberInfo = type.GetMember(key)[0];
             if (memberInfo == null)
             {
                 return false;
@@ -50,16 +48,14 @@ namespace TreeNode.Runtime
         {
             string parentPath = PropertyAccessor.ExtractParentPath(path);
             if (parentPath == null)
-            { 
+            {
                 return this;
             }
             return GetValue<object>(parentPath);
         }
-        //public object GetParent(in PropertyPath path)
-        //{
-        //    string parentPath = PropertyAccessor.PopPath(path.ToString());
-        //    return GetValue<object>(parentPath);
-        //}
+
+        public virtual string GetInfo()=> GetType().Name;
+
     }
 
 

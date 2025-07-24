@@ -674,27 +674,6 @@ namespace TreeNode.Editor
                 });
             }
         }
-
-        /// <summary>
-        /// Get initialization status for debugging
-        /// </summary>
-        public string GetInitializationStatus()
-        {
-            int totalExpected = GetTotalJsonNodeCount();
-            int currentViewNodes = ViewNodes.Count;
-            int uninitializedNodes = 0;
-            
-            foreach (ViewNode viewNode in ViewNodes)
-            {
-                if (!viewNode.CheckListInited())
-                {
-                    uninitializedNodes++;
-                }
-            }
-            
-            return $"Expected JsonNodes: {totalExpected}, Current ViewNodes: {currentViewNodes}, Uninitialized: {uninitializedNodes}";
-        }
-
         public virtual string GetTreeView()
         {
             if (ViewNodes.Count == 0)
@@ -740,7 +719,7 @@ namespace TreeNode.Editor
             processedNodes.Add(node);
             
             // Get the display name for the node
-            string nodeName = GetNodeDisplayName(node);
+            string nodeName = node.Data.GetInfo();
             
             // Add the current node to the tree
             if (isRoot)
@@ -763,19 +742,6 @@ namespace TreeNode.Editor
                 string childPrefix = prefix + (isRoot ? "" : (isLast ? "    " : "│   "));
                 BuildTreeRecursive(children[i], childPrefix, isLastChild, builder, processedNodes, false);
             }
-        }
-
-        private string GetNodeDisplayName(ViewNode node)
-        {
-            // Try to get the NodeInfo title first
-            var nodeInfoAttribute = node.Data.GetType().GetCustomAttribute<NodeInfoAttribute>();
-            if (nodeInfoAttribute != null && !string.IsNullOrEmpty(nodeInfoAttribute.Title))
-            {
-                return nodeInfoAttribute.Title;
-            }
-            
-            // Fall back to the class name
-            return node.Data.GetType().Name;
         }
     }
 }
