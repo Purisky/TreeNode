@@ -506,11 +506,11 @@ namespace TreeNode.Runtime
                 else if (targetType.IsAssignableFrom(typeof(T)))
                 {
                     valueExpression = Expression.Convert(valueParam, targetType);
-                }
+                }                
                 // 如果T可以赋值给目标类型，进行转换
                 else if (typeof(T).IsAssignableFrom(targetType))
                 {
-                    valueExpression = valueParam;
+                    valueExpression = Expression.Convert(valueParam, targetType);
                 }
                 // 如果两者都是数值类型，尝试转换
                 else if (IsNumericType(typeof(T)) && IsNumericType(targetType))
@@ -526,7 +526,6 @@ namespace TreeNode.Runtime
                 {
                     throw new InvalidCastException($"无法将类型 {typeof(T).Name} 转换为 {targetType.Name}");
                 }
-
                 var assignExpr = Expression.Assign(target, valueExpression);
                 return Expression.Lambda<Action<object, T>>(assignExpr, param, valueParam).Compile();
             }
