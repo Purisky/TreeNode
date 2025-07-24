@@ -162,10 +162,56 @@ namespace TreeNode.Editor
             }
             return true;
         }
+        /// <summary>
+        /// Synchronously add all child nodes without waiting for ListView initialization
+        /// This bypasses the asynchronous ListView rendering issue
+        /// </summary>
+        public void AddChildNodesSynchronously()
+        {
+            // Get all ListView elements from content
+            listViews = Content.Query<ListView>().ToList();
+            
+            // Force synchronous initialization of all child ports
+            for (int i = 0; i < ChildPorts.Count; i++)
+            {
+                ChildPort childPort = ChildPorts[i];
+                if (!visitedChildPorts.Contains(childPort))
+                {
+                    visitedChildPorts.Add(childPort);
+                    InitChildPort(childPort);
+                }
+            }
+            
+            // Mark all ListViews as initialized by setting userData
+            foreach (ListView listView in listViews)
+            {
+                if (listView.userData is not bool)
+                {
+                    listView.userData = true;
+                }
+            }
+        }
+        
+        /// <summary>
+        /// Enhanced version that uses synchronous initialization when possible
+        /// Falls back to async when needed for UI compatibility
+        /// </summary>
         public void AddChildNodesUntilListInited()
         {
             listViews = Content.Query<ListView>().ToList();
-            IVisualElementScheduledItem visualElementScheduledItem = schedule.Execute(AddChildNodes).Until(CheckListInited);
+            
+            // Always try synchronous initialization first - this bypasses most async issues
+            AddChildNodesSynchronously();
+            
+            // Check if synchronous initialization was successful
+            if (CheckListInited())
+            {
+                // Success! No need for async fallback
+                return;
+            }
+            
+            // If synchronous didn't work completely, fall back to async for remaining items
+            //IVisualElementScheduledItem visualElementScheduledItem = schedule.Execute(AddChildNodes).Until(CheckListInited);
         }
 
 

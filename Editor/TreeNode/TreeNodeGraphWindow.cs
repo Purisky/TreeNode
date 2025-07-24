@@ -247,6 +247,7 @@ namespace TreeNode.Editor
             AssetDatabase.Refresh();
             return true;
         }
+
     }
 
     public static class WindowManager
