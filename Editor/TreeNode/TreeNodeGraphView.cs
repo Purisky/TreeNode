@@ -465,7 +465,7 @@ namespace TreeNode.Editor
             {
                 if (!ViewNodes[i].Validate(out string msg))
                 {
-                    result += msg;
+                    result +=i>0?("\n"+msg):msg;
                 }
             }
             if (result.Length > 0)
@@ -474,7 +474,28 @@ namespace TreeNode.Editor
             }
             return "Success";
         }
+        public virtual List<(string, string)> GetAllNodePaths()
+        {
+            List<(string, string)> paths = new();
+            for (int i = 0; i < Asset.Data.Nodes.Count; i++)
+            {
 
+
+
+
+            }
+
+
+
+
+            foreach (var node in ViewNodes)
+            {
+                string path = node.GetNodePath();
+                paths.Add((node.GetNodePath(),$"{path}--{node.Data.GetType().Name}" ));
+            }
+            paths =  paths.OrderBy(n => n.Item1).ToList();
+            return paths;
+        }
 
     }
 }
