@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text;
 using TreeNode.Utility;
+using UnityEngine;
 
 namespace TreeNode.Runtime
 {
@@ -45,6 +46,7 @@ namespace TreeNode.Runtime
             public List<MemberRenderInfo> RenderMembers { get; set; } = new();
             public List<MemberInfo> JsonNodeMembers { get; set; } = new();
             public List<MemberInfo> CollectionMembers { get; set; } = new();
+            public List<NestedNodePath> NestedPaths { get; set; } = new();
         }
 
         /// <summary>
@@ -62,6 +64,17 @@ namespace TreeNode.Runtime
             public bool IsNestedNodeContainer { get; set; } // 如FuncValue.Node, TimeValue.Value.Node等
         }
 
+        /// <summary>
+        /// 嵌套节点路径信息
+        /// </summary>
+        public class NestedNodePath
+        {
+            public string Path { get; set; }
+            public Type ContainerType { get; set; }
+            public string[] PathSegments { get; set; }
+            public int Depth { get; set; }
+        }
+
         #endregion
 
         #region 缓存字段
@@ -69,11 +82,11 @@ namespace TreeNode.Runtime
         // 类型成员信息缓存
         private static readonly ConcurrentDictionary<Type, TypeMemberInfo> _typeMemberCache = new();
         
-        // 特殊类型检测缓存（如FuncValue、TimeValue等）
-        private static readonly ConcurrentDictionary<Type, bool> _specialTypeCache = new();
+        // 类型检测缓存 - 是否为用户定义类型
+        private static readonly ConcurrentDictionary<Type, bool> _userDefinedTypeCache = new();
         
-        // 嵌套节点路径缓存（如FuncValue -> Node, TimeValue -> Value.Node等）
-        private static readonly ConcurrentDictionary<Type, List<string>> _nestedNodePathCache = new();
+        // 类型检测缓存 - 是否包含JsonNode
+        private static readonly ConcurrentDictionary<Type, bool> _containsJsonNodeCache = new();
 
         #endregion
 
@@ -140,13 +153,10 @@ namespace TreeNode.Runtime
                     _nodeMetadataMap[node] = metadata;
                 }
             }
-
             // 建立层次关系
             BuildHierarchy();
-            
             // 计算路径和深度
             CalculatePathsAndDepths();
-
             _isDirty = false;
         }
 
@@ -167,7 +177,7 @@ namespace TreeNode.Runtime
         }
 
         /// <summary>
-        /// 递归收集节点 - 使用缓存的类型信息
+        /// 递归收集节点 - 使用缓存的类型信息和通用嵌套检测
         /// </summary>
         private void CollectNodesRecursively(JsonNode node, HashSet<JsonNode> collected)
         {
@@ -195,7 +205,7 @@ namespace TreeNode.Runtime
                 }
             }
             
-            // 处理集合成员
+            // 处理集合成员 - 增强版本，支持嵌套节点集合
             foreach (var member in typeInfo.CollectionMembers)
             {
                 try
@@ -203,13 +213,7 @@ namespace TreeNode.Runtime
                     var value = member.GetValue(node);
                     if (value is System.Collections.IEnumerable enumerable)
                     {
-                        foreach (var item in enumerable)
-                        {
-                            if (item is JsonNode childJsonNode)
-                            {
-                                CollectNodesRecursively(childJsonNode, collected);
-                            }
-                        }
+                        CollectNodesFromCollection(enumerable, collected);
                     }
                 }
                 catch
@@ -218,21 +222,22 @@ namespace TreeNode.Runtime
                 }
             }
             
-            // 处理嵌套的JsonNode（如FuncValue.Node, TimeValue.Value.Node等）
-            CollectNestedNodes(node, collected);
+            // 处理嵌套的JsonNode - 使用通用递归方法
+            CollectNestedNodesGeneric(node, collected);
         }
 
         /// <summary>
-        /// 收集嵌套的JsonNode（如FuncValue中的Node）
+        /// 通用方法收集嵌套的JsonNode
         /// </summary>
-        private void CollectNestedNodes(JsonNode node, HashSet<JsonNode> collected)
+        private void CollectNestedNodesGeneric(JsonNode node, HashSet<JsonNode> collected)
         {
-            var nestedPaths = GetNestedNodePaths(node.GetType());
-            foreach (var path in nestedPaths)
+            var typeInfo = GetOrCreateTypeMemberInfo(node.GetType());
+            
+            foreach (var nestedPath in typeInfo.NestedPaths)
             {
                 try
                 {
-                    var nestedNode = PropertyAccessor.GetValue<JsonNode>(node, path);
+                    var nestedNode = PropertyAccessor.GetValue<JsonNode>(node, nestedPath.Path);
                     if (nestedNode != null)
                     {
                         CollectNodesRecursively(nestedNode, collected);
@@ -241,6 +246,72 @@ namespace TreeNode.Runtime
                 catch
                 {
                     // 跳过无法访问的路径
+                }
+            }
+        }
+
+        /// <summary>
+        /// 从集合中收集JsonNode - 支持嵌套结构
+        /// </summary>
+        private void CollectNodesFromCollection(System.Collections.IEnumerable collection, HashSet<JsonNode> collected)
+        {
+            foreach (var item in collection)
+            {
+                if (item == null) continue;
+
+                // 直接是JsonNode的情况
+                if (item is JsonNode childJsonNode)
+                {
+                    CollectNodesRecursively(childJsonNode, collected);
+                }
+                // 可能包含嵌套JsonNode的用户定义类型（如TimeValue）
+                else if (IsUserDefinedType(item.GetType()) && ContainsJsonNodeRecursively(item.GetType()))
+                {
+                    CollectNestedNodesFromObject(item, collected);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 从对象中收集嵌套的JsonNode
+        /// </summary>
+        private void CollectNestedNodesFromObject(object obj, HashSet<JsonNode> collected)
+        {
+            if (obj == null) return;
+
+            var typeInfo = GetOrCreateTypeMemberInfo(obj.GetType());
+            
+            // 处理嵌套路径
+            foreach (var nestedPath in typeInfo.NestedPaths)
+            {
+                try
+                {
+                    var nestedNode = PropertyAccessor.GetValue<JsonNode>(obj, nestedPath.Path);
+                    if (nestedNode != null)
+                    {
+                        CollectNodesRecursively(nestedNode, collected);
+                    }
+                }
+                catch
+                {
+                    // 跳过无法访问的路径
+                }
+            }
+
+            // 处理直接的JsonNode成员
+            foreach (var member in typeInfo.JsonNodeMembers)
+            {
+                try
+                {
+                    var value = member.GetValue(obj);
+                    if (value is JsonNode childNode)
+                    {
+                        CollectNodesRecursively(childNode, collected);
+                    }
+                }
+                catch
+                {
+                    // 跳过无法访问的成员
                 }
             }
         }
@@ -291,6 +362,9 @@ namespace TreeNode.Runtime
                     // 跳过无法访问的成员
                 }
             }
+            
+            // 处理嵌套节点容器
+            ProcessNestedNodesHierarchy(parentNode, parentMetadata, typeInfo);
         }
 
         /// <summary>
@@ -312,48 +386,92 @@ namespace TreeNode.Runtime
                     parentMetadata.Children.Add(childMetadata);
                 }
             }
-            // JsonNode列表或数组
+            // 集合类型 - 支持直接JsonNode集合和嵌套节点集合
             else if (renderInfo.IsMultiValue && value is System.Collections.IEnumerable enumerable)
             {
-                int index = 0;
-                foreach (var item in enumerable)
-                {
-                    if (item is JsonNode childJsonNode && _nodeMetadataMap.TryGetValue(childJsonNode, out var childMetadata))
-                    {
-                        childMetadata.Parent = parentMetadata;
-                        childMetadata.PortName = renderInfo.Member.Name;
-                        childMetadata.IsMultiPort = true;
-                        childMetadata.ListIndex = index;
-                        childMetadata.RenderOrder = renderInfo.RenderOrder;
-                        parentMetadata.Children.Add(childMetadata);
-                        index++;
-                    }
-                }
-            }
-            // 处理嵌套节点容器（如FuncValue.Node）
-            else if (renderInfo.IsNestedNodeContainer)
-            {
-                ProcessNestedNodeContainers(renderInfo, value, parentMetadata);
+                ProcessCollectionChildren(enumerable, renderInfo, parentMetadata);
             }
         }
 
         /// <summary>
-        /// 处理嵌套节点容器
+        /// 处理集合类型的子节点
         /// </summary>
-        private void ProcessNestedNodeContainers(MemberRenderInfo renderInfo, object value, NodeMetadata parentMetadata)
+        private void ProcessCollectionChildren(System.Collections.IEnumerable collection, MemberRenderInfo renderInfo, NodeMetadata parentMetadata)
         {
-            var nestedPaths = GetNestedNodePaths(renderInfo.ValueType);
-            foreach (var path in nestedPaths)
+            int index = 0;
+            foreach (var item in collection)
+            {
+                if (item == null)
+                {
+                    index++;
+                    continue;
+                }
+
+                // 直接是JsonNode的情况
+                if (item is JsonNode childJsonNode && _nodeMetadataMap.TryGetValue(childJsonNode, out var childMetadata))
+                {
+                    childMetadata.Parent = parentMetadata;
+                    childMetadata.PortName = renderInfo.Member.Name;
+                    childMetadata.IsMultiPort = true;
+                    childMetadata.ListIndex = index;
+                    childMetadata.RenderOrder = renderInfo.RenderOrder;
+                    parentMetadata.Children.Add(childMetadata);
+                }
+                // 包含嵌套JsonNode的用户定义类型（如TimeValue）
+                else if (IsUserDefinedType(item.GetType()) && ContainsJsonNodeRecursively(item.GetType()))
+                {
+                    ProcessNestedNodesInCollectionItem(item, index, renderInfo, parentMetadata);
+                }
+
+                index++;
+            }
+        }
+
+        /// <summary>
+        /// 处理集合项中的嵌套节点
+        /// </summary>
+        private void ProcessNestedNodesInCollectionItem(object item, int itemIndex, MemberRenderInfo renderInfo, NodeMetadata parentMetadata)
+        {
+            var typeInfo = GetOrCreateTypeMemberInfo(item.GetType());
+            
+            foreach (var nestedPath in typeInfo.NestedPaths)
             {
                 try
                 {
-                    var nestedNode = PropertyAccessor.GetValue<JsonNode>(value, path);
+                    var nestedNode = PropertyAccessor.GetValue<JsonNode>(item, nestedPath.Path);
                     if (nestedNode != null && _nodeMetadataMap.TryGetValue(nestedNode, out var childMetadata))
                     {
                         childMetadata.Parent = parentMetadata;
-                        childMetadata.PortName = renderInfo.Member.Name;
+                        childMetadata.PortName = $"{renderInfo.Member.Name}[{itemIndex}].{nestedPath.Path}";
+                        childMetadata.IsMultiPort = true;
+                        childMetadata.ListIndex = itemIndex;
+                        childMetadata.RenderOrder = renderInfo.RenderOrder + nestedPath.Depth;
+                        parentMetadata.Children.Add(childMetadata);
+                    }
+                }
+                catch
+                {
+                    // 跳过无法访问的嵌套路径
+                }
+            }
+        }
+
+        /// <summary>
+        /// 处理嵌套节点层次结构
+        /// </summary>
+        private void ProcessNestedNodesHierarchy(JsonNode parentNode, NodeMetadata parentMetadata, TypeMemberInfo typeInfo)
+        {
+            foreach (var nestedPath in typeInfo.NestedPaths)
+            {
+                try
+                {
+                    var nestedNode = PropertyAccessor.GetValue<JsonNode>(parentNode, nestedPath.Path);
+                    if (nestedNode != null && _nodeMetadataMap.TryGetValue(nestedNode, out var childMetadata))
+                    {
+                        childMetadata.Parent = parentMetadata;
+                        childMetadata.PortName = nestedPath.Path;
                         childMetadata.IsMultiPort = false;
-                        childMetadata.RenderOrder = renderInfo.RenderOrder;
+                        childMetadata.RenderOrder = 500 + nestedPath.Depth; // 嵌套节点优先级较低
                         parentMetadata.Children.Add(childMetadata);
                     }
                 }
@@ -400,20 +518,10 @@ namespace TreeNode.Runtime
         {
             if (child.IsMultiPort)
             {
-                return $"{parentPath}.{child.PortName}[{child.ListIndex}]";
+                return $"{parentPath}.{child.PortName}";
             }
             else
             {
-                // 检查是否是特殊的嵌套路径
-                var nestedPaths = GetNestedNodePaths(parentNode.GetType());
-                foreach (var nestedPath in nestedPaths)
-                {
-                    if (nestedPath.StartsWith(child.PortName))
-                    {
-                        return $"{parentPath}.{nestedPath}";
-                    }
-                }
-                
                 return $"{parentPath}.{child.PortName}";
             }
         }
@@ -431,7 +539,7 @@ namespace TreeNode.Runtime
         }
 
         /// <summary>
-        /// 创建类型成员信息 - 分析UI渲染顺序
+        /// 创建类型成员信息 - 分析UI渲染顺序和嵌套路径
         /// </summary>
         private TypeMemberInfo CreateTypeMemberInfo(Type type)
         {
@@ -454,7 +562,7 @@ namespace TreeNode.Runtime
                     {
                         typeInfo.JsonNodeMembers.Add(member);
                     }
-                    else if (IsJsonNodeCollection(renderInfo.ValueType))
+                    else if (IsJsonNodeCollection(renderInfo.ValueType) || IsNestedNodeCollection(renderInfo.ValueType))
                     {
                         typeInfo.CollectionMembers.Add(member);
                     }
@@ -463,6 +571,9 @@ namespace TreeNode.Runtime
 
             // 按UI渲染顺序排序
             typeInfo.RenderMembers = renderMembers.OrderBy(r => r.RenderOrder).ToList();
+            
+            // 分析嵌套JsonNode路径
+            typeInfo.NestedPaths = AnalyzeNestedJsonNodePaths(type);
             
             return typeInfo;
         }
@@ -482,9 +593,9 @@ namespace TreeNode.Runtime
                 RenderOrder = CalculateRenderOrder(member),
                 IsChild = HasAttribute<ChildAttribute>(member),
                 IsTitlePort = HasAttribute<TitlePortAttribute>(member),
-                IsMultiValue = IsJsonNodeCollection(valueType),
+                IsMultiValue = IsJsonNodeCollection(valueType) || IsNestedNodeCollection(valueType),
                 GroupName = GetGroupName(member),
-                IsNestedNodeContainer = IsNestedNodeContainer(valueType)
+                IsNestedNodeContainer = ContainsJsonNodeRecursively(valueType)
             };
 
             return renderInfo;
@@ -507,7 +618,6 @@ namespace TreeNode.Runtime
             {
                 var childAttr = member.GetCustomAttribute<ChildAttribute>();
                 // 检查是否有Top参数，如果Child(true)表示置顶
-                // 从代码使用模式来看，Child(true)应该是顶部优先级
                 bool isTop = false;
                 try
                 {
@@ -539,7 +649,6 @@ namespace TreeNode.Runtime
                 }
                 catch
                 {
-                    // 如果无法获取参数，使用默认值
                     isTop = false;
                 }
                 
@@ -565,73 +674,220 @@ namespace TreeNode.Runtime
         }
 
         /// <summary>
-        /// 获取嵌套JsonNode路径
+        /// 分析嵌套JsonNode路径 - 通用递归方法
         /// </summary>
-        private List<string> GetNestedNodePaths(Type type)
+        private List<NestedNodePath> AnalyzeNestedJsonNodePaths(Type containerType)
         {
-            return _nestedNodePathCache.GetOrAdd(type, CreateNestedNodePaths);
-        }
-
-        /// <summary>
-        /// 创建嵌套JsonNode路径列表
-        /// </summary>
-        private List<string> CreateNestedNodePaths(Type type)
-        {
-            var paths = new List<string>();
+            var paths = new List<NestedNodePath>();
+            var visited = new HashSet<Type>();
             
-            // 特殊处理已知的嵌套类型
-            if (type.Name == "FuncValue")
-            {
-                paths.Add("Node");
-            }
-            else if (type.Name == "TimeValue")
-            {
-                paths.Add("Value.Node");
-            }
-            else
-            {
-                // 通用检测：寻找可能包含JsonNode的嵌套属性
-                var members = type.GetMembers(BindingFlags.Public | BindingFlags.Instance)
-                    .Where(m => m.MemberType == MemberTypes.Property || m.MemberType == MemberTypes.Field);
-                
-                foreach (var member in members)
-                {
-                    var memberType = member.GetValueType();
-                    if (memberType != null && ContainsJsonNode(memberType, member.Name, 0))
-                    {
-                        // 这里可以添加更复杂的路径检测逻辑
-                    }
-                }
-            }
+            AnalyzeNestedPathsRecursively(containerType, "", 0, paths, visited, 3); // 最大深度3
             
             return paths;
         }
 
         /// <summary>
-        /// 检查类型是否包含JsonNode（递归检查，限制深度）
+        /// 递归分析嵌套路径
         /// </summary>
-        private bool ContainsJsonNode(Type type, string basePath, int depth)
+        private void AnalyzeNestedPathsRecursively(Type type, string currentPath, int depth, 
+            List<NestedNodePath> paths, HashSet<Type> visited, int maxDepth)
         {
-            if (depth > 2) return false; // 限制递归深度
-            
-            if (type.IsSubclassOf(typeof(JsonNode))) return true;
-            
-            if (type.IsClass && !type.IsPrimitive && type != typeof(string))
+            if (depth >= maxDepth || visited.Contains(type) || !IsUserDefinedType(type))
+                return;
+
+            visited.Add(type);
+
+            try
             {
                 var members = type.GetMembers(BindingFlags.Public | BindingFlags.Instance)
-                    .Where(m => m.MemberType == MemberTypes.Property || m.MemberType == MemberTypes.Field);
-                
+                    .Where(m => m.MemberType == MemberTypes.Property || m.MemberType == MemberTypes.Field)
+                    .ToList();
+
                 foreach (var member in members)
                 {
-                    var memberType = member.GetValueType();
-                    if (memberType != null && ContainsJsonNode(memberType, $"{basePath}.{member.Name}", depth + 1))
+                    try
                     {
-                        return true;
+                        var memberType = member.GetValueType();
+                        if (memberType == null) continue;
+
+                        var memberPath = string.IsNullOrEmpty(currentPath) ? member.Name : $"{currentPath}.{member.Name}";
+
+                        // 如果成员直接是JsonNode，添加路径
+                        if (memberType.IsSubclassOf(typeof(JsonNode)))
+                        {
+                            paths.Add(new NestedNodePath
+                            {
+                                Path = memberPath,
+                                ContainerType = type,
+                                PathSegments = memberPath.Split('.'),
+                                Depth = depth
+                            });
+                        }
+                        // 如果成员可能包含JsonNode，继续递归
+                        else if (IsUserDefinedType(memberType) && ContainsJsonNodeRecursively(memberType))
+                        {
+                            AnalyzeNestedPathsRecursively(memberType, memberPath, depth + 1, paths, visited, maxDepth);
+                        }
+                    }
+                    catch
+                    {
+                        // 跳过无法处理的成员
                     }
                 }
             }
-            
+            catch
+            {
+                // 跳过无法处理的类型
+            }
+            finally
+            {
+                visited.Remove(type);
+            }
+        }
+
+        /// <summary>
+        /// 检查类型是否为用户定义类型（排除Unity和System命名空间）
+        /// </summary>
+        private bool IsUserDefinedType(Type type)
+        {
+            return _userDefinedTypeCache.GetOrAdd(type, t =>
+            {
+                if (t == null || t.IsPrimitive || t.IsEnum || t == typeof(string))
+                    return false;
+
+                var namespaceName = t.Namespace ?? "";
+                
+                // 排除系统和Unity命名空间
+                if (namespaceName.StartsWith("System") || 
+                    namespaceName.StartsWith("Unity") || 
+                    namespaceName.StartsWith("UnityEngine") ||
+                    namespaceName.StartsWith("UnityEditor") ||
+                    namespaceName.StartsWith("Microsoft") ||
+                    namespaceName.StartsWith("Mono") ||
+                    namespaceName.StartsWith("Newtonsoft"))
+                {
+                    return false;
+                }
+
+                // 排除集合类型（除非是用户定义的集合）
+                if (typeof(System.Collections.IEnumerable).IsAssignableFrom(t) && 
+                    !t.IsArray && 
+                    !namespaceName.Contains("TreeNode") && 
+                    !namespaceName.Contains("SkillEditorDemo"))
+                {
+                    return false;
+                }
+
+                return true;
+            });
+        }
+        
+        /// <summary>
+        /// 递归检查类型是否包含JsonNode（带缓存）
+        /// </summary>
+        private bool ContainsJsonNodeRecursively(Type type)
+        {
+            return _containsJsonNodeCache.GetOrAdd(type, t => 
+                ContainsJsonNodeRecursivelyInternal(t, new HashSet<Type>(), 0, 3));
+        }
+
+        /// <summary>
+        /// 递归检查类型是否包含JsonNode的内部实现
+        /// </summary>
+        private bool ContainsJsonNodeRecursivelyInternal(Type type, HashSet<Type> visited, int depth, int maxDepth)
+        {
+            if (type == null || depth >= maxDepth || visited.Contains(type) || !IsUserDefinedType(type))
+                return false;
+
+            // 直接是JsonNode
+            if (type.IsSubclassOf(typeof(JsonNode)))
+                return true;
+
+            visited.Add(type);
+
+            try
+            {
+                var members = type.GetMembers(BindingFlags.Public | BindingFlags.Instance)
+                    .Where(m => m.MemberType == MemberTypes.Property || m.MemberType == MemberTypes.Field);
+
+                foreach (var member in members)
+                {
+                    try
+                    {
+                        var memberType = member.GetValueType();
+                        if (memberType != null)
+                        {
+                            // 检查成员类型
+                            if (memberType.IsSubclassOf(typeof(JsonNode)))
+                                return true;
+
+                            // 检查集合元素类型
+                            if (typeof(System.Collections.IEnumerable).IsAssignableFrom(memberType) && 
+                                !typeof(string).IsAssignableFrom(memberType))
+                            {
+                                var elementType = GetCollectionElementType(memberType);
+                                if (elementType != null && 
+                                    (elementType.IsSubclassOf(typeof(JsonNode)) || 
+                                     (IsUserDefinedType(elementType) && ContainsJsonNodeRecursivelyInternal(elementType, visited, depth + 1, maxDepth))))
+                                {
+                                    return true;
+                                }
+                            }
+
+                            // 递归检查用户定义的复杂类型
+                            if (IsUserDefinedType(memberType) && 
+                                ContainsJsonNodeRecursivelyInternal(memberType, visited, depth + 1, maxDepth))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // 跳过无法处理的成员
+                    }
+                }
+            }
+            catch
+            {
+                // 跳过无法处理的类型
+            }
+            finally
+            {
+                visited.Remove(type);
+            }
+
             return false;
+        }
+
+        /// <summary>
+        /// 获取集合的元素类型
+        /// </summary>
+        private Type GetCollectionElementType(Type collectionType)
+        {
+            if (collectionType.IsArray)
+                return collectionType.GetElementType();
+
+            if (collectionType.IsGenericType)
+            {
+                var genericArgs = collectionType.GetGenericArguments();
+                if (genericArgs.Length > 0)
+                    return genericArgs[0];
+            }
+
+            // 检查实现的泛型接口
+            foreach (var interfaceType in collectionType.GetInterfaces())
+            {
+                if (interfaceType.IsGenericType && 
+                    (interfaceType.GetGenericTypeDefinition() == typeof(IEnumerable<>) ||
+                     interfaceType.GetGenericTypeDefinition() == typeof(ICollection<>) ||
+                     interfaceType.GetGenericTypeDefinition() == typeof(IList<>)))
+                {
+                    return interfaceType.GetGenericArguments()[0];
+                }
+            }
+
+            return null;
         }
 
         #endregion
@@ -666,29 +922,25 @@ namespace TreeNode.Runtime
                 return false;
             }
 
-            if (type.IsGenericType)
-            {
-                var genericArgs = type.GetGenericArguments();
-                return genericArgs.Length > 0 && genericArgs[0].IsSubclassOf(typeof(JsonNode));
-            }
-
-            if (type.IsArray)
-            {
-                return type.GetElementType()?.IsSubclassOf(typeof(JsonNode)) == true;
-            }
-
-            return false;
+            var elementType = GetCollectionElementType(type);
+            return elementType != null && elementType.IsSubclassOf(typeof(JsonNode));
         }
 
         /// <summary>
-        /// 检查是否是嵌套节点容器
+        /// 检查是否是包含嵌套JsonNode的集合类型（如List<TimeValue>）
         /// </summary>
-        private bool IsNestedNodeContainer(Type type)
+        private bool IsNestedNodeCollection(Type type)
         {
-            return _specialTypeCache.GetOrAdd(type, t => 
-                t.Name == "FuncValue" || 
-                t.Name == "TimeValue" ||
-                GetNestedNodePaths(t).Count > 0);
+            if (!typeof(System.Collections.IEnumerable).IsAssignableFrom(type) || 
+                typeof(string).IsAssignableFrom(type))
+            {
+                return false;
+            }
+
+            var elementType = GetCollectionElementType(type);
+            return elementType != null && 
+                   IsUserDefinedType(elementType) && 
+                   ContainsJsonNodeRecursively(elementType);
         }
 
         #endregion
@@ -1003,8 +1255,52 @@ namespace TreeNode.Runtime
         public static void ClearCache()
         {
             _typeMemberCache.Clear();
-            _specialTypeCache.Clear();
-            _nestedNodePathCache.Clear();
+            _userDefinedTypeCache.Clear();
+            _containsJsonNodeCache.Clear();
+        }
+
+        #endregion
+
+        #region 调试和分析方法
+
+        /// <summary>
+        /// 获取类型分析信息（用于调试）
+        /// </summary>
+        public string GetTypeAnalysisInfo(Type type)
+        {
+            var typeInfo = GetOrCreateTypeMemberInfo(type);
+            var sb = new StringBuilder();
+            
+            sb.AppendLine($"类型分析: {type.Name}");
+            sb.AppendLine($"命名空间: {type.Namespace}");
+            sb.AppendLine($"是否用户定义类型: {IsUserDefinedType(type)}");
+            sb.AppendLine($"是否包含JsonNode: {ContainsJsonNodeRecursively(type)}");
+            sb.AppendLine();
+            
+            sb.AppendLine("嵌套JsonNode路径:");
+            foreach (var path in typeInfo.NestedPaths)
+            {
+                sb.AppendLine($"  - {path.Path} (深度: {path.Depth})");
+            }
+            
+            sb.AppendLine();
+            sb.AppendLine("渲染成员:");
+            foreach (var member in typeInfo.RenderMembers)
+            {
+                sb.AppendLine($"  - {member.Member.Name}: {member.ValueType.Name} (顺序: {member.RenderOrder})");
+            }
+            
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// 获取缓存统计信息
+        /// </summary>
+        public static string GetCacheStatistics()
+        {
+            return $"类型成员缓存: {_typeMemberCache.Count} " +
+                   $"用户类型缓存: {_userDefinedTypeCache.Count} " +
+                   $"JsonNode包含缓存: {_containsJsonNodeCache.Count}";
         }
 
         #endregion
