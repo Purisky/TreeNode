@@ -34,7 +34,7 @@ namespace TreeNode.Runtime
             public int RenderOrder { get; set; } = 0; // UI渲染顺序
             
             public bool IsRoot => Parent == null;
-            public string DisplayName => Node?.GetInfo() ?? "Unknown";
+            public string DisplayName => Node.GetInfo();
         }
 
         /// <summary>
@@ -143,7 +143,7 @@ namespace TreeNode.Runtime
 
             // 首先收集所有节点
             var allNodes = CollectAllNodes();
-            
+
             // 为每个节点创建元数据
             foreach (var node in allNodes)
             {
@@ -708,25 +708,26 @@ namespace TreeNode.Runtime
                     try
                     {
                         var memberType = member.GetValueType();
-                        if (memberType == null) continue;
-
-                        var memberPath = string.IsNullOrEmpty(currentPath) ? member.Name : $"{currentPath}.{member.Name}";
-
-                        // 如果成员直接是JsonNode，添加路径
-                        if (memberType.IsSubclassOf(typeof(JsonNode)))
+                        if (memberType != null)
                         {
-                            paths.Add(new NestedNodePath
+                            var memberPath = string.IsNullOrEmpty(currentPath) ? member.Name : $"{currentPath}.{member.Name}";
+
+                            // 如果成员直接是JsonNode，添加路径
+                            if (memberType.IsSubclassOf(typeof(JsonNode)))
                             {
-                                Path = memberPath,
-                                ContainerType = type,
-                                PathSegments = memberPath.Split('.'),
-                                Depth = depth
-                            });
-                        }
-                        // 如果成员可能包含JsonNode，继续递归
-                        else if (IsUserDefinedType(memberType) && ContainsJsonNodeRecursively(memberType))
-                        {
-                            AnalyzeNestedPathsRecursively(memberType, memberPath, depth + 1, paths, visited, maxDepth);
+                                paths.Add(new NestedNodePath
+                                {
+                                    Path = memberPath,
+                                    ContainerType = type,
+                                    PathSegments = memberPath.Split('.'),
+                                    Depth = depth
+                                });
+                            }
+                            // 如果成员可能包含JsonNode，继续递归
+                            else if (IsUserDefinedType(memberType) && ContainsJsonNodeRecursively(memberType))
+                            {
+                                AnalyzeNestedPathsRecursively(memberType, memberPath, depth + 1, paths, visited, maxDepth);
+                            }
                         }
                     }
                     catch
@@ -1130,7 +1131,7 @@ namespace TreeNode.Runtime
             }
             else
             {
-                builder.AppendLine(prefix + (isLast ? "└── " : "├── ") + node.DisplayName);
+                builder.AppendLine(prefix + (isLast ? "└ " : "├ ") + node.DisplayName);
             }
             
             // 获取按UI渲染顺序排序的子节点
@@ -1140,7 +1141,21 @@ namespace TreeNode.Runtime
             for (int i = 0; i < sortedChildren.Count; i++)
             {
                 bool isLastChild = (i == sortedChildren.Count - 1);
-                string childPrefix = prefix + (isRoot ? "" : (isLast ? "    " : "│   "));
+                
+                // 计算子节点前缀
+                string childPrefix;
+                if (isRoot)
+                {
+                    // 根节点的子节点不需要额外前缀
+                    childPrefix = "";
+                }
+                else
+                {
+                    // 如果当前节点是最后一个节点，子节点前缀使用空格
+                    // 如果当前节点不是最后一个，子节点前缀使用竖线连接
+                    childPrefix = prefix + (isLast ? "  " : "│ ");
+                }
+                
                 BuildTreeViewRecursively(sortedChildren[i], childPrefix, isLastChild, builder, processedNodes, false);
             }
         }
