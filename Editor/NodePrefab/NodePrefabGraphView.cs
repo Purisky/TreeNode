@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using TreeNode.Runtime;
@@ -99,6 +99,7 @@ namespace TreeNode.Editor
             node.AddToClassList("PrefabRoot");
         }
 
+        [Obsolete("使用异步版本 DrawNodesAsync()")]
         public override void DrawNodes()
         {
             NodePrefabInfo = new NodePrefabInfo(this);
@@ -112,11 +113,6 @@ namespace TreeNode.Editor
             if (!AssetData.Nodes.Any()) { return; }
             ViewNode rootNode = NodeDic[AssetData.RootNode];
             rootNode.AddToClassList("PrefabRoot");
-
-
-
-
-
         }
         public override void OnSave()
         {

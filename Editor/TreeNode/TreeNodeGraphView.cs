@@ -1,9 +1,12 @@
 ﻿using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
+using System.Threading.Tasks;
 using TreeNode.Runtime;
 using TreeNode.Utility;
 using Unity.Properties;
@@ -23,19 +26,18 @@ namespace TreeNode.Editor
         public List<ViewNode> ViewNodes;
         public Dictionary<JsonNode, ViewNode> NodeDic;
 
-        // 逻辑层树结构处理器
+        // 逻辑层树结构处理器 - 改为立即初始化
         private JsonNodeTree _nodeTree;
-        public JsonNodeTree NodeTree
-        {
-            get
-            {
-                if (_nodeTree == null || _nodeTree.IsDirty)
-                {
-                    _nodeTree = new JsonNodeTree(Asset.Data);
-                }
-                return _nodeTree;
-            }
-        }
+        public JsonNodeTree NodeTree => _nodeTree;
+
+        // 异步渲染状态管理
+        private bool _isRenderingAsync = false;
+        private readonly object _renderLock = new object();
+        private System.Threading.CancellationTokenSource _renderCancellationSource;
+
+        // 渲染任务队列和并发控制
+        private readonly ConcurrentQueue<Func<Task>> _renderTasks = new();
+        private readonly SemaphoreSlim _renderSemaphore = new(Environment.ProcessorCount);
 
         public TreeNodeWindowSearchProvider SearchProvider;
         public VisualElement ViewContainer;
@@ -45,6 +47,10 @@ namespace TreeNode.Editor
         {
             Window = window;
             style.flexGrow = 1;
+            
+            // 立即初始化逻辑层树结构
+            InitializeNodeTreeSync();
+            
             StyleSheet styleSheet = ResourcesUtil.LoadStyleSheet("TreeNodeGraphView");
             styleSheets.Add(styleSheet);
             ViewNodes = new();
@@ -65,13 +71,394 @@ namespace TreeNode.Editor
             this.AddManipulator(new RectangleSelector());
             this.AddManipulator(new ClickSelector());
 
-            DrawNodes();
+            // 使用异步方式渲染节点
+            _ = DrawNodesAsync();
 
             SetupZoom(0.2f, 2f);
             canPasteSerializedData = CanPaste;
             serializeGraphElements = Copy;
             unserializeAndPaste = Paste;
         }
+
+        /// <summary>
+        /// 同步初始化JsonNodeTree - 确保逻辑层数据准备完成
+        /// </summary>
+        private void InitializeNodeTreeSync()
+        {
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            _nodeTree = new JsonNodeTree(Asset.Data);
+            stopwatch.Stop();
+            
+            Debug.Log($"JsonNodeTree initialized in {stopwatch.ElapsedMilliseconds}ms with {_nodeTree.TotalNodeCount} nodes");
+        }
+
+        /// <summary>
+        /// 异步渲染所有节点和边 - 高性能版本（Unity编辑器优化）
+        /// </summary>
+        private async Task DrawNodesAsync()
+        {
+            lock (_renderLock)
+            {
+                if (_isRenderingAsync)
+                {
+                    _renderCancellationSource?.Cancel();
+                }
+                _isRenderingAsync = true;
+                _renderCancellationSource = new System.Threading.CancellationTokenSource();
+            }
+
+            var cancellationToken = _renderCancellationSource.Token;
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+            try
+            {
+                // 阶段1: 在主线程准备ViewNode数据（避免Unity API线程问题）
+                var viewNodeCreationTasks = await PrepareViewNodesAsync(cancellationToken);
+                
+                // 阶段2: 批量添加ViewNode到UI（在主线程执行）
+                await AddViewNodesToUIAsync(viewNodeCreationTasks, cancellationToken);
+                
+                // 阶段3: 创建Edge连接（在主线程执行）
+                await CreateEdgesAsync(cancellationToken);
+                
+                stopwatch.Stop();
+                Debug.Log($"Async rendering completed in {stopwatch.ElapsedMilliseconds}ms for {ViewNodes.Count} nodes");
+            }
+            catch (OperationCanceledException)
+            {
+                Debug.Log("Async rendering was cancelled");
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Async rendering failed: {e.Message}\n{e.StackTrace}");
+                
+                // 在异常情况下，回退到同步渲染
+                try
+                {
+                    Debug.Log("Falling back to synchronous rendering...");
+                    DrawNodesSynchronously();
+                }
+                catch (Exception fallbackException)
+                {
+                    Debug.LogError($"Fallback synchronous rendering also failed: {fallbackException.Message}");
+                }
+            }
+            finally
+            {
+                lock (_renderLock)
+                {
+                    _isRenderingAsync = false;
+                    _renderCancellationSource?.Dispose();
+                    _renderCancellationSource = null;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 同步渲染备用方案
+        /// </summary>
+        private void DrawNodesSynchronously()
+        {
+            Debug.Log("Using synchronous rendering as fallback");
+            
+            var sortedMetadata = _nodeTree.GetSortedNodes();
+            
+            // 创建ViewNode
+            foreach (var metadata in sortedMetadata)
+            {
+                if (!NodeDic.ContainsKey(metadata.Node))
+                {
+                    var creationTask = PrepareViewNodeCreation(metadata);
+                    if (creationTask != null)
+                    {
+                        CreateAndAddViewNode(creationTask);
+                    }
+                }
+            }
+            
+            // 创建Edge连接
+            foreach (var metadata in sortedMetadata)
+            {
+                if (metadata.Parent != null)
+                {
+                    if (NodeDic.TryGetValue(metadata.Node, out var childViewNode) &&
+                        NodeDic.TryGetValue(metadata.Parent.Node, out var parentViewNode))
+                    {
+                        CreateEdgeConnection(parentViewNode, childViewNode, metadata);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 并行准备ViewNode数据 - 使用逻辑层优化的排序（修复主线程问题）
+        /// </summary>
+        private async Task<List<ViewNodeCreationTask>> PrepareViewNodesAsync(System.Threading.CancellationToken cancellationToken)
+        {
+            var sortedMetadata = _nodeTree.GetSortedNodes();
+            var creationTasks = new List<ViewNodeCreationTask>();
+            
+            // 在主线程中预处理所有ViewNode创建数据，避免在后台线程中调用Unity API
+            await ExecuteOnMainThreadAsync(() =>
+            {
+                foreach (var metadata in sortedMetadata)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    
+                    var creationTask = PrepareViewNodeCreation(metadata);
+                    if (creationTask != null)
+                    {
+                        creationTasks.Add(creationTask);
+                    }
+                }
+            });
+            
+            return creationTasks;
+        }
+
+        /// <summary>
+        /// 准备单个ViewNode的创建数据
+        /// </summary>
+        private ViewNodeCreationTask PrepareViewNodeCreation(JsonNodeTree.NodeMetadata metadata)
+        {
+            var node = metadata.Node;
+            
+            // 跳过已存在的节点
+            if (NodeDic.ContainsKey(node))
+                return null;
+
+            // 预处理节点类型信息
+            var nodeType = node.GetType();
+            var nodeInfo = nodeType.GetCustomAttribute<NodeInfoAttribute>();
+            
+            return new ViewNodeCreationTask
+            {
+                Node = node,
+                Metadata = metadata,
+                NodeType = nodeType,
+                NodeInfo = nodeInfo,
+                Position = new Rect(node.Position, Vector2.zero)
+            };
+        }
+
+        /// <summary>
+        /// 批量添加ViewNode到UI - 在主线程执行以确保UI安全（Unity编辑器优化）
+        /// </summary>
+        private async Task AddViewNodesToUIAsync(List<ViewNodeCreationTask> creationTasks, System.Threading.CancellationToken cancellationToken)
+        {
+            const int batchSize = 25; // 减少批次大小以提高响应性
+            const int maxBatchesPerFrame = 2; // 每帧最多处理2个批次
+            
+            for (int i = 0; i < creationTasks.Count; i += batchSize)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                
+                var batch = creationTasks.Skip(i).Take(batchSize);
+                
+                // 直接在主线程执行UI操作，避免不必要的线程切换
+                foreach (var task in batch)
+                {
+                    CreateAndAddViewNode(task);
+                }
+                
+                // 定期让出控制权，保持编辑器响应性
+                if ((i / batchSize) % maxBatchesPerFrame == 0)
+                {
+                    // 使用Unity编辑器友好的延时方式，避免Unity API调用
+                    await Task.Yield();
+                    
+                    // 给编辑器一些处理时间，不使用Unity Time API
+                    await Task.Delay(16, cancellationToken); // 约1帧的时间（60fps = 16.67ms）
+                }
+            }
+        }
+
+        /// <summary>
+        /// 创建并添加ViewNode到图表
+        /// </summary>
+        private void CreateAndAddViewNode(ViewNodeCreationTask creationTask)
+        {
+            if (NodeDic.ContainsKey(creationTask.Node))
+                return;
+
+            ViewNode viewNode;
+            if (creationTask.Node.PrefabData != null)
+            {
+                viewNode = new PrefabViewNode(creationTask.Node, this);
+            }
+            else
+            {
+                viewNode = new ViewNode(creationTask.Node, this);
+            }
+            
+            viewNode.SetPosition(creationTask.Position);
+            ViewNodes.Add(viewNode);
+            NodeDic.Add(creationTask.Node, viewNode);
+            AddElement(viewNode);
+            
+            // 使用同步方式初始化子节点以提升性能
+            viewNode.AddChildNodesSynchronously();
+        }
+
+        /// <summary>
+        /// 并行创建Edge连接 - 基于逻辑层的层次结构（修复主线程问题）
+        /// </summary>
+        private async Task CreateEdgesAsync(System.Threading.CancellationToken cancellationToken)
+        {
+            // 在主线程中收集所有需要创建边的元数据
+            var edgeMetadataList = new List<JsonNodeTree.NodeMetadata>();
+            
+            await ExecuteOnMainThreadAsync(() =>
+            {
+                foreach (var metadata in _nodeTree.GetSortedNodes())
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    
+                    if (metadata.Parent != null)
+                    {
+                        edgeMetadataList.Add(metadata);
+                    }
+                }
+            });
+            
+            // 现在可以安全地并行创建边连接
+            var edgeCreationTasks = new List<Task>();
+            
+            foreach (var metadata in edgeMetadataList)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                
+                // 直接在主线程上创建边连接，避免线程切换开销
+                var task = CreateEdgeForNodeAsync(metadata, cancellationToken);
+                edgeCreationTasks.Add(task);
+            }
+            
+            await Task.WhenAll(edgeCreationTasks);
+        }
+
+        /// <summary>
+        /// 为指定节点创建边连接
+        /// </summary>
+        private async Task CreateEdgeForNodeAsync(JsonNodeTree.NodeMetadata childMetadata, System.Threading.CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            
+            // 在主线程执行UI操作
+            await ExecuteOnMainThreadAsync(() =>
+            {
+                if (NodeDic.TryGetValue(childMetadata.Node, out var childViewNode) &&
+                    NodeDic.TryGetValue(childMetadata.Parent.Node, out var parentViewNode))
+                {
+                    CreateEdgeConnection(parentViewNode, childViewNode, childMetadata);
+                }
+            });
+        }
+
+        /// <summary>
+        /// 创建具体的边连接
+        /// </summary>
+        private void CreateEdgeConnection(ViewNode parentViewNode, ViewNode childViewNode, JsonNodeTree.NodeMetadata childMetadata)
+        {
+            // 查找对应的ChildPort
+            var childPort = FindChildPortByName(parentViewNode, childMetadata.PortName, childMetadata.IsMultiPort, childMetadata.ListIndex);
+            if (childPort != null && childViewNode.ParentPort != null)
+            {
+                var edge = childPort.ConnectTo(childViewNode.ParentPort);
+                AddElement(edge);
+                
+                // 设置多端口索引
+                if (childMetadata.IsMultiPort)
+                {
+                    childViewNode.ParentPort.SetIndex(childMetadata.ListIndex);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 根据名称和索引查找ChildPort
+        /// </summary>
+        private ChildPort FindChildPortByName(ViewNode parentViewNode, string portName, bool isMultiPort, int listIndex)
+        {
+            foreach (var childPort in parentViewNode.ChildPorts)
+            {
+                // 通过PropertyElement获取端口路径信息
+                var propertyElement = childPort.GetFirstAncestorOfType<PropertyElement>();
+                if (propertyElement != null)
+                {
+                    var memberName = propertyElement.MemberMeta.Path.Split('.').LastOrDefault();
+                    if (memberName == portName)
+                    {
+                        if (isMultiPort && childPort is MultiPort)
+                        {
+                            return childPort;
+                        }
+                        else if (!isMultiPort && childPort is not MultiPort)
+                        {
+                            return childPort;
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// 在主线程执行操作 - 简化版本，避免Unity API调用
+        /// </summary>
+        private async Task ExecuteOnMainThreadAsync(System.Action action)
+        {
+            // 简化主线程检测，避免复杂的线程ID判断
+            // 在Unity编辑器环境中，大多数情况下我们已经在主线程
+            try
+            {
+                // 直接执行操作，如果不在主线程会抛出异常
+                action();
+                return;
+            }
+            catch (System.InvalidOperationException)
+            {
+                // 如果不在主线程，使用调度器
+            }
+            
+            var tcs = new TaskCompletionSource<bool>();
+            
+            // 使用Unity编辑器的调度器确保在主线程执行
+            schedule.Execute(() =>
+            {
+                try
+                {
+                    action();
+                    tcs.SetResult(true);
+                }
+                catch (Exception e)
+                {
+                    tcs.SetException(e);
+                }
+            });
+            
+            await tcs.Task;
+        }
+
+        public void Redraw()
+        {
+            // 取消当前的渲染任务
+            lock (_renderLock)
+            {
+                _renderCancellationSource?.Cancel();
+            }
+            
+            ViewNodes.Clear();
+            NodeDic.Clear();
+            ViewContainer.Query<Layer>().ForEach(p => p.Clear());
+            
+            // 重新初始化逻辑层
+            InitializeNodeTreeSync();
+            
+            // 异步重新渲染
+            _ = DrawNodesAsync();
+        }
+
+        // ...existing methods remain unchanged...
 
         public virtual string Copy(IEnumerable<GraphElement> elements)
         {
@@ -198,18 +585,6 @@ namespace TreeNode.Editor
                     index = index
                 });
             }
-        }
-
-        public void Redraw()
-        {
-            ViewNodes.Clear();
-            NodeDic.Clear();
-            ViewContainer.Query<Layer>().ForEach(p => p.Clear());
-            
-            // 重置逻辑层
-            _nodeTree = null;
-            
-            schedule.Execute(DrawNodes);
         }
 
         private GraphViewChange OnGraphViewChanged(GraphViewChange graphViewChange)
@@ -339,8 +714,10 @@ namespace TreeNode.Editor
             SearchWindow.Open(new SearchWindowContext(context.screenMousePosition), SearchProvider);
         }
 
+        [Obsolete("使用异步版本 DrawNodesAsync()")]
         public virtual void DrawNodes()
         {
+            // 为了向后兼容，保留同步版本，但推荐使用异步版本
             for (int i = 0; i < Asset.Data.Nodes.Count; i++)
             {
                 AddViewNode(Asset.Data.Nodes[i]);
@@ -504,5 +881,27 @@ namespace TreeNode.Editor
         {
             return NodeTree.GetTreeView();
         }
+
+        /// <summary>
+        /// 清理资源
+        /// </summary>
+        public void Dispose()
+        {
+            _renderCancellationSource?.Cancel();
+            _renderCancellationSource?.Dispose();
+            _renderSemaphore?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// ViewNode创建任务数据结构
+    /// </summary>
+    internal class ViewNodeCreationTask
+    {
+        public JsonNode Node { get; set; }
+        public JsonNodeTree.NodeMetadata Metadata { get; set; }
+        public Type NodeType { get; set; }
+        public NodeInfoAttribute NodeInfo { get; set; }
+        public Rect Position { get; set; }
     }
 }
