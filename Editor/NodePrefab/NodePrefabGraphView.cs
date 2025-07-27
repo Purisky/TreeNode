@@ -99,21 +99,6 @@ namespace TreeNode.Editor
             node.AddToClassList("PrefabRoot");
         }
 
-        [Obsolete("使用异步版本 DrawNodesAsync()")]
-        public override void DrawNodes()
-        {
-            NodePrefabInfo = new NodePrefabInfo(this);
-            NodePrefabInfo exist = Window.rootVisualElement.Q<NodePrefabInfo>();
-            if (exist != null)
-            {
-                Window.rootVisualElement.Remove(exist);
-            }
-            Window.rootVisualElement.Add(NodePrefabInfo);
-            base.DrawNodes();
-            if (!AssetData.Nodes.Any()) { return; }
-            ViewNode rootNode = NodeDic[AssetData.RootNode];
-            rootNode.AddToClassList("PrefabRoot");
-        }
         public override void OnSave()
         {
             if (AssetData.RootNode == null) { return; }

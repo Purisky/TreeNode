@@ -89,7 +89,7 @@ namespace TreeNode.Editor
             _nodeTree = new JsonNodeTree(Asset.Data);
             stopwatch.Stop();
             
-            Debug.Log($"JsonNodeTree initialized in {stopwatch.ElapsedMilliseconds}ms with {_nodeTree.TotalNodeCount} nodes");
+            //Debug.Log($"JsonNodeTree initialized in {stopwatch.ElapsedMilliseconds}ms with {_nodeTree.TotalNodeCount} nodes");
         }
 
         /// <summary>
@@ -122,7 +122,7 @@ namespace TreeNode.Editor
                 await CreateEdgesAsync(cancellationToken);
                 
                 stopwatch.Stop();
-                Debug.Log($"Async rendering completed in {stopwatch.ElapsedMilliseconds}ms for {ViewNodes.Count} nodes");
+                //Debug.Log($"Async rendering completed in {stopwatch.ElapsedMilliseconds}ms for {ViewNodes.Count} nodes");
             }
             catch (OperationCanceledException)
             {
@@ -558,8 +558,8 @@ namespace TreeNode.Editor
 
         private void FormatAllNodes(DropdownMenuAction a)
         {
-            // Note: FormatNodes method is defined in another partial class file
-            // This method should use logic layer to arrange nodes hierarchically
+            // 调用实际的格式化方法
+            FormatNodes();
             Window.History.AddStep();
         }
 
@@ -714,15 +714,6 @@ namespace TreeNode.Editor
             SearchWindow.Open(new SearchWindowContext(context.screenMousePosition), SearchProvider);
         }
 
-        [Obsolete("使用异步版本 DrawNodesAsync()")]
-        public virtual void DrawNodes()
-        {
-            // 为了向后兼容，保留同步版本，但推荐使用异步版本
-            for (int i = 0; i < Asset.Data.Nodes.Count; i++)
-            {
-                AddViewNode(Asset.Data.Nodes[i]);
-            }
-        }
 
         public virtual void AddNode(JsonNode node)
         {
