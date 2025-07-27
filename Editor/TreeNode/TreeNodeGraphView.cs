@@ -23,9 +23,24 @@ namespace TreeNode.Editor
         public List<ViewNode> ViewNodes;
         public Dictionary<JsonNode, ViewNode> NodeDic;
 
+        // 新增：逻辑层树结构处理器
+        private JsonNodeTree _nodeTree;
+        public JsonNodeTree NodeTree
+        {
+            get
+            {
+                if (_nodeTree == null || _nodeTree.IsDirty)
+                {
+                    _nodeTree = new JsonNodeTree(Asset.Data);
+                }
+                return _nodeTree;
+            }
+        }
+
         public TreeNodeWindowSearchProvider SearchProvider;
         public VisualElement ViewContainer;
         protected ContentZoomer m_Zoomer;
+        
         public TreeNodeGraphView(TreeNodeGraphWindow window)
         {
             Window = window;
@@ -38,8 +53,6 @@ namespace TreeNode.Editor
             SearchProvider.Graph = this;
             this.nodeCreationRequest = ShowSearchWindow;
             graphViewChanged = OnGraphViewChanged;
-
-
 
             ViewContainer = this.Q("contentViewContainer");
             GridBackground background = new()
@@ -58,7 +71,6 @@ namespace TreeNode.Editor
             canPasteSerializedData = CanPaste;
             serializeGraphElements = Copy;
             unserializeAndPaste = Paste;
-
         }
 
         public virtual string Copy(IEnumerable<GraphElement> elements)
@@ -74,9 +86,6 @@ namespace TreeNode.Editor
         {
 
         }
-
-
-
 
         public override void BuildContextualMenu(ContextualMenuPopulateEvent evt)
         {
@@ -160,8 +169,6 @@ namespace TreeNode.Editor
             Debug.LogError($"Script for {type.Name} not found.");
         }
 
-
-
         private void FormatAllNodes(DropdownMenuAction a)
         {
             FormatNodes();
@@ -173,7 +180,6 @@ namespace TreeNode.Editor
             string treeView = GetTreeView();
             Debug.Log("Node Tree View:\n" + treeView);
         }
-
 
         private void OnContextMenuNodeCreate(DropdownMenuAction a)
         {
@@ -193,15 +199,17 @@ namespace TreeNode.Editor
             }
         }
 
-
         public void Redraw()
         {
             ViewNodes.Clear();
             NodeDic.Clear();
             ViewContainer.Query<Layer>().ForEach(p => p.Clear());
+            
+            // 重置逻辑层
+            _nodeTree = null;
+            
             schedule.Execute(DrawNodes);
         }
-
 
         private GraphViewChange OnGraphViewChanged(GraphViewChange graphViewChange)
         {
@@ -241,15 +249,10 @@ namespace TreeNode.Editor
             return graphViewChange;
         }
 
-
-
-
-
         public override List<Port> GetCompatiblePorts(Port startPort, NodeAdapter nodeAdapter)
         {
             List<Port> allPorts = new();
             List<Port> ports = new();
-
 
             foreach (var node in ViewNodes)
             {
@@ -267,10 +270,6 @@ namespace TreeNode.Editor
                     allPorts.AddRange(node.ChildPorts);
                 }
             }
-
-
-
-
 
             ports = allPorts.Where(x => CheckPort(startPort, x)).ToList();
             return ports;
@@ -299,7 +298,6 @@ namespace TreeNode.Editor
             return !parentPort.Collection || childPort is MultiPort;
         }
 
-
         public bool CheckLoop(ViewNode parent, ViewNode child)
         {
             ViewNode node = parent;
@@ -310,8 +308,6 @@ namespace TreeNode.Editor
             }
             return true;
         }
-
-
 
         public virtual void CreateEdge(Edge edge)
         {
@@ -336,17 +332,11 @@ namespace TreeNode.Editor
             childport_of_parent.OnRemoveEdge(edge);
         }
 
-
-
-
         private void ShowSearchWindow(NodeCreationContext context)
         {
             SearchProvider.Target = (VisualElement)focusController.focusedElement;
             SearchWindow.Open(new SearchWindowContext(context.screenMousePosition), SearchProvider);
-
-
         }
-
 
         public virtual void DrawNodes()
         {
@@ -359,6 +349,8 @@ namespace TreeNode.Editor
         public virtual void AddNode(JsonNode node)
         {
             Asset.Data.Nodes.Add(node);
+            // 通知逻辑层节点已添加
+            NodeTree.OnNodeAdded(node);
             Window.History.AddStep();
             AddViewNode(node);
         }
@@ -368,6 +360,7 @@ namespace TreeNode.Editor
             if (string.IsNullOrEmpty(path))
             {
                 Asset.Data.Nodes.Add(node);
+                NodeTree.OnNodeAdded(node);
                 return true;
             }
             try
@@ -392,6 +385,7 @@ namespace TreeNode.Editor
                 {
                     PropertyAccessor.SetValue(parent, last, node);
                 }
+                NodeTree.OnNodeAdded(node, path);
                 return true;
             }
             catch (Exception e)
@@ -401,19 +395,16 @@ namespace TreeNode.Editor
             }
         }
 
-
-
-
-
-
         void RemoveNode(JsonNode node)
         {
             Asset.Data.Nodes.Remove(node);
+            NodeTree.OnNodeRemoved(node);
         }
+
         public ViewNode AddViewNode(JsonNode node, ChildPort childPort = null)
         {
             if (NodeDic.TryGetValue(node, out ViewNode viewNode)) { return viewNode; }
-            ;
+            
             if (node.PrefabData != null)
             {
                 viewNode = new PrefabViewNode(node, this, childPort);
@@ -434,7 +425,6 @@ namespace TreeNode.Editor
 
         public virtual void OnSave() { }
 
-
         public virtual void RemoveViewNode(ViewNode node)
         {
             RemoveNode(node.Data);
@@ -442,17 +432,18 @@ namespace TreeNode.Editor
             NodeDic.Remove(node.Data);
         }
 
-
-
         public void MakeDirty()
         {
             Window.MakeDirty();
         }
 
-
         public void SaveAsset()
         {
             Asset.Data.Nodes = Asset.Data.Nodes.Distinct().ToList();
+            
+            // 保存前确保逻辑层是最新的
+            NodeTree.RefreshIfNeeded();
+            
             File.WriteAllText(Window.Path, Json.ToJson(Asset));
         }
 
@@ -464,9 +455,45 @@ namespace TreeNode.Editor
             string local = path[index..];
             return NodeDic[node]?.FindByLocalPath(local);
         }
+        
         public ChildPort GetPort(string path) => Find(path)?.Q<ChildPort>();
 
+        /// <summary>
+        /// 验证 - 增强版本，结合逻辑层和表现层验证
+        /// </summary>
         public virtual string Validate()
+        {
+            // 首先进行逻辑层验证
+            string logicValidation = NodeTree.ValidateTree();
+            
+            // 然后进行表现层验证（如果ViewNodes已初始化）
+            string viewValidation = "Success";
+            if (ViewNodes.Count > 0)
+            {
+                viewValidation = ValidateViewNodes();
+            }
+            
+            // 合并验证结果
+            if (logicValidation != "Success" && viewValidation != "Success")
+            {
+                return $"Logic Layer: {logicValidation}\nView Layer: {viewValidation}";
+            }
+            else if (logicValidation != "Success")
+            {
+                return $"Logic validation failed: {logicValidation}";
+            }
+            else if (viewValidation != "Success")
+            {
+                return $"View validation failed: {viewValidation}";
+            }
+            
+            return "Success";
+        }
+
+        /// <summary>
+        /// ViewNode层的验证
+        /// </summary>
+        private string ValidateViewNodes()
         {
             string result = "";
             for (int i = 0; i < ViewNodes.Count; i++)
@@ -533,16 +560,29 @@ namespace TreeNode.Editor
             return sortedNodes;
         }
         
+        /// <summary>
+        /// 获取所有节点路径 - 优化版本，优先使用逻辑层
+        /// </summary>
         public virtual List<(string, string)> GetAllNodePaths()
         {
-            List<(string, string)> paths = new();
-            foreach (var node in GetSortNodes())
+            // 优先使用逻辑层，如果ViewNodes未完全初始化则回退
+            if (AreAllViewNodesInitialized())
             {
-                string path = node.GetNodePath();
-                paths.Add((node.GetNodePath(), $"{path}--{node.Data.GetType().Name}"));
+                // 使用表现层数据（保持现有行为兼容性）
+                List<(string, string)> paths = new();
+                foreach (var node in GetSortNodes())
+                {
+                    string path = node.GetNodePath();
+                    paths.Add((node.GetNodePath(), $"{path}--{node.Data.GetType().Name}"));
+                }
+                paths = paths.OrderBy(n => n.Item1).ToList();
+                return paths;
             }
-            paths = paths.OrderBy(n => n.Item1).ToList();
-            return paths;
+            else
+            {
+                // 使用逻辑层数据
+                return NodeTree.GetAllNodePaths();
+            }
         }
 
         /// <summary>
@@ -550,15 +590,7 @@ namespace TreeNode.Editor
         /// </summary>
         public int GetTotalJsonNodeCount()
         {
-            HashSet<JsonNode> allNodes = new HashSet<JsonNode>();
-            
-            // Start with root nodes
-            foreach (JsonNode rootNode in Asset.Data.Nodes)
-            {
-                CollectAllJsonNodesRecursively(rootNode, allNodes);
-            }
-            
-            return allNodes.Count;
+            return NodeTree.TotalNodeCount;
         }
 
         /// <summary>
@@ -674,7 +706,29 @@ namespace TreeNode.Editor
                 });
             }
         }
+
+        /// <summary>
+        /// 获取树视图 - 重构版本，优先使用逻辑层
+        /// </summary>
         public virtual string GetTreeView()
+        {
+            // 优先使用逻辑层的实现，因为它不依赖ViewNode
+            try
+            {
+                return NodeTree.GetTreeView();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"逻辑层获取树视图失败，回退到表现层实现: {ex.Message}");
+                // 回退到原有的基于ViewNode的实现
+                return GetTreeViewFromViewNodes();
+            }
+        }
+
+        /// <summary>
+        /// 基于ViewNode的树视图实现（作为备用方案）
+        /// </summary>
+        private string GetTreeViewFromViewNodes()
         {
             if (ViewNodes.Count == 0)
                 return "No nodes found";
@@ -711,6 +765,7 @@ namespace TreeNode.Editor
             
             return treeBuilder.ToString().TrimEnd();
         }
+
         private void BuildTreeRecursive(ViewNode node, string prefix, bool isLast, System.Text.StringBuilder builder, HashSet<ViewNode> processedNodes, bool isRoot = false)
         {
             if (processedNodes.Contains(node))
