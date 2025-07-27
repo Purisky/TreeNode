@@ -340,6 +340,48 @@ namespace TreeNode.Runtime
                 
                 BuildChildRelationshipsWithOrder(parentNode, parentMetadata);
             }
+            
+            // 去重处理：移除重复的子节点
+            DeduplicateChildren();
+        }
+
+        /// <summary>
+        /// 对所有节点的Children列表进行去重处理
+        /// </summary>
+        private void DeduplicateChildren()
+        {
+            foreach (var kvp in _nodeMetadataMap)
+            {
+                var metadata = kvp.Value;
+                if (metadata.Children.Count <= 1)
+                    continue; // 0个或1个子节点无需去重
+                
+                // 使用Dictionary进行高效去重，键为JsonNode，值为最优的NodeMetadata
+                var uniqueChildren = new Dictionary<JsonNode, NodeMetadata>();
+                
+                foreach (var child in metadata.Children)
+                {
+                    if (uniqueChildren.TryGetValue(child.Node, out var existingChild))
+                    {
+                        // 如果已存在，选择优先级更高的（RenderOrder更小，或ListIndex更小）
+                        if (child.RenderOrder < existingChild.RenderOrder ||
+                            (child.RenderOrder == existingChild.RenderOrder && child.ListIndex < existingChild.ListIndex))
+                        {
+                            uniqueChildren[child.Node] = child;
+                        }
+                    }
+                    else
+                    {
+                        uniqueChildren[child.Node] = child;
+                    }
+                }
+                
+                // 重新构建Children列表，保持排序
+                metadata.Children = uniqueChildren.Values
+                    .OrderBy(child => child.RenderOrder)
+                    .ThenBy(child => child.ListIndex)
+                    .ToList();
+            }
         }
 
         /// <summary>
@@ -1089,7 +1131,6 @@ namespace TreeNode.Runtime
                 return "No nodes found";
 
             var treeBuilder = new StringBuilder();
-            var processedNodes = new HashSet<NodeMetadata>();
             
             // 按根节点索引排序
             var sortedRootNodes = _rootNodes.OrderBy(r => r.RootIndex).ToList();
@@ -1098,8 +1139,6 @@ namespace TreeNode.Runtime
             for (int i = 0; i < sortedRootNodes.Count; i++)
             {
                 var root = sortedRootNodes[i];
-                if (processedNodes.Contains(root))
-                    continue;
                 
                 // 添加根节点树之间的分隔线
                 if (i > 0)
@@ -1107,56 +1146,64 @@ namespace TreeNode.Runtime
                     treeBuilder.AppendLine();
                 }
                 
-                BuildTreeViewRecursively(root, "", true, treeBuilder, processedNodes, true);
+                // 构建单个根节点的树
+                BuildSingleRootTree(root, treeBuilder);
             }
             
             return treeBuilder.ToString().TrimEnd();
         }
 
         /// <summary>
-        /// 递归构建树视图
+        /// 构建单个根节点的完整树结构
         /// </summary>
-        private void BuildTreeViewRecursively(NodeMetadata node, string prefix, bool isLast, 
-            StringBuilder builder, HashSet<NodeMetadata> processedNodes, bool isRoot = false)
+        private void BuildSingleRootTree(NodeMetadata root, StringBuilder builder)
         {
-            if (processedNodes.Contains(node))
-                return;
-                
-            processedNodes.Add(node);
+            var processedNodes = new HashSet<NodeMetadata>();
             
-            // 添加当前节点到树中
-            if (isRoot)
-            {
-                builder.AppendLine(node.DisplayName);
-            }
-            else
-            {
-                builder.AppendLine(prefix + (isLast ? "└ " : "├ ") + node.DisplayName);
-            }
+            // 添加根节点
+            builder.AppendLine(root.DisplayName);
+            processedNodes.Add(root);
             
-            // 获取按UI渲染顺序排序的子节点
-            var sortedChildren = node.Children.OrderBy(c => c.RenderOrder).ThenBy(c => c.ListIndex).ToList();
+            // 获取排序后的子节点
+            var sortedChildren = root.Children.OrderBy(c => c.RenderOrder).ThenBy(c => c.ListIndex).ToList();
             
             // 递归构建子节点
             for (int i = 0; i < sortedChildren.Count; i++)
             {
                 bool isLastChild = (i == sortedChildren.Count - 1);
+                BuildTreeViewRecursively(sortedChildren[i], "", isLastChild, builder, processedNodes);
+            }
+        }
+
+        /// <summary>
+        /// 递归构建树视图 - 优化显示效果的版本
+        /// </summary>
+        private void BuildTreeViewRecursively(NodeMetadata node, string prefix, bool isLast, 
+            StringBuilder builder, HashSet<NodeMetadata> processedNodes)
+        {
+            if (processedNodes.Contains(node))
+                return;
                 
-                // 计算子节点前缀
-                string childPrefix;
-                if (isRoot)
-                {
-                    // 根节点的子节点不需要额外前缀
-                    childPrefix = "";
-                }
-                else
-                {
-                    // 如果当前节点是最后一个节点，子节点前缀使用空格
-                    // 如果当前节点不是最后一个，子节点前缀使用竖线连接
-                    childPrefix = prefix + (isLast ? "  " : "│ ");
-                }
-                
-                BuildTreeViewRecursively(sortedChildren[i], childPrefix, isLastChild, builder, processedNodes, false);
+            processedNodes.Add(node);
+
+            // 构建当前节点的显示行 - 使用更清晰的连接符
+            string connector = isLast ? "└── " : "├── ";
+            builder.AppendLine(prefix + connector + node.DisplayName);
+
+            // 获取排序后的子节点
+            var sortedChildren = node.Children.OrderBy(c => c.RenderOrder).ThenBy(c => c.ListIndex).ToList();
+            
+            if (sortedChildren.Count == 0)
+                return;
+            
+            // 为子节点计算新的前缀 - 使用4个字符对齐
+            string childPrefix = prefix + (isLast ? "    " : "│   ");
+            
+            // 递归构建子节点
+            for (int i = 0; i < sortedChildren.Count; i++)
+            {
+                bool isLastChild = (i == sortedChildren.Count - 1);
+                BuildTreeViewRecursively(sortedChildren[i], childPrefix, isLastChild, builder, processedNodes);
             }
         }
 
