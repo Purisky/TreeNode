@@ -523,6 +523,7 @@ namespace TreeNode.Editor
             {
                 evt.menu.AppendAction(I18n.Format, FormatAllNodes, DropdownMenuAction.AlwaysEnabled);
                 evt.menu.AppendAction("Show Tree View", ShowTreeView, DropdownMenuAction.AlwaysEnabled);
+                evt.menu.AppendAction("Show History Info", ShowHistoryInfo, DropdownMenuAction.AlwaysEnabled);
                 evt.menu.AppendSeparator();
             }
         }
@@ -558,15 +559,50 @@ namespace TreeNode.Editor
 
         private void FormatAllNodes(DropdownMenuAction a)
         {
+            // 开始批量操作记录
+            var batchCommand = Window.History.BeginBatch();
+            
+            // 记录所有节点的位置变化
+            var positionCommands = new List<PropertyChangeCommand>();
+            foreach (var viewNode in ViewNodes)
+            {
+                var oldPosition = viewNode.Data.Position;
+                var posCommand = new PropertyChangeCommand(
+                    viewNode.Data, 
+                    "Position", 
+                    oldPosition, 
+                    oldPosition // 这里先用旧值，FormatNodes后会被实际的新值替换
+                );
+                positionCommands.Add(posCommand);
+                batchCommand.AddCommand(posCommand);
+            }
+            
             // 调用实际的格式化方法
             FormatNodes();
-            Window.History.AddStep();
+            
+            // 更新批量命令中的新位置值
+            for (int i = 0; i < Math.Min(positionCommands.Count, ViewNodes.Count); i++)
+            {
+                // 通过反射更新newValue
+                positionCommands[i].GetType()
+                    .GetField("newValue", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                    ?.SetValue(positionCommands[i], ViewNodes[i].Data.Position);
+            }
+            
+            // 结束批量操作记录
+            Window.History.EndBatch(batchCommand);
         }
 
         private void ShowTreeView(DropdownMenuAction a)
         {
             string treeView = GetTreeView();
             Debug.Log("Node Tree View:\n" + treeView);
+        }
+
+        private void ShowHistoryInfo(DropdownMenuAction a)
+        {
+            string historyInfo = Window.History.GetHistoryInfo();
+            Debug.Log("History Info:\n" + historyInfo);
         }
 
         private void OnContextMenuNodeCreate(DropdownMenuAction a)
@@ -589,6 +625,9 @@ namespace TreeNode.Editor
 
         private GraphViewChange OnGraphViewChanged(GraphViewChange graphViewChange)
         {
+            // 开始批量操作记录
+            var batchCommand = Window.History.BeginBatch();
+            
             if (graphViewChange.elementsToRemove != null)
             {
                 IEnumerable<ViewNode> nodes = graphViewChange.elementsToRemove.OfType<ViewNode>().Reverse();
@@ -598,6 +637,9 @@ namespace TreeNode.Editor
                     foreach (ViewNode viewNode in nodes)
                     {
                         temp.AddRange(viewNode.GetAllEdges());
+                        // 记录节点删除操作到批量命令 - 使用增强版删除命令
+                        var removeCommand = new EnhancedRemoveNodeCommand(viewNode.Data, Window.JsonAsset);
+                        batchCommand.AddCommand(removeCommand);
                     }
                 }
                 graphViewChange.elementsToRemove.AddRange(temp);
@@ -607,11 +649,14 @@ namespace TreeNode.Editor
                     foreach (Edge edge in edges)
                     {
                         RemoveEdge(edge);
+                        // 连接变化也可以记录，但这里我们简化处理
                     }
                 }
                 foreach (ViewNode viewNode in nodes)
                 {
-                    RemoveViewNode(viewNode);
+                    RemoveNode(viewNode.Data);
+                    ViewNodes.Remove(viewNode);
+                    NodeDic.Remove(viewNode.Data);
                 }
             }
             if (graphViewChange.edgesToCreate != null)
@@ -619,9 +664,12 @@ namespace TreeNode.Editor
                 foreach (Edge edge in graphViewChange.edgesToCreate)
                 {
                     CreateEdge(edge);
+                    // 连接创建也可以记录，但这里我们简化处理
                 }
             }
-            Window.History.AddStep();
+            
+            // 结束批量操作记录
+            Window.History.EndBatch(batchCommand);
             return graphViewChange;
         }
 
@@ -719,7 +767,8 @@ namespace TreeNode.Editor
         {
             Asset.Data.Nodes.Add(node);
             NodeTree.OnNodeAdded(node);
-            Window.History.AddStep();
+            // 使用增量历史记录节点添加操作
+            Window.History.RecordAddNode(node);
             AddViewNode(node);
         }
 
@@ -748,10 +797,14 @@ namespace TreeNode.Editor
                 if (oldValue is IList list)
                 {
                     list.Add(node);
+                    // 使用增量历史记录节点添加操作（带路径）
+                    Window.History.RecordAddNode(node, path);
                 }
                 else
                 {
                     PropertyAccessor.SetValue(parent, last, node);
+                    // 使用增量历史记录节点添加操作（带路径）
+                    Window.History.RecordAddNode(node, path);
                 }
                 NodeTree.OnNodeAdded(node, path);
                 return true;
@@ -794,75 +847,135 @@ namespace TreeNode.Editor
 
         public virtual void RemoveViewNode(ViewNode node)
         {
+            // 使用增强版删除命令，不再需要路径参数
+            Window.History.RecordRemoveNode(node.Data);
             RemoveNode(node.Data);
             ViewNodes.Remove(node);
             NodeDic.Remove(node.Data);
         }
 
-        public void MakeDirty()
-        {
-            Window.MakeDirty();
-        }
-
-        public void SaveAsset()
-        {
-            Asset.Data.Nodes = Asset.Data.Nodes.Distinct().ToList();
-            NodeTree.RefreshIfNeeded();
-            File.WriteAllText(Window.Path, Json.ToJson(Asset));
-        }
-
-        public PropertyElement Find(string path)
-        {
-            JsonNode node = PropertyAccessor.GetLast<JsonNode>(Asset.Data.Nodes, path, false, out int index);
-            if (node is null) { return null; }
-            if (index >= path.Length - 1) { return null; }
-            string local = path[index..];
-            return NodeDic[node]?.FindByLocalPath(local);
-        }
-        
-        public ChildPort GetPort(string path) => Find(path)?.Q<ChildPort>();
-
         /// <summary>
-        /// 验证 - 使用逻辑层验证
+        /// 获取节点在数据结构中的完整路径
         /// </summary>
-        public virtual string Validate()
+        private string GetNodePath(JsonNode node)
         {
-            return NodeTree.ValidateTree();
-        }
-
-        /// <summary>
-        /// 获取排序后的ViewNode列表 - 基于逻辑层数据
-        /// </summary>
-        public List<ViewNode> GetSortNodes()
-        {
-            var sortedMetadata = NodeTree.GetSortedNodes();
-            var sortedViewNodes = new List<ViewNode>();
-            
-            foreach (var metadata in sortedMetadata)
+            try
             {
-                if (NodeDic.TryGetValue(metadata.Node, out ViewNode viewNode))
+                // 使用JsonNodeTree获取节点的路径信息
+                var metadata = NodeTree.GetNodeMetadata(node);
+                if (metadata != null && !string.IsNullOrEmpty(metadata.Path))
                 {
-                    sortedViewNodes.Add(viewNode);
+                    return metadata.Path;
+                }
+
+                // 如果是根节点，返回null
+                if (Asset.Data.Nodes.Contains(node))
+                {
+                    return null; // 根节点不需要路径
+                }
+
+                // 备用方法：尝试通过反射查找路径
+                return FindNodePathByReflection(node);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"Failed to get node path: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 通过反射查找节点路径（备用方法）
+        /// </summary>
+        private string FindNodePathByReflection(JsonNode targetNode)
+        {
+            // 递归搜索所有可能的路径
+            foreach (var rootNode in Asset.Data.Nodes)
+            {
+                var path = FindNodeInObject(rootNode, targetNode, rootNode == targetNode ? "" : $"[{Asset.Data.Nodes.IndexOf(rootNode)}]");
+                if (!string.IsNullOrEmpty(path))
+                {
+                    return path;
                 }
             }
-            
-            return sortedViewNodes;
-        }
-        
-        /// <summary>
-        /// 获取所有节点路径 - 使用逻辑层实现
-        /// </summary>
-        public virtual List<(string, string)> GetAllNodePaths()
-        {
-            return NodeTree.GetAllNodePaths();
+            return null;
         }
 
         /// <summary>
-        /// 获取节点总数 - 使用逻辑层实现
+        /// 在对象中递归查找节点
         /// </summary>
-        public int GetTotalJsonNodeCount()
+        private string FindNodeInObject(object obj, JsonNode targetNode, string currentPath)
         {
-            return NodeTree.TotalNodeCount;
+            if (obj == null || ReferenceEquals(obj, targetNode))
+                return currentPath;
+
+            var objType = obj.GetType();
+            
+            // 检查所有属性和字段
+            var members = objType.GetMembers(BindingFlags.Public | BindingFlags.Instance)
+                .Where(m => m.MemberType == MemberTypes.Property || m.MemberType == MemberTypes.Field);
+
+            foreach (var member in members)
+            {
+                try
+                {
+                    object value = null;
+                    if (member is PropertyInfo prop)
+                    {
+                        if (prop.CanRead)
+                            value = prop.GetValue(obj);
+                    }
+                    else if (member is FieldInfo field)
+                    {
+                        value = field.GetValue(obj);
+                    }
+
+                    if (value == null) continue;
+
+                    string memberPath = string.IsNullOrEmpty(currentPath) ? member.Name : $"{currentPath}.{member.Name}";
+
+                    // 直接匹配
+                    if (ReferenceEquals(value, targetNode))
+                    {
+                        return memberPath;
+                    }
+
+                    // 如果是集合，查找集合中的元素
+                    if (value is System.Collections.IEnumerable enumerable && !(value is string))
+                    {
+                        int index = 0;
+                        foreach (var item in enumerable)
+                        {
+                            if (ReferenceEquals(item, targetNode))
+                            {
+                                return $"{memberPath}[{index}]";
+                            }
+                            
+                            // 递归查找嵌套对象
+                            if (item != null && item.GetType().Namespace?.StartsWith("System") != true)
+                            {
+                                var result = FindNodeInObject(item, targetNode, $"{memberPath}[{index}]");
+                                if (!string.IsNullOrEmpty(result))
+                                    return result;
+                            }
+                            index++;
+                        }
+                    }
+                    // 递归查找复杂对象
+                    else if (value.GetType().Namespace?.StartsWith("System") != true)
+                    {
+                        var result = FindNodeInObject(value, targetNode, memberPath);
+                        if (!string.IsNullOrEmpty(result))
+                            return result;
+                    }
+                }
+                catch
+                {
+                    // 跳过无法访问的成员
+                }
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -874,13 +987,54 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 清理资源
+        /// 验证 - 使用逻辑层验证
         /// </summary>
-        public void Dispose()
+        public virtual string Validate()
         {
-            _renderCancellationSource?.Cancel();
-            _renderCancellationSource?.Dispose();
-            _renderSemaphore?.Dispose();
+            return NodeTree.ValidateTree();
+        }
+
+        /// <summary>
+        /// 获取所有节点路径 - 使用逻辑层实现
+        /// </summary>
+        public virtual List<(string, string)> GetAllNodePaths()
+        {
+            return NodeTree.GetAllNodePaths();
+        }
+
+        /// <summary>
+        /// 获取端口
+        /// </summary>
+        public ChildPort GetPort(string path) => Find(path)?.Q<ChildPort>();
+
+        /// <summary>
+        /// 保存资产
+        /// </summary>
+        public void SaveAsset()
+        {
+            Asset.Data.Nodes = Asset.Data.Nodes.Distinct().ToList();
+            NodeTree.RefreshIfNeeded();
+            File.WriteAllText(Window.Path, Json.ToJson(Asset));
+        }
+
+        /// <summary>
+        /// 标记脏数据
+        /// </summary>
+        public void MakeDirty()
+        {
+            Window.MakeDirty();
+        }
+
+        /// <summary>
+        /// 根据路径查找PropertyElement
+        /// </summary>
+        public PropertyElement Find(string path)
+        {
+            JsonNode node = PropertyAccessor.GetLast<JsonNode>(Asset.Data.Nodes, path, false, out int index);
+            if (node is null) { return null; }
+            if (index >= path.Length - 1) { return null; }
+            string local = path[index..];
+            return NodeDic[node]?.FindByLocalPath(local);
         }
     }
 
