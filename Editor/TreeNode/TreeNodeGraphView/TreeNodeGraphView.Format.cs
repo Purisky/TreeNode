@@ -1,15 +1,16 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Xml;
-using System;
+using TreeNode.Runtime;
 using TreeNode.Utility;
 using UnityEditor.PackageManager.UI;
 using UnityEngine;
-using System.Linq;
-using TreeNode.Runtime;
+using UnityEngine.UIElements;
 
 namespace TreeNode.Editor
 {
-    public partial class TreeNodeGraphView
+    public partial class TreeNodeGraphView//Format
     {
         const int X_SPACE = 30;
         const int Y_SPACE = 10;
@@ -133,6 +134,41 @@ namespace TreeNode.Editor
                     FormatNode(child, visitedNodes);
                 }
             }
+        }
+        private void FormatAllNodes(DropdownMenuAction a)
+        {
+            // 开始批量操作记录
+            var batchCommand = Window.History.BeginBatch();
+
+            // 记录所有节点的位置变化
+            var positionCommands = new List<PropertyChangeCommand>();
+            foreach (var viewNode in ViewNodes)
+            {
+                var oldPosition = viewNode.Data.Position;
+                var posCommand = new PropertyChangeCommand(
+                    viewNode.Data,
+                    "Position",
+                    oldPosition,
+                    oldPosition // 这里先用旧值，FormatNodes后会被实际的新值替换
+                );
+                positionCommands.Add(posCommand);
+                batchCommand.AddCommand(posCommand);
+            }
+
+            // 调用实际的格式化方法
+            FormatNodes();
+
+            // 更新批量命令中的新位置值
+            for (int i = 0; i < Math.Min(positionCommands.Count, ViewNodes.Count); i++)
+            {
+                // 通过反射更新newValue
+                positionCommands[i].GetType()
+                    .GetField("newValue", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                    ?.SetValue(positionCommands[i], ViewNodes[i].Data.Position);
+            }
+
+            // 结束批量操作记录
+            Window.History.EndBatch(batchCommand);
         }
     }
 }
