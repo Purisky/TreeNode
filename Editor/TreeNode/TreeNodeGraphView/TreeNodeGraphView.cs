@@ -363,11 +363,11 @@ namespace TreeNode.Editor
                 ViewNode viewNode;
                 if (node.PrefabData != null)
                 {
-                    viewNode = new PrefabViewNode(node, this, null);
+                    viewNode = new PrefabViewNode(node, this);
                 }
                 else
                 {
-                    viewNode = new ViewNode(node, this, null);
+                    viewNode = new ViewNode(node, this);
                 }
 
                 viewNode.SetPosition(new Rect(node.Position, new Vector2()));
@@ -375,8 +375,7 @@ namespace TreeNode.Editor
                 NodeDic.Add(node, viewNode);
                 AddElement(viewNode);
 
-                // 使用优化的同步子节点初始化
-                viewNode.AddChildNodesSynchronously();
+                // ✅ 移除异步子节点初始化调用 - 将在批量连接阶段处理
             }
             catch (Exception e)
             {

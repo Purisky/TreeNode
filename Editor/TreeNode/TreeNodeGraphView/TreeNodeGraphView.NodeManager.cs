@@ -107,25 +107,139 @@ namespace TreeNode.Editor
             NodeTree.OnNodeRemoved(node);
         }
 
-        public ViewNode AddViewNode(JsonNode node, ChildPort childPort = null)
+        public ViewNode AddViewNode(JsonNode node)
         {
             if (NodeDic.TryGetValue(node, out ViewNode viewNode)) { return viewNode; }
 
             if (node.PrefabData != null)
             {
-                viewNode = new PrefabViewNode(node, this, childPort);
+                viewNode = new PrefabViewNode(node, this);
             }
             else
             {
-                viewNode = new(node, this, childPort);
+                viewNode = new ViewNode(node, this);
             }
             viewNode.SetPosition(new Rect(node.Position, new()));
             ViewNodes.Add(viewNode);
             NodeDic.Add(node, viewNode);
             AddElement(viewNode);
 
-            viewNode.AddChildNodesUntilListInited();
+            // ✅ 移除子节点递归创建逻辑 - 连接将在批量创建阶段统一处理
             return viewNode;
+        }
+
+        /// <summary>
+        /// 专用于工具添加节点的方法 - 支持立即连接创建
+        /// 解决MCPTools等外部工具的连接缺失问题
+        /// </summary>
+        public ViewNode AddViewNodeWithConnection(JsonNode node, string nodePath)
+        {
+            // 1. 创建ViewNode（使用现有的AddViewNode方法）
+            ViewNode viewNode = AddViewNode(node);
+            
+            // 2. 如果指定了路径，尝试创建连接
+            if (!string.IsNullOrEmpty(nodePath))
+            {
+                CreateToolNodeConnection(viewNode, nodePath);
+            }
+            
+            return viewNode;
+        }
+
+        /// <summary>
+        /// 为工具添加的节点创建连接 - 智能ListView端口查找
+        /// </summary>
+        private void CreateToolNodeConnection(ViewNode childViewNode, string nodePath)
+        {
+            try
+            {
+                // 通过现有的GetPort方法查找端口
+                var childPort = GetPort(nodePath);
+                if (childPort != null && childViewNode.ParentPort != null)
+                {
+                    // 如果端口在ListView中，需要等待ListView初始化
+                    var listView = childPort.GetFirstAncestorOfType<ListView>();
+                    if (listView != null)
+                    {
+                        // ListView节点：延迟创建连接
+                        CreateConnectionForListViewPort(childPort, childViewNode, listView);
+                    }
+                    else
+                    {
+                        // 普通节点：立即创建连接
+                        CreateConnectionImmediately(childPort, childViewNode);
+                    }
+                }
+                else
+                {
+                    Debug.LogWarning($"工具节点连接失败: 找不到端口 - 路径: {nodePath}");
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"工具节点连接创建失败: {e.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 立即创建连接 - 用于普通端口
+        /// </summary>
+        private void CreateConnectionImmediately(ChildPort childPort, ViewNode childViewNode)
+        {
+            var edge = childPort.ConnectTo(childViewNode.ParentPort);
+            AddElement(edge);
+            
+            // 处理多端口索引
+            if (childPort is MultiPort)
+            {
+                var childValues = childPort.GetChildValues();
+                childViewNode.ParentPort.SetIndex(childValues.Count - 1);
+            }
+            
+            Debug.Log($"立即创建工具节点连接: {childPort.node.Data.GetType().Name} -> {childViewNode.Data.GetType().Name}");
+        }
+
+        /// <summary>
+        /// 为ListView端口创建连接 - 等待ListView初始化
+        /// </summary>
+        private void CreateConnectionForListViewPort(ChildPort childPort, ViewNode childViewNode, ListView listView)
+        {
+            // 检查ListView是否已经初始化
+            if (listView.userData is bool isInitialized && isInitialized)
+            {
+                // 已初始化，立即创建连接
+                CreateConnectionImmediately(childPort, childViewNode);
+            }
+            else
+            {
+                // 未初始化，延迟创建连接
+                Debug.Log("ListView未初始化，延迟创建工具节点连接...");
+                
+                // 使用调度器等待ListView初始化
+                var maxRetries = 100; // 最多重试100次 (5秒)
+                var retryCount = 0;
+                
+                void CheckAndCreateConnection()
+                {
+                    if (listView.userData is bool initialized && initialized)
+                    {
+                        CreateConnectionImmediately(childPort, childViewNode);
+                        Debug.Log($"延迟创建工具节点连接成功 (重试{retryCount}次)");
+                    }
+                    else if (retryCount < maxRetries)
+                    {
+                        retryCount++;
+                        // 50ms后重试
+                        schedule.Execute(CheckAndCreateConnection).ExecuteLater(50);
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"工具节点连接创建超时: ListView初始化等待失败");
+                    }
+                }
+                
+                CheckAndCreateConnection();
+            }
         }
 
         public virtual void RemoveViewNode(ViewNode node)

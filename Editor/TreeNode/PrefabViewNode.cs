@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using TreeNode.Runtime;
 using Unity.Properties;
 using UnityEngine.UIElements;
@@ -7,28 +7,23 @@ namespace TreeNode.Editor
 {
     public class PrefabViewNode : ViewNode
     {
-        public PrefabViewNode(JsonNode data, TreeNodeGraphView view, ChildPort childPort = null) : base(data, view, childPort)
+        public PrefabViewNode(JsonNode data, TreeNodeGraphView view) : base(data, view)
         {
-
-
-
-
-
         }
 
-        public override void Draw(ChildPort childPort = null)
+        public override void Draw()
         {
             PrefabPreviewData ppData = NodePrefabManager.GetData(Data.PrefabData.ID);
 
             style.width = ppData.Width;
-            DrawParentPort(ppData.OutputType, childPort);
+            DrawParentPort(ppData.OutputType);
             title = ppData.Name;
             ChildPorts = new();
             for (int i = 0; i < ppData.Fields.Count; i++)
             {
                 Type type = ppData.Fields[i].Type;
                 BaseDrawer baseDrawer = DrawerManager.Get(type);
-                if (baseDrawer == null&& (type == typeof(NumValue) || type.Inherited(typeof(NumValue))))
+                if (baseDrawer == null && (type == typeof(NumValue) || type.Inherited(typeof(NumValue))))
                 {
                     baseDrawer = DrawerManager.Get(typeof(NumValue));
                 }
