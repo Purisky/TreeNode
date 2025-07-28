@@ -128,7 +128,7 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 记录原子操作（带防重复机制和性能优化）
+        /// 记录原子操作（带防重复机制和性能优化）- 优化用于位置变化处理
         /// </summary>
         public void RecordOperation(IAtomicOperation operation)
         {
@@ -136,16 +136,33 @@ namespace TreeNode.Editor
 
             var startTime = DateTime.Now;
 
-            // 检查重复操作
+            // 🔥 优化防重复机制 - 对于字段修改操作，允许连续记录以便合并，但要避免真正的重复
             string operationId = operation.GetOperationId();
-            lock (_duplicateLock)
+            
+            // 🔥 特殊处理FieldModifyOperation：检查是否是真正的重复操作（相同的新旧值）
+            if (operation is FieldModifyOperation fieldOp)
             {
-                if (_recordedOperationIds.Contains(operationId))
+                // 如果新旧值相同，跳过这个无意义的操作
+                if (fieldOp.OldValue == fieldOp.NewValue)
                 {
-                    //Debug.LogWarning($"重复操作被忽略: {operationId}");
                     return;
                 }
-                _recordedOperationIds.Add(operationId);
+                
+                // 对于字段修改，我们不使用防重复机制，让合并逻辑处理连续的修改
+                // 这样连续的Position变化可以被正确合并
+            }
+            else
+            {
+                // 对于非字段修改操作，继续使用防重复机制
+                lock (_duplicateLock)
+                {
+                    if (_recordedOperationIds.Contains(operationId))
+                    {
+                        //Debug.LogWarning($"重复操作被忽略: {operationId}");
+                        return;
+                    }
+                    _recordedOperationIds.Add(operationId);
+                }
             }
 
             // 智能操作合并：将操作加入待处理队列
@@ -248,7 +265,7 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 智能合并操作
+        /// 智能合并操作 - 优化位置变化处理
         /// </summary>
         private List<IAtomicOperation> MergeOperations(List<IAtomicOperation> operations)
         {
@@ -281,19 +298,37 @@ namespace TreeNode.Editor
                 }
                 else
                 {
-                    // 取第一个操作的旧值和最后一个操作的新值
-                    var first = group[0];
-                    var last = group[group.Count - 1];
+                    // 🔥 智能合并逻辑：按时间戳排序确保正确的合并顺序
+                    var sortedGroup = group.OrderBy(op => op.Timestamp).ToList();
+                    var first = sortedGroup[0];
+                    var last = sortedGroup[sortedGroup.Count - 1];
                     
                     // 如果最终值等于初始值，则操作可以完全消除
                     if (first.OldValue == last.NewValue)
                     {
-                        continue; // 跳过这个操作组
+                        // 🔥 针对Position字段的特殊处理：即使回到原位置，如果有中间移动过程也记录为一次"移动并返回"操作
+                        if (first.FieldPath == "Position" && sortedGroup.Count > 2)
+                        {
+                            var mergedOp = new FieldModifyOperation(
+                                first.Node, first.FieldPath, first.OldValue, last.NewValue, first.GraphView);
+                            // 🔥 通过构造后设置描述信息
+                            mergedOp.SetDescription($"节点位置移动（经过{sortedGroup.Count}步最终返回原位置）");
+                            merged.Add(mergedOp);
+                        }
+                        continue; // 其他情况跳过这个操作组
                     }
                     
-                    var mergedOp = new FieldModifyOperation(
+                    // 创建合并操作，包含更丰富的描述信息
+                    var mergedOperation = new FieldModifyOperation(
                         first.Node, first.FieldPath, first.OldValue, last.NewValue, first.GraphView);
-                    merged.Add(mergedOp);
+                    
+                    // 🔥 为Position字段提供更好的描述
+                    if (first.FieldPath == "Position")
+                    {
+                        mergedOperation.SetDescription($"节点位置变化（{sortedGroup.Count}步操作已合并）: {first.OldValue} → {last.NewValue}");
+                    }
+                    
+                    merged.Add(mergedOperation);
                 }
             }
 
@@ -1065,7 +1100,13 @@ namespace TreeNode.Editor
     {
         public OperationType Type => OperationType.FieldModify;
         public DateTime Timestamp { get; private set; }
-        public string Description => $"修改字段: {FieldPath}";
+        
+        // 🔥 支持自定义描述信息
+        private string _description;
+        public string Description 
+        { 
+            get => _description ?? $"修改字段: {FieldPath}";
+        }
         
         public JsonNode Node { get; set; }
         public string FieldPath { get; set; }
@@ -1081,6 +1122,14 @@ namespace TreeNode.Editor
             NewValue = newValue;
             GraphView = graphView;
             Timestamp = DateTime.Now;
+        }
+
+        /// <summary>
+        /// 设置自定义描述信息 - 用于合并操作
+        /// </summary>
+        public void SetDescription(string description)
+        {
+            _description = description;
         }
 
         public bool Execute()
@@ -1103,7 +1152,9 @@ namespace TreeNode.Editor
 
         public string GetOperationId()
         {
-            return $"FieldModify_{Node?.GetHashCode()}_{FieldPath}_{Timestamp.Ticks}";
+            // 🔥 优化操作ID生成 - 移除时间戳，确保同一节点同一字段的操作能被识别为同类操作进行合并
+            // 这样连续的Position变化操作会有相同的操作ID前缀，便于合并逻辑识别
+            return $"FieldModify_{Node?.GetHashCode()}_{FieldPath}";
         }
     }
 

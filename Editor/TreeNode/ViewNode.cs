@@ -12,7 +12,7 @@ using UnityEngine.UIElements;
 namespace TreeNode.Editor
 {
     /// <summary>
-    /// 优化后的ViewNode - 支持批量渲染和高性能初始化
+    /// 优化后的ViewNode - 支持批量渲染和简化拖动事件处理
     /// </summary>
     public class ViewNode : Node
     {
@@ -30,28 +30,12 @@ namespace TreeNode.Editor
         private bool _needsFullRefresh = false;
         private readonly object _refreshLock = new object();
 
-        // 位置跟踪相关
-        private Vec2 _lastRecordedPosition;
-        private bool _isPositionChanging = false;
-        private DateTime _lastPositionChangeTime;
-        private const int POSITION_CHANGE_DEBOUNCE_MS = 300; // 位置变化防抖时间
-
-        // 🔥 新增：初始化状态标志，避免初始化期间的误报
-        private bool _isInitializing = true;
-        private DateTime _initializationStartTime;
-        private const int INITIALIZATION_GRACE_PERIOD_MS = 2000; // 初始化宽限期2秒
 
         public ViewNode(JsonNode data, TreeNodeGraphView view)
         {
             Data = data;
             View = view;
             
-            // 🔥 初始化状态管理 - 记录初始化开始时间
-            _isInitializing = true;
-            _initializationStartTime = DateTime.Now;
-            
-            // 初始化位置跟踪
-            _lastRecordedPosition = Data.Position;
             
             // 快速初始化基础UI结构
             InitializeUIStructure();
@@ -59,247 +43,37 @@ namespace TreeNode.Editor
             // 纯UI绘制，不包含连接逻辑
             Draw();
             OnChange();
-
-            // 注册位置变化监听
-            RegisterPositionChangeListeners();
             
-            // 🔥 延迟结束初始化状态 - 给系统时间完成布局
-            this.schedule.Execute(() => {
-                _isInitializing = false;
-                Debug.Log($"ViewNode初始化完成: {Data.GetType().Name}, 最终位置: {Data.Position}");
-            }).ExecuteLater(500); // 500ms后结束初始化状态
         }
 
-        /// <summary>
-        /// 注册位置变化监听器 - 监听拖拽开始和结束事件
-        /// 修复版本：解决与SelectionDragger的事件冲突问题
-        /// </summary>
-        private void RegisterPositionChangeListeners()
+        public override void SetPosition(Rect newPos)
         {
-            // 监听几何变化事件 - 包括位置变化
-            RegisterCallback<GeometryChangedEvent>(OnGeometryChanged);
+            // 🔥 简化位置设置逻辑 - 统一在这里处理所有位置变化
+            var oldPosition = Data.Position;
             
-            // 🔥 关键修复：使用多种事件传播阶段注册鼠标事件，避免被SelectionDragger拦截
-            RegisterCallback<MouseDownEvent>(OnMouseDown, TrickleDown.TrickleDown);
-            RegisterCallback<MouseUpEvent>(OnMouseUp, TrickleDown.TrickleDown);
-            
-            // 🔥 新增：在Bubble阶段也注册一份监听，作为备用机制
-            RegisterCallback<MouseDownEvent>(OnMouseDownBubble, TrickleDown.NoTrickleDown);
-            RegisterCallback<MouseUpEvent>(OnMouseUpBubble, TrickleDown.NoTrickleDown);
-            
-            // 🔥 新增：监听拖拽相关的特殊事件
-            RegisterCallback<DragUpdatedEvent>(OnDragUpdatedEvent);
-            RegisterCallback<DragPerformEvent>(OnDragPerformEvent);
-            
-            // 🔥 新增：使用定时器机制作为最后的位置检测手段
-            this.schedule.Execute(CheckPositionPeriodically).Every(200); // 每200ms检查一次位置
-        }
-
-        /// <summary>
-        /// 鼠标按下事件 - 开始位置跟踪（Trickle Down阶段）
-        /// </summary>
-        private void OnMouseDown(MouseDownEvent evt)
-        {
-            Debug.Log($"OnMouseDown (TrickleDown) on ViewNode: {Data.GetType().Name}, button: {evt.button}");
-            
-            // 只处理左鼠标按钮
-            if (evt.button == 0)
-            {
-                _isPositionChanging = true;
-                _lastRecordedPosition = Data.Position;
-                _lastPositionChangeTime = DateTime.Now;
-                
-                Debug.Log($"开始位置跟踪: {Data.GetType().Name}, 初始位置: {_lastRecordedPosition}");
-            }
-        }
-
-        /// <summary>
-        /// 鼠标按下事件 - 备用监听（Bubble阶段）
-        /// </summary>
-        private void OnMouseDownBubble(MouseDownEvent evt)
-        {
-            Debug.Log($"OnMouseDownBubble on ViewNode: {Data.GetType().Name}, button: {evt.button}");
-            
-            // 如果TrickleDown阶段没有触发，这里作为备用
-            if (evt.button == 0 && !_isPositionChanging)
-            {
-                _isPositionChanging = true;
-                _lastRecordedPosition = Data.Position;
-                _lastPositionChangeTime = DateTime.Now;
-                
-                Debug.Log($"备用开始位置跟踪: {Data.GetType().Name}, 初始位置: {_lastRecordedPosition}");
-            }
-        }
-
-        /// <summary>
-        /// 鼠标释放事件 - 结束位置跟踪并记录变化（Trickle Down阶段）
-        /// </summary>
-        private void OnMouseUp(MouseUpEvent evt)
-        {
-            Debug.Log($"OnMouseUp (TrickleDown) on ViewNode: {Data.GetType().Name}, isPositionChanging: {_isPositionChanging}");
-            
-            if (evt.button == 0 && _isPositionChanging)
-            {
-                HandlePositionChangeEnd("TrickleDown");
-            }
-        }
-
-        /// <summary>
-        /// 鼠标释放事件 - 备用监听（Bubble阶段）
-        /// </summary>
-        private void OnMouseUpBubble(MouseUpEvent evt)
-        {
-            Debug.Log($"OnMouseUpBubble on ViewNode: {Data.GetType().Name}, isPositionChanging: {_isPositionChanging}");
-            
-            if (evt.button == 0 && _isPositionChanging)
-            {
-                HandlePositionChangeEnd("Bubble");
-            }
-        }
-
-        /// <summary>
-        /// 拖拽更新事件监听
-        /// </summary>
-        private void OnDragUpdatedEvent(DragUpdatedEvent evt)
-        {
-            // 如果鼠标事件没有正确触发拖拽开始，这里作为备用检测
-            if (!_isPositionChanging)
-            {
-                _isPositionChanging = true;
-                _lastRecordedPosition = Data.Position;
-                _lastPositionChangeTime = DateTime.Now;
-                
-                Debug.Log($"通过DragUpdated事件开始位置跟踪: {Data.GetType().Name}");
-            }
-        }
-
-        /// <summary>
-        /// 拖拽完成事件监听
-        /// </summary>
-        private void OnDragPerformEvent(DragPerformEvent evt)
-        {
-            if (_isPositionChanging)
-            {
-                HandlePositionChangeEnd("DragPerform");
-            }
-        }
-
-        /// <summary>
-        /// 定期检查位置变化 - 最后的保障机制
-        /// 修复版本：避免初始化期间的误报
-        /// </summary>
-        private void CheckPositionPeriodically()
-        {
-            // 🔥 关键修复：检查是否还在初始化期间
-            if (_isInitializing)
-            {
-                // 检查初始化是否超时
-                var initElapsed = (DateTime.Now - _initializationStartTime).TotalMilliseconds;
-                if (initElapsed > INITIALIZATION_GRACE_PERIOD_MS)
-                {
-                    // 初始化超时，强制结束初始化状态
-                    _isInitializing = false;
-                    _lastRecordedPosition = Data.Position; // 更新基准位置
-                    Debug.Log($"初始化超时，强制结束初始化状态: {Data.GetType().Name}, 当前位置: {Data.Position}");
-                }
-                return; // 初始化期间跳过位置检查
-            }
-            
-            if (_isPositionChanging)
-            {
-                // 检查是否长时间没有收到MouseUp事件（超过2秒）
-                if ((DateTime.Now - _lastPositionChangeTime).TotalMilliseconds > 2000)
-                {
-                    Debug.LogWarning($"长时间未收到MouseUp事件，强制结束位置跟踪: {Data.GetType().Name}");
-                    HandlePositionChangeEnd("Timeout");
-                }
-            }
-            else
-            {
-                // 即使没有在拖拽状态，也检查位置是否发生了变化（可能被外部代码修改）
-                var currentPosition = Data.Position;
-                if (!_lastRecordedPosition.Equals(currentPosition))
-                {
-                    Debug.Log($"检测到外部位置变化: {Data.GetType().Name} 从 {_lastRecordedPosition} 到 {currentPosition}");
-                    
-                    // 记录位置变化
-                    RecordPositionChange(_lastRecordedPosition, currentPosition);
-                    MakeDirty();
-                    
-                    _lastRecordedPosition = currentPosition;
-                }
-            }
-        }
-
-        /// <summary>
-        /// 统一处理位置变化结束逻辑
-        /// 修复版本：增加初始化状态检查
-        /// </summary>
-        private void HandlePositionChangeEnd(string triggerSource)
-        {
-            _isPositionChanging = false;
-            
-            // 🔥 新增：如果还在初始化期间，避免记录位置变化
-            if (_isInitializing)
-            {
-                Debug.Log($"初始化期间跳过位置变化记录: {Data.GetType().Name} (触发源: {triggerSource})");
-                _lastRecordedPosition = Data.Position; // 更新基准位置
-                return;
-            }
+            base.SetPosition(newPos);
+            Data.Position = newPos.position;
             
             // 检查位置是否真正发生了变化
-            var currentPosition = Data.Position;
-            Debug.Log($"位置变化结束 (触发源: {triggerSource}): 当前位置 {currentPosition}, 上次记录位置 {_lastRecordedPosition}");
-            
-            if (!_lastRecordedPosition.Equals(currentPosition))
+            if (!oldPosition.Equals(newPos.position))
             {
-                // 记录位置变化操作到历史系统
-                RecordPositionChange(_lastRecordedPosition, currentPosition);
+                // 🔥 统一记录位置变化 - 利用History系统的智能合并功能
+                RecordPositionChange(oldPosition, newPos.position);
                 
                 // 标记文件为已修改
                 MakeDirty();
-                
-                Debug.Log($"节点位置已更改 (触发源: {triggerSource}): {Data.GetType().Name} 从 {_lastRecordedPosition} 移动到 {currentPosition}");
-                
-                // 更新记录的位置
-                _lastRecordedPosition = currentPosition;
-            }
-            else
-            {
-                Debug.Log($"位置无变化，无需记录: {Data.GetType().Name}");
             }
         }
 
         /// <summary>
-        /// 几何变化事件 - 监听位置变化
-        /// </summary>
-        private void OnGeometryChanged(GeometryChangedEvent evt)
-        {
-            // 只在拖拽过程中处理位置变化
-            if (_isPositionChanging)
-            {
-                // 防抖处理 - 避免过于频繁的更新
-                _lastPositionChangeTime = DateTime.Now;
-                
-                this.schedule.Execute(() =>
-                {
-                    // 检查是否在防抖时间内没有新的变化
-                    if ((DateTime.Now - _lastPositionChangeTime).TotalMilliseconds >= POSITION_CHANGE_DEBOUNCE_MS)
-                    {
-                        // 可以在这里添加实时位置更新逻辑，如实时保存等
-                    }
-                }).ExecuteLater((long)POSITION_CHANGE_DEBOUNCE_MS);
-            }
-        }
-
-        /// <summary>
-        /// 记录位置变化到历史系统
+        /// 🔥 简化的位置变化记录 - 统一通过SetPosition处理
         /// </summary>
         private void RecordPositionChange(Vec2 oldPosition, Vec2 newPosition)
         {
             try
             {
                 // 创建位置变化的字段修改操作
+                // History系统会自动处理同一节点连续位置变化的合并
                 var positionChangeOperation = new FieldModifyOperation(
                     Data,
                     "Position",
@@ -308,10 +82,8 @@ namespace TreeNode.Editor
                     View
                 );
 
-                // 记录到历史系统
+                // 记录到历史系统 - History系统会自动合并连续的同节点操作
                 View.Window.History.RecordOperation(positionChangeOperation);
-                
-                Debug.Log($"位置变化已记录到历史系统: {Data.GetType().Name}");
             }
             catch (Exception e)
             {
@@ -357,36 +129,6 @@ namespace TreeNode.Editor
             NodeInfoAttribute nodeInfo = Data.GetType().GetCustomAttribute<NodeInfoAttribute>();
             DrawParentPort(nodeInfo?.Type);
             DrawPropertiesAndPorts();
-        }
-
-        public override void SetPosition(Rect newPos)
-        {
-            // 获取旧位置用于比较
-            var oldPosition = Data.Position;
-            
-            base.SetPosition(newPos);
-            Data.Position = newPos.position;
-            
-            // 🔥 关键修复：如果位置真正发生了变化，标记为已修改
-            if (!oldPosition.Equals(newPos.position))
-            {
-                // 🔥 新增：检查是否在初始化期间
-                if (_isInitializing)
-                {
-                    // 初始化期间的位置变化：更新基准位置但不标记为脏
-                    _lastRecordedPosition = newPos.position;
-                    Debug.Log($"初始化期间位置更新: {Data.GetType().Name} 位置: {newPos.position}");
-                    return;
-                }
-                
-                // 只有在不是通过拖拽操作改变位置时才立即标记为脏
-                // 拖拽操作的脏标记由鼠标事件处理
-                if (!_isPositionChanging)
-                {
-                    MakeDirty();
-                    Debug.Log($"节点位置已更改(编程方式): {Data.GetType().Name} 位置: {newPos.position}");
-                }
-            }
         }
 
         /// <summary>
@@ -599,8 +341,6 @@ namespace TreeNode.Editor
             ParentPort = ParentPort.Create(parentType);
             ParentPort.OnChange = OnChange;
             titleContainer.Insert(1, ParentPort);
-            
-            // ✅ 移除连接创建逻辑 - 连接将在第二阶段统一创建
         }
 
         public ViewNode GetRoot()
@@ -777,23 +517,10 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 清理资源
+        /// 清理资源 - 🔥 大幅简化，移除复杂的事件监听器
         /// </summary>
         public void Dispose()
         {
-            // 注销事件监听器
-            UnregisterCallback<GeometryChangedEvent>(OnGeometryChanged);
-            
-            // 注销鼠标事件监听器（TrickleDown和Bubble阶段）
-            UnregisterCallback<MouseDownEvent>(OnMouseDown);
-            UnregisterCallback<MouseUpEvent>(OnMouseUp);
-            UnregisterCallback<MouseDownEvent>(OnMouseDownBubble);
-            UnregisterCallback<MouseUpEvent>(OnMouseUpBubble);
-            
-            // 注销拖拽事件监听器
-            UnregisterCallback<DragUpdatedEvent>(OnDragUpdatedEvent);
-            UnregisterCallback<DragPerformEvent>(OnDragPerformEvent);
-            
             _propertyElementCache?.Clear();
         }
     }
