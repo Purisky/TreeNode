@@ -25,6 +25,12 @@ namespace TreeNode.Editor
         public TreeNodeWindowSearchProvider SearchProvider;
         public VisualElement ViewContainer;
         protected ContentZoomer m_Zoomer;
+
+        // 异步渲染相关
+        private CancellationTokenSource _renderCancellationSource;
+        private readonly object _renderLock = new object();
+        private volatile bool _isDrawing = false;
+
         #region 构造函数和初始化
 
         public TreeNodeGraphView(TreeNodeGraphWindow window)
@@ -55,7 +61,7 @@ namespace TreeNode.Editor
             this.AddManipulator(new RectangleSelector());
             this.AddManipulator(new ClickSelector());
 
-            // 使用异步方式渲染节点
+            // 使用优化的异步方式渲染节点
             _ = DrawNodesAsync();
 
             SetupZoom(0.2f, 2f);
@@ -241,6 +247,259 @@ namespace TreeNode.Editor
         {
             _renderCancellationSource?.Cancel();
             _renderCancellationSource?.Dispose();
+        }
+
+        #endregion
+
+        #region 高性能异步渲染系统
+
+        /// <summary>
+        /// 高性能异步节点渲染 - 第三阶段性能优化
+        /// </summary>
+        private async Task DrawNodesAsync()
+        {
+            lock (_renderLock)
+            {
+                if (_isDrawing)
+                {
+                    return;
+                }
+                _isDrawing = true;
+            }
+
+            try
+            {
+                // 创建新的取消令牌
+                _renderCancellationSource?.Cancel();
+                _renderCancellationSource = new CancellationTokenSource();
+                var cancellationToken = _renderCancellationSource.Token;
+
+                var startTime = DateTime.Now;
+                Debug.Log($"开始异步渲染 {_nodeTree.TotalNodeCount} 个节点");
+
+                // 第一步：并行创建所有ViewNode（主线程执行UI创建）
+                await CreateViewNodesAsync(cancellationToken);
+
+                // 检查取消状态
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // 第二步：异步建立Edge连接
+                await CreateEdgesAsync(cancellationToken);
+
+                // 检查取消状态
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // 第三步：优化布局和最终渲染
+                await OptimizeLayoutAsync(cancellationToken);
+
+                var elapsed = (DateTime.Now - startTime).TotalMilliseconds;
+                Debug.Log($"异步渲染完成，耗时: {elapsed:F2}ms");
+            }
+            catch (OperationCanceledException)
+            {
+                Debug.Log("渲染任务被取消");
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"异步渲染失败: {e.Message}");
+                UnityEngine.Debug.LogException(e);
+            }
+            finally
+            {
+                lock (_renderLock)
+                {
+                    _isDrawing = false;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 并行创建ViewNode - 基于逻辑层排序的优化版本
+        /// </summary>
+        private async Task CreateViewNodesAsync(CancellationToken cancellationToken)
+        {
+            var sortedNodes = _nodeTree.GetSortedNodes();
+            var batchSize = Math.Max(10, sortedNodes.Count / 4); // 动态批次大小
+            var batches = new List<List<JsonNodeTree.NodeMetadata>>();
+
+            // 将节点分批处理
+            for (int i = 0; i < sortedNodes.Count; i += batchSize)
+            {
+                var batch = sortedNodes.Skip(i).Take(batchSize).ToList();
+                batches.Add(batch);
+            }
+
+            // 在主线程中批量创建ViewNode
+            foreach (var batch in batches)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                await ExecuteOnMainThreadAsync(() =>
+                {
+                    foreach (var metadata in batch)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        CreateViewNodeSafe(metadata.Node);
+                    }
+                });
+
+                // 给UI线程喘息的机会
+                await Task.Yield();
+            }
+        }
+
+        /// <summary>
+        /// 安全创建ViewNode - 避免重复创建
+        /// </summary>
+        private void CreateViewNodeSafe(JsonNode node)
+        {
+            if (NodeDic.ContainsKey(node))
+            {
+                return; // 已存在，跳过
+            }
+
+            try
+            {
+                ViewNode viewNode;
+                if (node.PrefabData != null)
+                {
+                    viewNode = new PrefabViewNode(node, this, null);
+                }
+                else
+                {
+                    viewNode = new ViewNode(node, this, null);
+                }
+
+                viewNode.SetPosition(new Rect(node.Position, new Vector2()));
+                ViewNodes.Add(viewNode);
+                NodeDic.Add(node, viewNode);
+                AddElement(viewNode);
+
+                // 使用优化的同步子节点初始化
+                viewNode.AddChildNodesSynchronously();
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"创建ViewNode失败 {node?.GetType().Name}: {e.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 优化布局 - 异步版本
+        /// </summary>
+        private async Task OptimizeLayoutAsync(CancellationToken cancellationToken)
+        {
+            await ExecuteOnMainThreadAsync(() =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // 执行布局优化
+                var rootNodes = ViewNodes.Where(n => n.GetDepth() == 0).ToList();
+                
+                // 按类型分组进行布局优化
+                var nodeGroups = rootNodes.GroupBy(n => n.Data.GetType()).ToList();
+                
+                float yOffset = 50f;
+                foreach (var group in nodeGroups)
+                {
+                    float xOffset = 50f;
+                    foreach (var node in group)
+                    {
+                        var currentPos = node.GetPosition();
+                        if (currentPos.position == Vector2.zero)
+                        {
+                            node.SetPosition(new Rect(xOffset, yOffset, currentPos.width, currentPos.height));
+                            xOffset += currentPos.width + 100f;
+                        }
+                    }
+                    yOffset += 200f;
+                }
+            });
+        }
+
+        /// <summary>
+        /// 在主线程执行异步操作 - Unity编辑器优化版本
+        /// </summary>
+        private async Task ExecuteOnMainThreadAsync(Action action)
+        {
+            // Unity 编辑器中的主线程执行优化
+            if (System.Threading.Thread.CurrentThread.ManagedThreadId == 1)
+            {
+                // 已经在主线程，直接执行
+                action();
+                return;
+            }
+
+            // 使用TaskCompletionSource在主线程执行
+            var tcs = new TaskCompletionSource<bool>();
+
+            schedule.Execute(() =>
+            {
+                try
+                {
+                    action();
+                    tcs.SetResult(true);
+                }
+                catch (Exception e)
+                {
+                    tcs.SetException(e);
+                }
+            });
+
+            await tcs.Task;
+        }
+
+        /// <summary>
+        /// 优化的重绘方法 - 支持增量和全量渲染
+        /// </summary>
+        public void Redraw()
+        {
+            lock (_renderLock)
+            {
+                // 取消当前的渲染任务
+                _renderCancellationSource?.Cancel();
+            }
+
+            // 清理现有视图
+            ViewNodes.Clear();
+            NodeDic.Clear();
+            ViewContainer.Query<Layer>().ForEach(p => p.Clear());
+
+            // 重新初始化逻辑层
+            InitializeNodeTreeSync();
+
+            // 启动异步重新渲染
+            _ = DrawNodesAsync();
+        }
+
+        /// <summary>
+        /// 增量重绘 - 只更新变化的部分
+        /// </summary>
+        public void IncrementalRedraw(IEnumerable<JsonNode> changedNodes = null)
+        {
+            if (changedNodes == null)
+            {
+                Redraw();
+                return;
+            }
+
+            var nodesToUpdate = changedNodes.ToList();
+            if (nodesToUpdate.Count > ViewNodes.Count / 2)
+            {
+                // 如果变化太多，使用全量重绘
+                Redraw();
+                return;
+            }
+
+            // 增量更新
+            foreach (var node in nodesToUpdate)
+            {
+                if (NodeDic.TryGetValue(node, out var viewNode))
+                {
+                    // 刷新单个节点
+                    viewNode.RefreshPropertyElements();
+                }
+            }
         }
 
         #endregion

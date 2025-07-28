@@ -5,6 +5,9 @@ using TreeNode.Runtime;
 using TreeNode.Utility;
 using UnityEngine;
 using UnityEngine.UIElements;
+using System.Collections.Concurrent;
+using System.Threading.Tasks;
+using System.IO;
 
 namespace TreeNode.Editor
 {
@@ -15,6 +18,8 @@ namespace TreeNode.Editor
     public class History
     {
         const int MaxStep = 20; // 增加历史步骤数量
+        const int MaxMemoryUsageMB = 50; // 最大内存使用限制(MB)
+        const int OperationMergeWindowMs = 500; // 操作合并时间窗口(毫秒)
 
         TreeNodeGraphWindow Window;
         List<HistoryStep> Steps = new();
@@ -29,10 +34,33 @@ namespace TreeNode.Editor
         private HashSet<string> _recordedOperationIds = new HashSet<string>();
         private readonly object _duplicateLock = new object();
 
+        // 性能优化相关
+        private PerformanceStats _performanceStats = new PerformanceStats();
+        private readonly object _statsLock = new object();
+        
+        // 操作合并和缓存
+        private ConcurrentQueue<IAtomicOperation> _pendingOperations = new ConcurrentQueue<IAtomicOperation>();
+        private System.Threading.Timer _mergeTimer;
+        private readonly object _mergeLock = new object();
+        
+        // 内存管理
+        private readonly Dictionary<string, WeakReference> _nodeCache = new Dictionary<string, WeakReference>();
+        private long _lastGCTime = DateTime.Now.Ticks;
+        private const long GCIntervalTicks = TimeSpan.TicksPerMinute * 5; // 每5分钟检查一次GC
+
+        // 增量渲染
+        private HashSet<ViewNode> _dirtyNodes = new HashSet<ViewNode>();
+        private bool _needsFullRedraw = false;
+        private readonly object _renderLock = new object();
+
         public History(TreeNodeGraphWindow window)
         {
             Window = window;
             AddStep(false);
+            
+            // 初始化操作合并定时器
+            _mergeTimer = new System.Threading.Timer(ProcessPendingOperations, null, 
+                OperationMergeWindowMs, OperationMergeWindowMs);
         }
 
         public void Clear()
@@ -52,6 +80,15 @@ namespace TreeNode.Editor
             {
                 _recordedOperationIds.Clear();
             }
+
+            // 清理缓存和统计
+            lock (_statsLock)
+            {
+                _performanceStats.Reset();
+            }
+            
+            ClearNodeCache();
+            ClearRenderingState();
         }
 
         /// <summary>
@@ -77,6 +114,7 @@ namespace TreeNode.Editor
             if (Steps.Count > MaxStep)
             {
                 Steps.RemoveAt(0);
+                TriggerMemoryOptimization();
             }
             RedoSteps.Clear();
             
@@ -85,14 +123,18 @@ namespace TreeNode.Editor
             {
                 _recordedOperationIds.Clear();
             }
+
+            UpdatePerformanceStats();
         }
 
         /// <summary>
-        /// 记录原子操作（带防重复机制）
+        /// 记录原子操作（带防重复机制和性能优化）
         /// </summary>
         public void RecordOperation(IAtomicOperation operation)
         {
             if (operation == null) return;
+
+            var startTime = DateTime.Now;
 
             // 检查重复操作
             string operationId = operation.GetOperationId();
@@ -100,12 +142,46 @@ namespace TreeNode.Editor
             {
                 if (_recordedOperationIds.Contains(operationId))
                 {
-                    Debug.LogWarning($"重复操作被忽略: {operationId}");
+                    //Debug.LogWarning($"重复操作被忽略: {operationId}");
                     return;
                 }
                 _recordedOperationIds.Add(operationId);
             }
 
+            // 智能操作合并：将操作加入待处理队列
+            if (ShouldMergeOperation(operation))
+            {
+                _pendingOperations.Enqueue(operation);
+                return;
+            }
+
+            // 直接处理的操作
+            ProcessOperationImmediate(operation);
+
+            // 更新性能统计
+            var elapsed = (DateTime.Now - startTime).TotalMilliseconds;
+            lock (_statsLock)
+            {
+                _performanceStats.RecordOperationTime(elapsed);
+            }
+
+            Window.MakeDirty();
+        }
+
+        /// <summary>
+        /// 判断操作是否应该合并
+        /// </summary>
+        private bool ShouldMergeOperation(IAtomicOperation operation)
+        {
+            // 字段修改操作适合合并
+            return operation.Type == OperationType.FieldModify;
+        }
+
+        /// <summary>
+        /// 立即处理操作
+        /// </summary>
+        private void ProcessOperationImmediate(IAtomicOperation operation)
+        {
             lock (_batchLock)
             {
                 if (_isBatchMode && _currentBatch != null)
@@ -122,13 +198,156 @@ namespace TreeNode.Editor
                     if (Steps.Count > MaxStep)
                     {
                         Steps.RemoveAt(0);
+                        TriggerMemoryOptimization();
                     }
                     
                     RedoSteps.Clear();
                 }
             }
 
-            Window.MakeDirty();
+            // 标记需要增量渲染
+            MarkForIncrementalRender(operation);
+        }
+
+        /// <summary>
+        /// 处理待合并的操作
+        /// </summary>
+        private void ProcessPendingOperations(object state)
+        {
+            if (_pendingOperations.IsEmpty) return;
+
+            lock (_mergeLock)
+            {
+                var operationsToProcess = new List<IAtomicOperation>();
+                
+                // 收集所有待处理操作
+                while (_pendingOperations.TryDequeue(out var operation))
+                {
+                    operationsToProcess.Add(operation);
+                }
+
+                if (operationsToProcess.Count == 0) return;
+
+                // 智能合并操作
+                var mergedOperations = MergeOperations(operationsToProcess);
+                
+                // 处理合并后的操作
+                foreach (var operation in mergedOperations)
+                {
+                    ProcessOperationImmediate(operation);
+                }
+
+                // 更新统计
+                lock (_statsLock)
+                {
+                    _performanceStats.MergedOperations += operationsToProcess.Count - mergedOperations.Count;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 智能合并操作
+        /// </summary>
+        private List<IAtomicOperation> MergeOperations(List<IAtomicOperation> operations)
+        {
+            var merged = new List<IAtomicOperation>();
+            var fieldModifyGroups = new Dictionary<string, List<FieldModifyOperation>>();
+
+            foreach (var operation in operations)
+            {
+                if (operation is FieldModifyOperation fieldOp)
+                {
+                    string key = $"{fieldOp.Node?.GetHashCode()}_{fieldOp.FieldPath}";
+                    if (!fieldModifyGroups.ContainsKey(key))
+                    {
+                        fieldModifyGroups[key] = new List<FieldModifyOperation>();
+                    }
+                    fieldModifyGroups[key].Add(fieldOp);
+                }
+                else
+                {
+                    merged.Add(operation);
+                }
+            }
+
+            // 合并同一字段的多次修改
+            foreach (var group in fieldModifyGroups.Values)
+            {
+                if (group.Count == 1)
+                {
+                    merged.Add(group[0]);
+                }
+                else
+                {
+                    // 取第一个操作的旧值和最后一个操作的新值
+                    var first = group[0];
+                    var last = group[group.Count - 1];
+                    
+                    // 如果最终值等于初始值，则操作可以完全消除
+                    if (first.OldValue == last.NewValue)
+                    {
+                        continue; // 跳过这个操作组
+                    }
+                    
+                    var mergedOp = new FieldModifyOperation(
+                        first.Node, first.FieldPath, first.OldValue, last.NewValue, first.GraphView);
+                    merged.Add(mergedOp);
+                }
+            }
+
+            return merged;
+        }
+
+        /// <summary>
+        /// 标记需要增量渲染的节点
+        /// </summary>
+        private void MarkForIncrementalRender(IAtomicOperation operation)
+        {
+            lock (_renderLock)
+            {
+                switch (operation.Type)
+                {
+                    case OperationType.FieldModify:
+                        if (operation is FieldModifyOperation fieldOp && 
+                            TryGetViewNode(fieldOp.Node, out var viewNode))
+                        {
+                            _dirtyNodes.Add(viewNode);
+                        }
+                        break;
+                    
+                    case OperationType.NodeCreate:
+                    case OperationType.NodeDelete:
+                    case OperationType.NodeMove:
+                        _needsFullRedraw = true;
+                        break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 尝试获取ViewNode
+        /// </summary>
+        private bool TryGetViewNode(JsonNode node, out ViewNode viewNode)
+        {
+            viewNode = null;
+            if (node == null) return false;
+
+            string nodeKey = node.GetHashCode().ToString();
+            if (_nodeCache.TryGetValue(nodeKey, out var weakRef) && 
+                weakRef.IsAlive && weakRef.Target is ViewNode cachedNode)
+            {
+                viewNode = cachedNode;
+                return true;
+            }
+
+            // 从GraphView中查找
+            if (Window.GraphView.NodeDic.TryGetValue(node, out viewNode))
+            {
+                _nodeCache[nodeKey] = new WeakReference(viewNode);
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -153,6 +372,11 @@ namespace TreeNode.Editor
             {
                 _recordedOperationIds.Clear();
             }
+
+            lock (_statsLock)
+            {
+                _performanceStats.IsBatchMode = true;
+            }
         }
 
         /// <summary>
@@ -172,6 +396,7 @@ namespace TreeNode.Editor
                     if (Steps.Count > MaxStep)
                     {
                         Steps.RemoveAt(0);
+                        TriggerMemoryOptimization();
                     }
                     
                     RedoSteps.Clear();
@@ -181,44 +406,273 @@ namespace TreeNode.Editor
                 _isBatchMode = false;
             }
 
+            lock (_statsLock)
+            {
+                _performanceStats.IsBatchMode = false;
+            }
+
             Window.MakeDirty();
         }
 
         public bool Undo()
         {
             if (Steps.Count <= 1) { return false; }
-            Debug.Log($"Undo:[{Steps.Count}]");
+            
+            var startTime = DateTime.Now;
+            //Debug.Log($"Undo:[{Steps.Count}]");
+            
             HistoryStep step = Steps[^1];
             Steps.RemoveAt(Steps.Count - 1);
             RedoSteps.Push(step);
-            Commit(step, true);
+            
+            // 使用增量渲染优化的提交
+            CommitWithIncrementalRender(step, true);
+            
+            // 更新性能统计
+            var elapsed = (DateTime.Now - startTime).TotalMilliseconds;
+            lock (_statsLock)
+            {
+                _performanceStats.RecordUndoTime(elapsed);
+            }
+            
             return true;
         }
 
         public bool Redo()
         {
             if (!RedoSteps.Any()) { return false; }
+            
+            var startTime = DateTime.Now;
             Debug.Log("Redo");
+            
             HistoryStep step = RedoSteps.Pop();
             Steps.Add(step);
-            Commit(step, false);
+            
+            // 使用增量渲染优化的提交
+            CommitWithIncrementalRender(step, false);
+            
+            // 更新性能统计
+            var elapsed = (DateTime.Now - startTime).TotalMilliseconds;
+            lock (_statsLock)
+            {
+                _performanceStats.RecordRedoTime(elapsed);
+                _performanceStats.RedoSteps++;
+            }
+            
             return true;
         }
 
-        void Commit(HistoryStep step, bool undo)
+        /// <summary>
+        /// 使用增量渲染优化的提交
+        /// </summary>
+        void CommitWithIncrementalRender(HistoryStep step, bool undo)
         {
             if (undo)
             {
                 if (Steps.Any())
                 {
                     Window.JsonAsset = Steps[^1].GetAsset();
-                    Window.GraphView.Redraw();
+                    // 智能渲染：检查是否需要全量重绘
+                    if (ShouldUseIncrementalRender(step))
+                    {
+                        IncrementalRedraw(step);
+                    }
+                    else
+                    {
+                        Window.GraphView.Redraw();
+                    }
                 }
             }
             else
             {
                 Window.JsonAsset = step.GetAsset();
-                Window.GraphView.Redraw();
+                if (ShouldUseIncrementalRender(step))
+                {
+                    IncrementalRedraw(step);
+                }
+                else
+                {
+                    Window.GraphView.Redraw();
+                }
+            }
+        }
+
+        /// <summary>
+        /// 判断是否应该使用增量渲染
+        /// </summary>
+        private bool ShouldUseIncrementalRender(HistoryStep step)
+        {
+            // 如果操作数量太多，或者包含结构性变化，使用全量重绘
+            if (step.Operations.Count > 10) return false;
+            
+            foreach (var operation in step.Operations)
+            {
+                if (operation.Type == OperationType.NodeCreate ||
+                    operation.Type == OperationType.NodeDelete ||
+                    operation.Type == OperationType.NodeMove)
+                {
+                    return false;
+                }
+            }
+            
+            return true;
+        }
+
+        /// <summary>
+        /// 增量重绘
+        /// </summary>
+        private void IncrementalRedraw(HistoryStep step)
+        {
+            lock (_renderLock)
+            {
+                if (_needsFullRedraw)
+                {
+                    Window.GraphView.Redraw();
+                    ClearRenderingState();
+                    return;
+                }
+
+                // 只更新脏节点
+                foreach (var dirtyNode in _dirtyNodes)
+                {
+                    if (dirtyNode != null)
+                    {
+                        // 只刷新属性面板，不重建整个节点
+                        dirtyNode.RefreshPropertyElements();
+                    }
+                }
+
+                ClearRenderingState();
+            }
+        }
+
+        /// <summary>
+        /// 清理渲染状态
+        /// </summary>
+        private void ClearRenderingState()
+        {
+            lock (_renderLock)
+            {
+                _dirtyNodes.Clear();
+                _needsFullRedraw = false;
+            }
+        }
+
+        /// <summary>
+        /// 内存优化触发
+        /// </summary>
+        private void TriggerMemoryOptimization()
+        {
+            // 检查内存使用情况
+            CheckMemoryUsage();
+            
+            // 清理节点缓存
+            CleanupNodeCache();
+            
+            // 定期GC
+            PerformPeriodicGC();
+        }
+
+        /// <summary>
+        /// 检查内存使用情况
+        /// </summary>
+        private void CheckMemoryUsage()
+        {
+            var memoryUsage = GC.GetTotalMemory(false) / (1024 * 1024); // MB
+            
+            lock (_statsLock)
+            {
+                _performanceStats.MemoryUsageMB = memoryUsage;
+                
+                if (memoryUsage > MaxMemoryUsageMB)
+                {
+                    Debug.LogWarning($"History memory usage ({memoryUsage}MB) exceeds limit ({MaxMemoryUsageMB}MB)");
+                    // 触发更积极的内存清理
+                    PerformAggressiveCleanup();
+                }
+            }
+        }
+
+        /// <summary>
+        /// 清理节点缓存
+        /// </summary>
+        private void CleanupNodeCache()
+        {
+            var keysToRemove = new List<string>();
+            
+            foreach (var kvp in _nodeCache)
+            {
+                if (!kvp.Value.IsAlive)
+                {
+                    keysToRemove.Add(kvp.Key);
+                }
+            }
+            
+            foreach (var key in keysToRemove)
+            {
+                _nodeCache.Remove(key);
+            }
+        }
+
+        /// <summary>
+        /// 定期GC
+        /// </summary>
+        private void PerformPeriodicGC()
+        {
+            var currentTime = DateTime.Now.Ticks;
+            if (currentTime - _lastGCTime > GCIntervalTicks)
+            {
+                GC.Collect(0, GCCollectionMode.Optimized);
+                _lastGCTime = currentTime;
+            }
+        }
+
+        /// <summary>
+        /// 执行积极的内存清理
+        /// </summary>
+        private void PerformAggressiveCleanup()
+        {
+            // 清空所有缓存
+            ClearNodeCache();
+            
+            // 强制GC
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            
+            Debug.Log("Performed aggressive memory cleanup");
+        }
+
+        /// <summary>
+        /// 清空节点缓存
+        /// </summary>
+        private void ClearNodeCache()
+        {
+            _nodeCache.Clear();
+        }
+
+        /// <summary>
+        /// 更新性能统计
+        /// </summary>
+        private void UpdatePerformanceStats()
+        {
+            lock (_statsLock)
+            {
+                _performanceStats.TotalSteps = Steps.Count;
+                _performanceStats.RedoSteps = RedoSteps.Count;
+                _performanceStats.CachedOperations = _nodeCache.Count;
+            }
+        }
+
+        /// <summary>
+        /// 获取性能统计信息
+        /// </summary>
+        public PerformanceStats GetPerformanceStats()
+        {
+            lock (_statsLock)
+            {
+                UpdatePerformanceStats();
+                return _performanceStats.Clone();
             }
         }
 
@@ -231,7 +685,23 @@ namespace TreeNode.Editor
             summary.AppendLine($"历史步骤总数: {Steps.Count}");
             summary.AppendLine($"可重做步骤: {RedoSteps.Count}");
             summary.AppendLine($"批量模式: {(_isBatchMode ? "开启" : "关闭")}");
+            
+            var stats = GetPerformanceStats();
+            summary.AppendLine($"内存使用: {stats.MemoryUsageMB:F2}MB");
+            summary.AppendLine($"缓存节点: {stats.CachedOperations}");
+            summary.AppendLine($"合并操作: {stats.MergedOperations}");
+            
             return summary.ToString();
+        }
+
+        /// <summary>
+        /// 释放资源
+        /// </summary>
+        public void Dispose()
+        {
+            _mergeTimer?.Dispose();
+            ClearNodeCache();
+            ClearRenderingState();
         }
 
         public class HistoryStep
@@ -656,6 +1126,81 @@ namespace TreeNode.Editor
         {
             ViewNode viewNode = visualElement.GetFirstAncestorOfType<ViewNode>();
             viewNode?.View.Window.History.AddStep();
+        }
+    }
+
+    /// <summary>
+    /// 性能统计信息
+    /// </summary>
+    public class PerformanceStats
+    {
+        public int TotalSteps { get; set; }
+        public int RedoSteps { get; set; }
+        public long MemoryUsageMB { get; set; }
+        public int CachedOperations { get; set; }
+        public int MergedOperations { get; set; }
+        public bool IsBatchMode { get; set; }
+        
+        // 性能计时
+        public double AverageOperationTimeMs { get; private set; }
+        public double AverageUndoTimeMs { get; private set; }
+        public double AverageRedoTimeMs { get; private set; }
+        
+        private readonly List<double> _operationTimes = new List<double>();
+        private readonly List<double> _undoTimes = new List<double>();
+        private readonly List<double> _redoTimes = new List<double>();
+
+        public void RecordOperationTime(double timeMs)
+        {
+            _operationTimes.Add(timeMs);
+            if (_operationTimes.Count > 100) _operationTimes.RemoveAt(0);
+            AverageOperationTimeMs = _operationTimes.Average();
+        }
+
+        public void RecordUndoTime(double timeMs)
+        {
+            _undoTimes.Add(timeMs);
+            if (_undoTimes.Count > 100) _undoTimes.RemoveAt(0);
+            AverageUndoTimeMs = _undoTimes.Average();
+        }
+
+        public void RecordRedoTime(double timeMs)
+        {
+            _redoTimes.Add(timeMs);
+            if (_redoTimes.Count > 100) _redoTimes.RemoveAt(0);
+            AverageRedoTimeMs = _redoTimes.Average();
+        }
+
+        public void Reset()
+        {
+            TotalSteps = 0;
+            RedoSteps = 0;
+            MemoryUsageMB = 0;
+            CachedOperations = 0;
+            MergedOperations = 0;
+            IsBatchMode = false;
+            AverageOperationTimeMs = 0;
+            AverageUndoTimeMs = 0;
+            AverageRedoTimeMs = 0;
+            _operationTimes.Clear();
+            _undoTimes.Clear();
+            _redoTimes.Clear();
+        }
+
+        public PerformanceStats Clone()
+        {
+            return new PerformanceStats
+            {
+                TotalSteps = this.TotalSteps,
+                RedoSteps = this.RedoSteps,
+                MemoryUsageMB = this.MemoryUsageMB,
+                CachedOperations = this.CachedOperations,
+                MergedOperations = this.MergedOperations,
+                IsBatchMode = this.IsBatchMode,
+                AverageOperationTimeMs = this.AverageOperationTimeMs,
+                AverageUndoTimeMs = this.AverageUndoTimeMs,
+                AverageRedoTimeMs = this.AverageRedoTimeMs
+            };
         }
     }
 }

@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Reflection;
+using System.Linq;
 using TreeNode.Runtime;
 using Unity.Properties;
 using UnityEngine.UIElements;
@@ -85,8 +87,8 @@ namespace TreeNode.Editor
                 _lastValue = GetCurrentFieldValue();
                 _isMonitoringValue = true;
                 
-                // 注册值变化监听
-                RegisterValueChangeCallbacks();
+                // 延迟注册值变化监听，避免初始化期间的性能问题
+                schedule.Execute(RegisterValueChangeCallbacks).ExecuteLater(100);
             }
             catch (Exception e)
             {
@@ -110,17 +112,103 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 注册值变化回调
+        /// 注册值变化回调 - 优化版本
         /// </summary>
         private void RegisterValueChangeCallbacks()
         {
-            // 为不同类型的UI元素注册监听器
-            RegisterTextFieldCallbacks();
-            RegisterNumericFieldCallbacks();
-            RegisterBooleanFieldCallbacks();
-            RegisterEnumFieldCallbacks();
+            // 使用更高效的查询方式，避免重复查询
+            var allFields = new Dictionary<Type, List<VisualElement>>();
+            
+            // 一次性收集所有相关字段
+            CollectUIElements(allFields);
+            
+            // 批量注册回调
+            RegisterCallbacksBatch(allFields);
         }
 
+        /// <summary>
+        /// 批量收集UI元素
+        /// </summary>
+        private void CollectUIElements(Dictionary<Type, List<VisualElement>> allFields)
+        {
+            // 使用单次遍历收集所有元素类型
+            this.Query<VisualElement>().ForEach(element =>
+            {
+                var elementType = element.GetType();
+                if (IsMonitorableElement(elementType))
+                {
+                    if (!allFields.ContainsKey(elementType))
+                    {
+                        allFields[elementType] = new List<VisualElement>();
+                    }
+                    allFields[elementType].Add(element);
+                }
+            });
+        }
+
+        /// <summary>
+        /// 判断是否为可监听的元素类型
+        /// </summary>
+        private bool IsMonitorableElement(Type elementType)
+        {
+            return elementType == typeof(TextField) ||
+                   elementType == typeof(FloatField) ||
+                   elementType == typeof(IntegerField) ||
+                   elementType == typeof(Toggle) ||
+                   elementType == typeof(EnumField) ||
+                   elementType.IsSubclassOf(typeof(BaseField<>));
+        }
+
+        /// <summary>
+        /// 批量注册回调
+        /// </summary>
+        private void RegisterCallbacksBatch(Dictionary<Type, List<VisualElement>> allFields)
+        {
+            foreach (var kvp in allFields)
+            {
+                var elementType = kvp.Key;
+                var elements = kvp.Value;
+
+                // 根据类型批量注册
+                if (elementType == typeof(TextField))
+                {
+                    foreach (var element in elements.Cast<TextField>())
+                    {
+                        element.RegisterValueChangedCallback(OnTextFieldValueChanged);
+                    }
+                }
+                else if (elementType == typeof(FloatField))
+                {
+                    foreach (var element in elements.Cast<FloatField>())
+                    {
+                        element.RegisterValueChangedCallback(OnFloatFieldValueChanged);
+                    }
+                }
+                else if (elementType == typeof(IntegerField))
+                {
+                    foreach (var element in elements.Cast<IntegerField>())
+                    {
+                        element.RegisterValueChangedCallback(OnIntFieldValueChanged);
+                    }
+                }
+                else if (elementType == typeof(Toggle))
+                {
+                    foreach (var element in elements.Cast<Toggle>())
+                    {
+                        element.RegisterValueChangedCallback(OnToggleValueChanged);
+                    }
+                }
+                else if (elementType == typeof(EnumField))
+                {
+                    foreach (var element in elements.Cast<EnumField>())
+                    {
+                        element.RegisterValueChangedCallback(OnEnumFieldValueChanged);
+                    }
+                }
+            }
+        }
+
+        // 原有的单独注册方法保持不变，用于兼容性
         private void RegisterTextFieldCallbacks()
         {
             var textFields = this.Query<TextField>().ToList();
@@ -163,11 +251,16 @@ namespace TreeNode.Editor
             }
         }
 
+        // 优化的值变化处理器 - 增加防抖动
+        private DateTime _lastChangeTime = DateTime.MinValue;
+        private const int ChangeThrottleMs = 50; // 50毫秒防抖动
+
         /// <summary>
         /// 处理文本字段值变化
         /// </summary>
         private void OnTextFieldValueChanged(ChangeEvent<string> evt)
         {
+            if (ShouldThrottleChange()) return;
             RecordFieldModification(evt.previousValue, evt.newValue);
         }
 
@@ -176,6 +269,7 @@ namespace TreeNode.Editor
         /// </summary>
         private void OnFloatFieldValueChanged(ChangeEvent<float> evt)
         {
+            if (ShouldThrottleChange()) return;
             RecordFieldModification(evt.previousValue, evt.newValue);
         }
 
@@ -184,6 +278,7 @@ namespace TreeNode.Editor
         /// </summary>
         private void OnIntFieldValueChanged(ChangeEvent<int> evt)
         {
+            if (ShouldThrottleChange()) return;
             RecordFieldModification(evt.previousValue, evt.newValue);
         }
 
@@ -192,6 +287,7 @@ namespace TreeNode.Editor
         /// </summary>
         private void OnToggleValueChanged(ChangeEvent<bool> evt)
         {
+            if (ShouldThrottleChange()) return;
             RecordFieldModification(evt.previousValue, evt.newValue);
         }
 
@@ -200,11 +296,26 @@ namespace TreeNode.Editor
         /// </summary>
         private void OnEnumFieldValueChanged(ChangeEvent<Enum> evt)
         {
+            if (ShouldThrottleChange()) return;
             RecordFieldModification(evt.previousValue, evt.newValue);
         }
 
         /// <summary>
-        /// 记录字段修改操作
+        /// 判断是否应该限制变化频率
+        /// </summary>
+        private bool ShouldThrottleChange()
+        {
+            var now = DateTime.Now;
+            if ((now - _lastChangeTime).TotalMilliseconds < ChangeThrottleMs)
+            {
+                return true;
+            }
+            _lastChangeTime = now;
+            return false;
+        }
+
+        /// <summary>
+        /// 记录字段修改操作 - 优化版本
         /// </summary>
         private void RecordFieldModification(object oldValue, object newValue)
         {
@@ -212,12 +323,25 @@ namespace TreeNode.Editor
             
             try
             {
-                // 避免记录相同值的变化
-                if (object.Equals(oldValue, newValue)) return;
+                // 快速值比较，避免不必要的序列化
+                if (FastValueEquals(oldValue, newValue)) return;
                 
-                // 序列化值用于历史记录
-                string oldValueJson = Json.ToJson(oldValue);
-                string newValueJson = Json.ToJson(newValue);
+                // 延迟序列化：只在确实需要记录时才序列化
+                string oldValueJson = null;
+                string newValueJson = null;
+                
+                // 使用更高效的序列化方式
+                if (ShouldSerializeValue(oldValue, newValue))
+                {
+                    oldValueJson = SerializeValueEfficiently(oldValue);
+                    newValueJson = SerializeValueEfficiently(newValue);
+                }
+                else
+                {
+                    // 对于简单类型，直接转换为字符串
+                    oldValueJson = oldValue?.ToString() ?? "";
+                    newValueJson = newValue?.ToString() ?? "";
+                }
                 
                 // 创建字段修改操作
                 var fieldModifyOperation = new FieldModifyOperation(
@@ -239,6 +363,64 @@ namespace TreeNode.Editor
             catch (Exception e)
             {
                 Debug.LogWarning($"记录字段修改失败: {e.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 快速值比较
+        /// </summary>
+        private bool FastValueEquals(object oldValue, object newValue)
+        {
+            if (ReferenceEquals(oldValue, newValue)) return true;
+            if (oldValue == null || newValue == null) return false;
+            
+            // 对于简单类型，直接比较
+            var type = oldValue.GetType();
+            if (type.IsPrimitive || type == typeof(string) || type.IsEnum)
+            {
+                return oldValue.Equals(newValue);
+            }
+            
+            // 对于复杂类型，使用引用比较
+            return ReferenceEquals(oldValue, newValue);
+        }
+
+        /// <summary>
+        /// 判断是否需要序列化值
+        /// </summary>
+        private bool ShouldSerializeValue(object oldValue, object newValue)
+        {
+            if (oldValue == null && newValue == null) return false;
+            if (oldValue == null || newValue == null) return true;
+            
+            var type = oldValue.GetType();
+            
+            // 复杂类型需要序列化
+            return !type.IsPrimitive && type != typeof(string) && !type.IsEnum;
+        }
+
+        /// <summary>
+        /// 高效的值序列化
+        /// </summary>
+        private string SerializeValueEfficiently(object value)
+        {
+            if (value == null) return "";
+            
+            try
+            {
+                // 对于简单类型，直接转换
+                var type = value.GetType();
+                if (type.IsPrimitive || type == typeof(string) || type.IsEnum)
+                {
+                    return value.ToString();
+                }
+                
+                // 对于复杂类型，使用JSON序列化
+                return Json.ToJson(value);
+            }
+            catch
+            {
+                return value.ToString();
             }
         }
 

@@ -31,6 +31,11 @@ namespace TreeNode.Editor
         private bool _isInitializing = false;
         private TaskCompletionSource<bool> _initializationTask;
 
+        // 增量渲染优化
+        private Dictionary<string, PropertyElement> _propertyElementCache = new Dictionary<string, PropertyElement>();
+        private bool _needsFullRefresh = false;
+        private readonly object _refreshLock = new object();
+
         public ViewNode(JsonNode data, TreeNodeGraphView view, ChildPort childPort = null)
         {
             Data = data;
@@ -80,6 +85,189 @@ namespace TreeNode.Editor
             NodeInfoAttribute nodeInfo = Data.GetType().GetCustomAttribute<NodeInfoAttribute>();
             DrawParentPort(nodeInfo?.Type, childPort);
             DrawPropertiesAndPorts();
+        }
+
+        /// <summary>
+        /// 增量刷新属性元素 - 只更新变化的部分
+        /// </summary>
+        public void RefreshPropertyElements()
+        {
+            lock (_refreshLock)
+            {
+                if (_needsFullRefresh)
+                {
+                    FullRefreshProperties();
+                    _needsFullRefresh = false;
+                    return;
+                }
+
+                // 增量更新：只刷新值发生变化的PropertyElement
+                IncrementalRefreshProperties();
+            }
+        }
+
+        /// <summary>
+        /// 完整刷新属性
+        /// </summary>
+        private void FullRefreshProperties()
+        {
+            // 清除旧的属性元素
+            Content.Clear();
+            _propertyElementCache.Clear();
+            
+            // 重新绘制所有属性
+            DrawPropertiesAndPorts();
+        }
+
+        /// <summary>
+        /// 增量刷新属性
+        /// </summary>
+        private void IncrementalRefreshProperties()
+        {
+            try
+            {
+                // 遍历所有缓存的PropertyElement，检查是否需要更新
+                foreach (var kvp in _propertyElementCache.ToList())
+                {
+                    var path = kvp.Key;
+                    var propertyElement = kvp.Value;
+                    
+                    if (propertyElement?.parent == null)
+                    {
+                        // PropertyElement已被移除，从缓存中删除
+                        _propertyElementCache.Remove(path);
+                        continue;
+                    }
+
+                    // 获取最新值
+                    try
+                    {
+                        var currentValue = Data.GetValue<object>(path);
+                        RefreshPropertyElementValue(propertyElement, currentValue);
+                    }
+                    catch (Exception e)
+                    {
+                        Debug.LogWarning($"刷新属性元素失败 {path}: {e.Message}");
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"增量刷新失败，回退到完整刷新: {e.Message}");
+                FullRefreshProperties();
+            }
+        }
+
+        /// <summary>
+        /// 刷新单个PropertyElement的值
+        /// </summary>
+        private void RefreshPropertyElementValue(PropertyElement propertyElement, object newValue)
+        {
+            if (propertyElement?.Drawer == null) return;
+
+            try
+            {
+                // 根据不同的Drawer类型，使用不同的刷新策略
+                var drawerType = propertyElement.Drawer.GetType();
+                
+                if (drawerType.Name.Contains("StringDrawer"))
+                {
+                    RefreshTextFieldValue(propertyElement, newValue?.ToString());
+                }
+                else if (drawerType.Name.Contains("FloatDrawer"))
+                {
+                    RefreshFloatFieldValue(propertyElement, Convert.ToSingle(newValue));
+                }
+                else if (drawerType.Name.Contains("IntDrawer"))
+                {
+                    RefreshIntFieldValue(propertyElement, Convert.ToInt32(newValue));
+                }
+                else if (drawerType.Name.Contains("BoolDrawer"))
+                {
+                    RefreshToggleValue(propertyElement, Convert.ToBoolean(newValue));
+                }
+                else if (drawerType.Name.Contains("EnumDrawer"))
+                {
+                    RefreshEnumFieldValue(propertyElement, newValue as Enum);
+                }
+                else
+                {
+                    // 对于复杂类型，标记需要完整刷新
+                    _needsFullRefresh = true;
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"刷新PropertyElement值失败: {e.Message}");
+                _needsFullRefresh = true;
+            }
+        }
+
+        private void RefreshTextFieldValue(PropertyElement propertyElement, string newValue)
+        {
+            var textField = propertyElement.Q<TextField>();
+            if (textField != null && textField.value != newValue)
+            {
+                textField.SetValueWithoutNotify(newValue ?? string.Empty);
+            }
+        }
+
+        private void RefreshFloatFieldValue(PropertyElement propertyElement, float newValue)
+        {
+            var floatField = propertyElement.Q<FloatField>();
+            if (floatField != null && Math.Abs(floatField.value - newValue) > float.Epsilon)
+            {
+                floatField.SetValueWithoutNotify(newValue);
+            }
+        }
+
+        private void RefreshIntFieldValue(PropertyElement propertyElement, int newValue)
+        {
+            var intField = propertyElement.Q<IntegerField>();
+            if (intField != null && intField.value != newValue)
+            {
+                intField.SetValueWithoutNotify(newValue);
+            }
+        }
+
+        private void RefreshToggleValue(PropertyElement propertyElement, bool newValue)
+        {
+            var toggle = propertyElement.Q<Toggle>();
+            if (toggle != null && toggle.value != newValue)
+            {
+                toggle.SetValueWithoutNotify(newValue);
+            }
+        }
+
+        private void RefreshEnumFieldValue(PropertyElement propertyElement, Enum newValue)
+        {
+            var enumField = propertyElement.Q<EnumField>();
+            if (enumField != null && !Equals(enumField.value, newValue))
+            {
+                enumField.SetValueWithoutNotify(newValue);
+            }
+        }
+
+        /// <summary>
+        /// 标记需要完整刷新
+        /// </summary>
+        public void MarkForFullRefresh()
+        {
+            lock (_refreshLock)
+            {
+                _needsFullRefresh = true;
+            }
+        }
+
+        /// <summary>
+        /// 优化的属性缓存管理
+        /// </summary>
+        private void CachePropertyElement(PropertyElement propertyElement)
+        {
+            if (propertyElement?.LocalPath != null)
+            {
+                _propertyElementCache[propertyElement.LocalPath] = propertyElement;
+            }
         }
 
         public List<Edge> GetAllEdges()
@@ -177,6 +365,21 @@ namespace TreeNode.Editor
                 };
                 VisualElement visualElement = baseDrawer.Create(meta, this, null, OnChange);
                 Content.Add(visualElement);
+
+                // 缓存新创建的PropertyElement
+                CacheNewPropertyElements(visualElement);
+            }
+        }
+
+        /// <summary>
+        /// 缓存新创建的PropertyElement
+        /// </summary>
+        private void CacheNewPropertyElements(VisualElement root)
+        {
+            var propertyElements = root.Query<PropertyElement>().ToList();
+            foreach (var propertyElement in propertyElements)
+            {
+                CachePropertyElement(propertyElement);
             }
         }
 
@@ -480,7 +683,21 @@ namespace TreeNode.Editor
         
         public PropertyElement FindByLocalPath(string path)
         {
-            return this.Q<PropertyElement>(path);
+            // 优先从缓存中查找
+            if (_propertyElementCache.TryGetValue(path, out var cachedElement) && 
+                cachedElement?.parent != null)
+            {
+                return cachedElement;
+            }
+
+            // 从DOM中查找并更新缓存
+            var element = this.Q<PropertyElement>(path);
+            if (element != null)
+            {
+                _propertyElementCache[path] = element;
+            }
+
+            return element;
         }
 
         public bool Validate(out string msg)
@@ -508,6 +725,7 @@ namespace TreeNode.Editor
             _initializationTask?.TrySetCanceled();
             visitedChildPorts?.Clear();
             listViews?.Clear();
+            _propertyElementCache?.Clear();
         }
     }
 }
