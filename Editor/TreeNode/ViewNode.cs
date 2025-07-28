@@ -292,19 +292,8 @@ namespace TreeNode.Editor
 
         public override void SetPosition(Rect newPos)
         {
-            // 在设置新位置之前，通知GraphView缓存当前位置
-            if (View != null && !View._isRecordingMove)
-            {
-                View.CacheNodePositionBeforeMove(this);
-            }
-            
             base.SetPosition(newPos);
-            
-            // 只有在非录制状态下才更新Data.Position，避免重复更新
-            if (!View?._isRecordingMove ?? true)
-            {
-                Data.Position = newPos.position;
-            }
+            Data.Position = newPos.position;
         }
 
         public void DrawParentPort(Type parentType, ChildPort childPort = null)
@@ -533,7 +522,7 @@ namespace TreeNode.Editor
 
             listViews = Content.Query<ListView>().ToList();
             
-            // 总是优先尝试同步初始化 - 这可以绕过大部分异Async问题
+            // 总是优先尝试同步初始化 - 这可以绕过大部分异步问题
             AddChildNodesSynchronously();
             
             // 检查同步初始化是否成功
