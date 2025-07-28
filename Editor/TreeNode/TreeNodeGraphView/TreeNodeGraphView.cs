@@ -72,11 +72,12 @@ namespace TreeNode.Editor
 
         /// <summary>
         /// 同步初始化JsonNodeTree - 确保逻辑层数据准备完成
+        /// 使用Runtime命名空间中的JsonNodeTree
         /// </summary>
         private void InitializeNodeTreeSync()
         {
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-            _nodeTree = new JsonNodeTree(Asset.Data);
+            _nodeTree = new Runtime.JsonNodeTree(Asset.Data);
             stopwatch.Stop();
             
             //Debug.Log($"JsonNodeTree initialized in {stopwatch.ElapsedMilliseconds}ms with {_nodeTree.TotalNodeCount} nodes");

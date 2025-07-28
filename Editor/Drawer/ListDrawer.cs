@@ -8,6 +8,7 @@ using TreeNode.Utility;
 using Unity.Properties;
 using UnityEditor;
 using UnityEditor.Experimental.GraphView;
+using UnityEngine;
 using UnityEngine.UIElements;
 
 namespace TreeNode.Editor
@@ -81,13 +82,34 @@ namespace TreeNode.Editor
                         };
                     }
                 }
+                
+                // 注册ListView到TreeNodeGraphView的初始化跟踪器
+                if (node.View is TreeNodeGraphView graphView)
+                {
+                    graphView.RegisterListViewForTracking(listView);
+                }
+                
                 listView.makeItem = () =>
                 {
                     ListItem listItem = new(memberMeta, node, baseDrawer, path, dirty, action);
-                    if (listView.Query<ListItem>().ToList().Count + 1 == listView.viewController.itemsSource.Count)
+                    
+                    // 检查是否所有Item都已创建 - 智能初始化检测
+                    var currentItemCount = listView.Query<ListItem>().ToList().Count + 1;
+                    var totalItemCount = listView.viewController.itemsSource?.Count ?? 0;
+                    
+                    if (currentItemCount >= totalItemCount && totalItemCount > 0)
                     {
-                        listView.userData = true;
+                        listView.userData = true; // 标记ListView已完全初始化
+                        
+                        // 通知TreeNodeGraphView ListView已准备就绪
+                        if (node.View is TreeNodeGraphView treeGraphView)
+                        {
+                            treeGraphView.MarkListViewAsReady(listView);
+                        }
+                        
+                        UnityEngine.Debug.Log($"ListView完全初始化: {totalItemCount}个项目创建完成");
                     }
+                    
                     return listItem;
                 };
             }
