@@ -439,10 +439,13 @@ namespace TreeNode.Editor
             
             totalOperations = nodesToRemove.Count + edgesToRemove.Count + edgesToCreate.Count;
             
+            Debug.Log($"GraphView变更检测 - 删除节点:{nodesToRemove.Count}, 删除边:{edgesToRemove.Count}, 创建边:{edgesToCreate.Count}");
+            
             // 智能批量检测策略
             if (ShouldStartBatch(nodesToRemove, edgesToRemove, edgesToCreate, out batchDescription))
             {
                 isBatchOperation = true;
+                Debug.Log($"启动批量操作: {batchDescription}");
                 Window.History.BeginBatch(batchDescription);
             }
             
@@ -461,10 +464,12 @@ namespace TreeNode.Editor
             // 结束批量操作或添加单步记录
             if (isBatchOperation)
             {
+                Debug.Log($"结束批量操作: {batchDescription}");
                 Window.History.EndBatch();
             }
             else if (totalOperations > 0)
             {
+                Debug.Log("添加单步历史记录");
                 Window.History.AddStep();
             }
             
@@ -479,17 +484,29 @@ namespace TreeNode.Editor
         {
             description = "";
             
-            // 多选删除节点
-            if (nodesToRemove.Count > 1)
+            // 关键修改：任何节点删除操作都应该是批量操作
+            // 这确保了删除节点时，断开边和移除节点都在同一个批量操作中，Undo时能一起恢复
+            if (nodesToRemove.Count > 0)
             {
-                description = $"批量删除 {nodesToRemove.Count} 个节点";
+                if (nodesToRemove.Count == 1)
+                {
+                    // 单个节点删除：统计其关联的边数量
+                    var nodeEdges = nodesToRemove[0].GetAllEdges();
+                    int totalEdges = nodeEdges.Count + edgesToRemove.Count;
+                    description = $"删除节点 '{nodesToRemove[0].Data.GetType().Name}' 及其 {totalEdges} 个连接";
+                }
+                else
+                {
+                    // 多选删除节点
+                    description = $"批量删除 {nodesToRemove.Count} 个节点";
+                }
                 return true;
             }
             
-            // 节点删除伴随多个边删除
-            if (nodesToRemove.Count == 1 && edgesToRemove.Count > 2)
+            // 纯边删除操作：多个边删除时使用批量模式
+            if (edgesToRemove.Count > 1)
             {
-                description = $"删除节点及其 {edgesToRemove.Count} 个连接";
+                description = $"批量断开 {edgesToRemove.Count} 个连接";
                 return true;
             }
             
@@ -501,7 +518,7 @@ namespace TreeNode.Editor
             }
             
             // 复杂的混合操作
-            if (nodesToRemove.Count > 0 && edgesToCreate.Count > 0)
+            if (edgesToRemove.Count > 0 && edgesToCreate.Count > 0)
             {
                 description = "复杂的节点重组操作";
                 return true;
@@ -516,17 +533,25 @@ namespace TreeNode.Editor
         private void ProcessRemoveOperations(List<ViewNode> nodesToRemove, List<Edge> edgesToRemove, 
             GraphViewChange graphViewChange)
         {
+            Debug.Log($"开始处理删除操作 - 节点:{nodesToRemove.Count}个, 直接删除边:{edgesToRemove.Count}个");
+            
             // 1. 首先收集所有需要删除的边（包括节点关联的边）
             var allEdgesToRemove = new HashSet<Edge>(edgesToRemove);
+            int nodeAssociatedEdges = 0;
             
             foreach (ViewNode viewNode in nodesToRemove)
             {
                 var nodeEdges = viewNode.GetAllEdges();
                 foreach (var edge in nodeEdges)
                 {
-                    allEdgesToRemove.Add(edge);
+                    if (allEdgesToRemove.Add(edge)) // Add方法返回true表示是新添加的
+                    {
+                        nodeAssociatedEdges++;
+                    }
                 }
             }
+            
+            Debug.Log($"收集到节点关联边:{nodeAssociatedEdges}个, 总删除边数:{allEdgesToRemove.Count}个");
             
             // 2. 按照依赖关系顺序删除边
             var edgeList = allEdgesToRemove.ToList();
@@ -534,8 +559,11 @@ namespace TreeNode.Editor
             
             // 3. 删除节点（按深度倒序，避免引用问题）
             var sortedNodes = nodesToRemove.OrderByDescending(n => n.GetDepth()).ToList();
+            Debug.Log($"按深度排序删除节点，顺序: {string.Join(" -> ", sortedNodes.Select(n => $"{n.Data.GetType().Name}(深度{n.GetDepth()})"))}");
+            
             foreach (ViewNode viewNode in sortedNodes)
             {
+                Debug.Log($"删除节点: {viewNode.Data.GetType().Name}");
                 RemoveViewNode(viewNode);
             }
             
@@ -543,6 +571,8 @@ namespace TreeNode.Editor
             graphViewChange.elementsToRemove.Clear();
             graphViewChange.elementsToRemove.AddRange(allEdgesToRemove);
             graphViewChange.elementsToRemove.AddRange(nodesToRemove);
+            
+            Debug.Log($"删除操作完成 - 实际删除边:{allEdgesToRemove.Count}个, 节点:{nodesToRemove.Count}个");
         }
 
         /// <summary>
@@ -556,10 +586,16 @@ namespace TreeNode.Editor
                 .OrderByDescending(e => e.ParentPort().node.GetDepth())
                 .ToList();
             
+            Debug.Log($"按深度排序删除 {sortedEdges.Count} 条边");
+            
             foreach (Edge edge in sortedEdges)
             {
                 try
                 {
+                    Debug.Log(edge.GetHashCode());
+                    var parentNode = edge.ChildPort()?.node?.Data?.GetType().Name ?? "Unknown";
+                    var childNode = edge.ParentPort()?.node?.Data?.GetType().Name ?? "Unknown";
+                    Debug.Log($"删除边: {parentNode} -> {childNode}");
                     RemoveEdge(edge);
                 }
                 catch (Exception e)
