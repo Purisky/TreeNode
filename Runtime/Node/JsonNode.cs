@@ -78,6 +78,10 @@ namespace TreeNode.Runtime
         public Vec2(float x_,float y_) { x = (int)x_; y = (int)y_; }
         public Vec2(Length x_, Length y_) { x = (int)x_.value; y = (int)y_.value; }
         public Vec2(StyleLength x_, StyleLength y_) { x = (int)x_.value.value; y = (int)y_.value.value; }
+        public override string ToString()
+        {
+            return $"({x}, {y})";
+        }
     }
 
     public abstract class PrefabData {

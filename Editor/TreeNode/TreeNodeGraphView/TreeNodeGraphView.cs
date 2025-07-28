@@ -287,12 +287,6 @@ namespace TreeNode.Editor
                 // 第二步：异步建立Edge连接
                 await CreateEdgesAsync(cancellationToken);
 
-                // 检查取消状态
-                cancellationToken.ThrowIfCancellationRequested();
-
-                // 第三步：优化布局和最终渲染
-                await OptimizeLayoutAsync(cancellationToken);
-
                 var elapsed = (DateTime.Now - startTime).TotalMilliseconds;
                 Debug.Log($"异步渲染完成，耗时: {elapsed:F2}ms");
             }
@@ -383,40 +377,6 @@ namespace TreeNode.Editor
                 Debug.LogWarning($"创建ViewNode失败 {node?.GetType().Name}: {e.Message}");
             }
         }
-
-        /// <summary>
-        /// 优化布局 - 异步版本
-        /// </summary>
-        private async Task OptimizeLayoutAsync(CancellationToken cancellationToken)
-        {
-            await ExecuteOnMainThreadAsync(() =>
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                // 执行布局优化
-                var rootNodes = ViewNodes.Where(n => n.GetDepth() == 0).ToList();
-                
-                // 按类型分组进行布局优化
-                var nodeGroups = rootNodes.GroupBy(n => n.Data.GetType()).ToList();
-                
-                float yOffset = 50f;
-                foreach (var group in nodeGroups)
-                {
-                    float xOffset = 50f;
-                    foreach (var node in group)
-                    {
-                        var currentPos = node.GetPosition();
-                        if (currentPos.position == Vector2.zero)
-                        {
-                            node.SetPosition(new Rect(xOffset, yOffset, currentPos.width, currentPos.height));
-                            xOffset += currentPos.width + 100f;
-                        }
-                    }
-                    yOffset += 200f;
-                }
-            });
-        }
-
         /// <summary>
         /// 在主线程执行异步操作 - Unity编辑器优化版本
         /// </summary>
