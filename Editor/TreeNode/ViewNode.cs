@@ -285,7 +285,7 @@ namespace TreeNode.Editor
             // 修复：获取ParentPort的所有连接，而不仅仅是第一个
             if (ParentPort != null && ParentPort.connected)
             {
-                edges.AddRange(ParentPort.connections);
+                edges.Add(ParentPort.connections.First());
             }
             return edges;
         }
