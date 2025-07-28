@@ -193,6 +193,8 @@ namespace TreeNode.Editor
                     var step = new HistoryStep();
                     step.AddOperation(operation);
                     step.Commit(operation.Description);
+                    // 确保步骤包含当前状态的快照
+                    step.EnsureSnapshot(Window.JsonAsset);
                     Steps.Add(step);
                     
                     if (Steps.Count > MaxStep)
@@ -364,6 +366,8 @@ namespace TreeNode.Editor
 
                 _currentBatch = new HistoryStep();
                 _currentBatch.Description = description;
+                // 确保批量操作开始时记录当前状态
+                _currentBatch.EnsureSnapshot(Window.JsonAsset);
                 _isBatchMode = true;
             }
             
@@ -391,6 +395,8 @@ namespace TreeNode.Editor
                 if (_currentBatch.Operations.Count > 0)
                 {
                     _currentBatch.Commit();
+                    // 确保批量操作结束时包含正确的状态快照
+                    _currentBatch.EnsureSnapshot(Window.JsonAsset);
                     Steps.Add(_currentBatch);
                     
                     if (Steps.Count > MaxStep)
@@ -419,13 +425,13 @@ namespace TreeNode.Editor
             if (Steps.Count <= 1) { return false; }
             
             var startTime = DateTime.Now;
-            //Debug.Log($"Undo:[{Steps.Count}]");
+            Debug.Log($"执行撤销操作 - 当前步骤数:[{Steps.Count}]");
             
             HistoryStep step = Steps[^1];
             Steps.RemoveAt(Steps.Count - 1);
             RedoSteps.Push(step);
             
-            // 使用增量渲染优化的提交
+            // 使用修复版的提交方法，确保GraphView同步
             CommitWithIncrementalRender(step, true);
             
             // 更新性能统计
@@ -435,6 +441,7 @@ namespace TreeNode.Editor
                 _performanceStats.RecordUndoTime(elapsed);
             }
             
+            Debug.Log($"撤销操作完成 - 耗时:{elapsed:F2}ms");
             return true;
         }
 
@@ -443,12 +450,12 @@ namespace TreeNode.Editor
             if (!RedoSteps.Any()) { return false; }
             
             var startTime = DateTime.Now;
-            Debug.Log("Redo");
+            Debug.Log($"执行重做操作 - 可重做步骤数:[{RedoSteps.Count}]");
             
             HistoryStep step = RedoSteps.Pop();
             Steps.Add(step);
             
-            // 使用增量渲染优化的提交
+            // 使用修复版的提交方法，确保GraphView同步
             CommitWithIncrementalRender(step, false);
             
             // 更新性能统计
@@ -459,40 +466,80 @@ namespace TreeNode.Editor
                 _performanceStats.RedoSteps++;
             }
             
+            Debug.Log($"重做操作完成 - 耗时:{elapsed:F2}ms");
             return true;
         }
 
         /// <summary>
-        /// 使用增量渲染优化的提交
+        /// 使用增量渲染优化的提交 - 修复版本，确保GraphView同步
         /// </summary>
         void CommitWithIncrementalRender(HistoryStep step, bool undo)
         {
+            JsonAsset targetAsset = null;
+            
             if (undo)
             {
+                // Undo：恢复到前一个状态
                 if (Steps.Any())
                 {
-                    Window.JsonAsset = Steps[^1].GetAsset();
-                    // 智能渲染：检查是否需要全量重绘
-                    if (ShouldUseIncrementalRender(step))
-                    {
-                        IncrementalRedraw(step);
-                    }
-                    else
-                    {
-                        Window.GraphView.Redraw();
-                    }
+                    var prevStep = Steps[^1];
+                    targetAsset = prevStep.GetAsset();
                 }
             }
             else
             {
-                Window.JsonAsset = step.GetAsset();
-                if (ShouldUseIncrementalRender(step))
+                // Redo：恢复到指定状态
+                targetAsset = step.GetAsset();
+            }
+
+            if (targetAsset == null)
+            {
+                Debug.LogError($"无法获取{(undo ? "撤销" : "重做")}步骤的资产数据，执行全量重绘");
+                Window.GraphView.Redraw();
+                return;
+            }
+
+            // 1. 更新JsonAsset
+            Window.JsonAsset = targetAsset;
+            
+            // 2. 关键修复：同步GraphView与新的JsonAsset
+            SyncGraphViewWithAsset(targetAsset, step);
+        }
+
+        /// <summary>
+        /// 同步GraphView与JsonAsset - 核心修复方法
+        /// </summary>
+        private void SyncGraphViewWithAsset(JsonAsset asset, HistoryStep step)
+        {
+            try
+            {
+                // 1. 更新逻辑层树结构 - 先更新，让NodeTree重新分析
+                if (Window.GraphView.NodeTree != null)
                 {
-                    IncrementalRedraw(step);
+                    Window.GraphView.NodeTree.MarkDirty();
+                    Window.GraphView.NodeTree.RefreshIfNeeded();
                 }
-                else
+                
+                // 2. 执行全量重绘以确保完整同步
+                // 这是最可靠的方法，确保所有ViewNode和Edge都与新的JSON状态匹配
+                // GraphView.Redraw() 会内部处理Asset的同步
+                Window.GraphView.Redraw();
+                
+                Debug.Log($"成功同步GraphView状态 - {(step.Operations.Count > 0 ? $"原子操作:{step.Operations.Count}个" : "传统操作")}");
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"同步GraphView时发生错误: {e.Message}");
+                Debug.LogException(e);
+                
+                // 出错时强制重绘
+                try
                 {
                     Window.GraphView.Redraw();
+                }
+                catch (Exception redrawError)
+                {
+                    Debug.LogError($"强制重绘也失败: {redrawError.Message}");
                 }
             }
         }
@@ -719,14 +766,46 @@ namespace TreeNode.Editor
 
             public HistoryStep(JsonAsset asset) : this()
             {
-                json = Json.ToJson(asset);
+                if (asset != null)
+                {
+                    json = Json.ToJson(asset);
+                }
+                else
+                {
+                    json = null;
+                }
                 Description = "传统操作";
                 IsCommitted = true;
             }
 
+            /// <summary>
+            /// 确保步骤包含状态快照
+            /// </summary>
+            public void EnsureSnapshot(JsonAsset asset)
+            {
+                if (string.IsNullOrEmpty(json) && asset != null)
+                {
+                    json = Json.ToJson(asset);
+                }
+            }
+
             public JsonAsset GetAsset()
             {
-                return Json.Get<JsonAsset>(json);
+                if (string.IsNullOrEmpty(json))
+                {
+                    Debug.LogError("HistoryStep的json数据为空，无法恢复状态");
+                    return null;
+                }
+                
+                try
+                {
+                    return Json.Get<JsonAsset>(json);
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError($"反序列化HistoryStep失败: {e.Message}");
+                    return null;
+                }
             }
 
             public void AddOperation(IAtomicOperation operation)
@@ -1202,5 +1281,5 @@ namespace TreeNode.Editor
                 AverageRedoTimeMs = this.AverageRedoTimeMs
             };
         }
-    }
+    }       
 }
