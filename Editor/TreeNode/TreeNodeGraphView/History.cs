@@ -173,7 +173,7 @@ namespace TreeNode.Editor
         /// </summary>
         private bool ShouldMergeOperation(IAtomicOperation operation)
         {
-            // 字段修改操作适合合并
+            // 字段修改操作和位置修改操作适合合并
             return operation.Type == OperationType.FieldModify;
         }
 
@@ -252,6 +252,7 @@ namespace TreeNode.Editor
         {
             var merged = new List<IAtomicOperation>();
             var fieldModifyGroups = new Dictionary<string, List<FieldModifyOperation>>();
+            var positionModifyGroups = new Dictionary<string, List<PositionModifyOperation>>();
 
             foreach (var operation in operations)
             {
@@ -263,6 +264,15 @@ namespace TreeNode.Editor
                         fieldModifyGroups[key] = new List<FieldModifyOperation>();
                     }
                     fieldModifyGroups[key].Add(fieldOp);
+                }
+                else if (operation is PositionModifyOperation positionOp)
+                {
+                    string key = $"Position_{positionOp.Node?.GetHashCode()}";
+                    if (!positionModifyGroups.ContainsKey(key))
+                    {
+                        positionModifyGroups[key] = new List<PositionModifyOperation>();
+                    }
+                    positionModifyGroups[key].Add(positionOp);
                 }
                 else
                 {
@@ -295,6 +305,32 @@ namespace TreeNode.Editor
                 }
             }
 
+            // 合并同一节点的多次位置修改
+            foreach (var group in positionModifyGroups.Values)
+            {
+                if (group.Count == 1)
+                {
+                    merged.Add(group[0]);
+                }
+                else
+                {
+                    // 取第一个操作的旧位置和最后一个操作的新位置
+                    var first = group[0];
+                    var last = group[group.Count - 1];
+                    
+                    // 如果最终位置等于初始位置，则操作可以完全消除
+                    if (first.OldPosition.x == last.NewPosition.x && 
+                        first.OldPosition.y == last.NewPosition.y)
+                    {
+                        continue; // 跳过这个操作组
+                    }
+                    
+                    var mergedOp = new PositionModifyOperation(
+                        first.Node, first.OldPosition, last.NewPosition, first.GraphView);
+                    merged.Add(mergedOp);
+                }
+            }
+
             return merged;
         }
 
@@ -309,9 +345,14 @@ namespace TreeNode.Editor
                 {
                     case OperationType.FieldModify:
                         if (operation is FieldModifyOperation fieldOp && 
-                            TryGetViewNode(fieldOp.Node, out var viewNode))
+                            TryGetViewNode(fieldOp.Node, out var fieldViewNode))
                         {
-                            _dirtyNodes.Add(viewNode);
+                            _dirtyNodes.Add(fieldViewNode);
+                        }
+                        else if (operation is PositionModifyOperation positionOp && 
+                                TryGetViewNode(positionOp.Node, out var positionViewNode))
+                        {
+                            _dirtyNodes.Add(positionViewNode);
                         }
                         break;
                     
@@ -1201,6 +1242,92 @@ namespace TreeNode.Editor
                 AverageUndoTimeMs = this.AverageUndoTimeMs,
                 AverageRedoTimeMs = this.AverageRedoTimeMs
             };
+        }
+    }
+
+    /// <summary>
+    /// 位置修改操作 - 专门处理节点位置变化的原子操作
+    /// </summary>
+    public class PositionModifyOperation : IAtomicOperation
+    {
+        public OperationType Type => OperationType.FieldModify;
+        public DateTime Timestamp { get; private set; }
+        public string Description => $"移动节点位置: {Node?.GetType().Name}";
+        
+        public JsonNode Node { get; set; }
+        public Vec2 OldPosition { get; set; }
+        public Vec2 NewPosition { get; set; }
+        public TreeNodeGraphView GraphView { get; set; }
+
+        public PositionModifyOperation(JsonNode node, Vec2 oldPosition, Vec2 newPosition, TreeNodeGraphView graphView)
+        {
+            Node = node;
+            OldPosition = oldPosition;
+            NewPosition = newPosition;
+            GraphView = graphView;
+            Timestamp = DateTime.Now;
+        }
+
+        public bool Execute()
+        {
+            if (Node == null) return false;
+            
+            try
+            {
+                Node.Position = NewPosition;
+                
+                // 更新对应的ViewNode位置
+                if (GraphView.NodeDic.TryGetValue(Node, out var viewNode))
+                {
+                    var rect = viewNode.GetPosition();
+                    rect.position = NewPosition;
+                    viewNode.SetPosition(rect);
+                }
+                
+                return true;
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"执行位置修改操作失败: {e.Message}");
+                return false;
+            }
+        }
+
+        public bool Undo()
+        {
+            if (Node == null) return false;
+            
+            try
+            {
+                Node.Position = OldPosition;
+                
+                // 更新对应的ViewNode位置
+                if (GraphView.NodeDic.TryGetValue(Node, out var viewNode))
+                {
+                    var rect = viewNode.GetPosition();
+                    rect.position = OldPosition;
+                    viewNode.SetPosition(rect);
+                }
+                
+                return true;
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"撤销位置修改操作失败: {e.Message}");
+                return false;
+            }
+        }
+
+        public bool CanUndo() => Node != null && GraphView != null;
+
+        public string GetOperationSummary()
+        {
+            return $"PositionModify: {Node?.GetType().Name} from ({OldPosition.x},{OldPosition.y}) to ({NewPosition.x},{NewPosition.y})";
+        }
+
+        public string GetOperationId()
+        {
+            return $"PositionModify_{Node?.GetHashCode()}_{OldPosition.x}_{OldPosition.y}_{NewPosition.x}_{NewPosition.y}_{Timestamp.Ticks}";
         }
     }
 }

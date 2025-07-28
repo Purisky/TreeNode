@@ -31,6 +31,11 @@ namespace TreeNode.Editor
         private readonly object _renderLock = new object();
         private volatile bool _isDrawing = false;
 
+        // 节点移动历史记录相关
+        private Dictionary<ViewNode, Vec2> _nodePositionsBeforeMove = new Dictionary<ViewNode, Vec2>();
+        public bool _isRecordingMove = false; // 改为public，让ViewNode能访问
+        private readonly object _moveRecordLock = new object();
+
         #region 构造函数和初始化
 
         public TreeNodeGraphView(TreeNodeGraphWindow window)
@@ -83,6 +88,283 @@ namespace TreeNode.Editor
         }
 
         #endregion
+
+        #region GraphView变化事件处理
+
+        /// <summary>
+        /// 处理GraphView的变化事件，包括节点移动、删除等
+        /// </summary>
+        private GraphViewChange OnGraphViewChanged(GraphViewChange graphViewChange)
+        {
+            try
+            {
+                // 处理节点移动
+                if (graphViewChange.movedElements != null && graphViewChange.movedElements.Count > 0)
+                {
+                    HandleNodesMoved(graphViewChange.movedElements);
+                }
+
+                // 处理元素删除
+                if (graphViewChange.elementsToRemove != null && graphViewChange.elementsToRemove.Count > 0)
+                {
+                    HandleElementsToRemove(graphViewChange.elementsToRemove);
+                }
+
+                // 处理边连接变化
+                if (graphViewChange.edgesToCreate != null && graphViewChange.edgesToCreate.Count > 0)
+                {
+                    HandleEdgesToCreate(graphViewChange.edgesToCreate);
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"处理GraphView变化时出错: {e.Message}");
+                UnityEngine.Debug.LogException(e);
+            }
+
+            return graphViewChange;
+        }
+
+        /// <summary>
+        /// 处理节点移动事件 - 记录Position字段变化
+        /// </summary>
+        private void HandleNodesMoved(List<GraphElement> movedElements)
+        {
+            lock (_moveRecordLock)
+            {
+                if (_isRecordingMove)
+                    return; // 防止递归调用
+
+                _isRecordingMove = true;
+                
+                try
+                {
+                    var movedNodes = movedElements.OfType<ViewNode>().ToList();
+                    if (movedNodes.Count == 0)
+                        return;
+
+                    // 开始批量操作记录多个节点的移动
+                    if (movedNodes.Count > 1)
+                    {
+                        Window.History.BeginBatch($"移动 {movedNodes.Count} 个节点");
+                    }
+
+                    foreach (var viewNode in movedNodes)
+                    {
+                        RecordNodePositionChange(viewNode);
+                    }
+
+                    // 结束批量操作
+                    if (movedNodes.Count > 1)
+                    {
+                        Window.History.EndBatch();
+                    }
+                    else
+                    {
+                        // 单个节点移动直接添加步骤
+                        Window.History.AddStep();
+                    }
+                }
+                finally
+                {
+                    _isRecordingMove = false;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 记录单个节点的位置变化
+        /// </summary>
+        private void RecordNodePositionChange(ViewNode viewNode)
+        {
+            if (viewNode?.Data == null)
+                return;
+
+            try
+            {
+                // 获取移动前的位置
+                Vec2 oldPosition = new Vec2(0, 0);
+                if (_nodePositionsBeforeMove.TryGetValue(viewNode, out var cachedOldPos))
+                {
+                    oldPosition = cachedOldPos;
+                    _nodePositionsBeforeMove.Remove(viewNode);
+                }
+                else
+                {
+                    // 如果没有缓存的旧位置，使用JsonNode中的当前位置作为旧位置
+                    oldPosition = viewNode.Data.Position;
+                }
+
+                // 获取移动后的新位置
+                var currentRect = viewNode.GetPosition();
+                Vec2 newPosition = new Vec2((int)currentRect.x, (int)currentRect.y);
+
+                // 检查位置是否真的发生了变化
+                if (oldPosition.x == newPosition.x && oldPosition.y == newPosition.y)
+                    return;
+
+                // 更新JsonNode的Position
+                viewNode.Data.Position = newPosition;
+
+                // 使用专门的位置修改操作
+                var positionOperation = new PositionModifyOperation(
+                    viewNode.Data,
+                    oldPosition,
+                    newPosition,
+                    this
+                );
+
+                // 记录到History系统
+                Window.History.RecordOperation(positionOperation);
+
+                //Debug.Log($"记录节点 {viewNode.Data.GetType().Name} 位置变化: ({oldPosition.x},{oldPosition.y}) -> ({newPosition.x},{newPosition.y})");
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"记录节点位置变化失败: {e.Message}");
+                UnityEngine.Debug.LogException(e);
+            }
+        }
+
+        /// <summary>
+        /// 处理元素删除
+        /// </summary>
+        private void HandleElementsToRemove(List<GraphElement> elementsToRemove)
+        {
+            var nodesToRemove = elementsToRemove.OfType<ViewNode>().ToList();
+            if (nodesToRemove.Count == 0)
+                return;
+
+            // 开始批量删除操作
+            if (nodesToRemove.Count > 1)
+            {
+                Window.History.BeginBatch($"删除 {nodesToRemove.Count} 个节点");
+            }
+
+            foreach (var viewNode in nodesToRemove)
+            {
+                if (viewNode?.Data != null)
+                {
+                    // 确定节点在当前结构中的位置
+                    var currentLocation = DetermineNodeLocation(viewNode.Data);
+                    
+                    // 记录删除操作
+                    var deleteOperation = new NodeDeleteOperation(viewNode.Data, currentLocation, this);
+                    Window.History.RecordOperation(deleteOperation);
+                }
+            }
+
+            // 结束批量操作
+            if (nodesToRemove.Count > 1)
+            {
+                Window.History.EndBatch();
+            }
+            else
+            {
+                Window.History.AddStep();
+            }
+        }
+
+        /// <summary>
+        /// 处理边连接创建
+        /// </summary>
+        private void HandleEdgesToCreate(List<Edge> edgesToCreate)
+        {
+            foreach (var edge in edgesToCreate)
+            {
+                if (edge.output is ChildPort childPort &&
+                    edge.input is ParentPort parentPort &&
+                    childPort.node is ViewNode parentViewNode &&
+                    parentPort.node is ViewNode childViewNode)
+                {
+                    var edgeOperation = new EdgeCreateOperation(
+                        parentViewNode.Data,
+                        childViewNode.Data,
+                        childPort.portName,
+                        this
+                    );
+                    
+                    Window.History.RecordOperation(edgeOperation);
+                }
+            }
+            
+            if (edgesToCreate.Count > 0)
+            {
+                Window.History.AddStep();
+            }
+        }
+
+        /// <summary>
+        /// 确定节点的位置信息
+        /// </summary>
+        private NodeLocation DetermineNodeLocation(JsonNode node)
+        {
+            // 检查是否为根节点
+            int rootIndex = Asset.Data.Nodes.IndexOf(node);
+            if (rootIndex >= 0)
+            {
+                return NodeLocation.Root(rootIndex);
+            }
+
+            // 检查是否为子节点（这里需要遍历所有节点查找父子关系）
+            // 这是一个简化的实现，实际项目中可能需要更复杂的逻辑
+            try
+            {
+                if (NodeDic.TryGetValue(node, out var viewNode) && viewNode.GetParent() != null)
+                {
+                    var parentViewNode = viewNode.GetParent();
+                    if (parentViewNode?.ParentPort?.connections?.FirstOrDefault()?.output is ChildPort childPort)
+                    {
+                        return NodeLocation.Child(
+                            parentViewNode.Data,
+                            childPort.portName,
+                            childPort is MultiPort,
+                            childPort is MultiPort ? (viewNode.ParentPort?.Index ?? 0) : 0
+                        );
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"确定节点位置时出错: {e.Message}");
+            }
+
+            return NodeLocation.Unknown();
+        }
+
+        /// <summary>
+        /// 在节点开始移动时缓存其原始位置
+        /// </summary>
+        public void CacheNodePositionBeforeMove(ViewNode viewNode)
+        {
+            if (viewNode?.Data == null)
+                return;
+
+            lock (_moveRecordLock)
+            {
+                _nodePositionsBeforeMove[viewNode] = viewNode.Data.Position;
+            }
+        }
+
+        /// <summary>
+        /// 批量缓存多个节点的移动前位置
+        /// </summary>
+        public void CacheNodePositionsBeforeMove(IEnumerable<ViewNode> viewNodes)
+        {
+            lock (_moveRecordLock)
+            {
+                foreach (var viewNode in viewNodes)
+                {
+                    if (viewNode?.Data != null)
+                    {
+                        _nodePositionsBeforeMove[viewNode] = viewNode.Data.Position;
+                    }
+                }
+            }
+        }
+
+        #endregion
+
         #region 右键菜单和用户交互
 
         public override void BuildContextualMenu(ContextualMenuPopulateEvent evt)
@@ -382,6 +664,33 @@ namespace TreeNode.Editor
             {
                 Debug.LogWarning($"创建ViewNode失败 {node?.GetType().Name}: {e.Message}");
             }
+        }
+
+        /// <summary>
+        /// 异步创建边连接
+        /// </summary>
+        private async Task CreateEdgesAsync(CancellationToken cancellationToken)
+        {
+            await ExecuteOnMainThreadAsync(() =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // 为所有ViewNode建立子节点连接
+                foreach (var viewNode in ViewNodes.ToList())
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    
+                    try
+                    {
+                        // 使用同步方式初始化子节点，建立Edge连接
+                        viewNode.AddChildNodesUntilListInited();
+                    }
+                    catch (Exception e)
+                    {
+                        Debug.LogWarning($"建立节点 {viewNode.Data?.GetType().Name} 的边连接失败: {e.Message}");
+                    }
+                }
+            });
         }
 
         /// <summary>
