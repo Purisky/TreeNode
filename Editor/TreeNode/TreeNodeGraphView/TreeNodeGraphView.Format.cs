@@ -9,7 +9,7 @@ using TreeNode.Runtime;
 
 namespace TreeNode.Editor
 {
-    public partial class TreeNodeGraphView
+    public partial class TreeNodeGraphView//格式化
     {
         const int X_SPACE = 30;
         const int Y_SPACE = 10;
