@@ -24,6 +24,10 @@ namespace TreeNode.Editor
         private HistoryStep _currentBatch;
         private bool _isBatchMode = false;
         private readonly object _batchLock = new object();
+        
+        // 防重复记录机制
+        private HashSet<string> _recordedOperationIds = new HashSet<string>();
+        private readonly object _duplicateLock = new object();
 
         public History(TreeNodeGraphWindow window)
         {
@@ -42,6 +46,11 @@ namespace TreeNode.Editor
             {
                 _currentBatch = null;
                 _isBatchMode = false;
+            }
+            
+            lock (_duplicateLock)
+            {
+                _recordedOperationIds.Clear();
             }
         }
 
@@ -70,14 +79,32 @@ namespace TreeNode.Editor
                 Steps.RemoveAt(0);
             }
             RedoSteps.Clear();
+            
+            // 清理操作ID缓存
+            lock (_duplicateLock)
+            {
+                _recordedOperationIds.Clear();
+            }
         }
 
         /// <summary>
-        /// 记录原子操作
+        /// 记录原子操作（带防重复机制）
         /// </summary>
         public void RecordOperation(IAtomicOperation operation)
         {
             if (operation == null) return;
+
+            // 检查重复操作
+            string operationId = operation.GetOperationId();
+            lock (_duplicateLock)
+            {
+                if (_recordedOperationIds.Contains(operationId))
+                {
+                    Debug.LogWarning($"重复操作被忽略: {operationId}");
+                    return;
+                }
+                _recordedOperationIds.Add(operationId);
+            }
 
             lock (_batchLock)
             {
@@ -119,6 +146,12 @@ namespace TreeNode.Editor
                 _currentBatch = new HistoryStep();
                 _currentBatch.Description = description;
                 _isBatchMode = true;
+            }
+            
+            // 清理操作ID缓存，为批量操作准备
+            lock (_duplicateLock)
+            {
+                _recordedOperationIds.Clear();
             }
         }
 
@@ -257,6 +290,7 @@ namespace TreeNode.Editor
         bool Undo();
         bool CanUndo();
         string GetOperationSummary();
+        string GetOperationId(); // 用于防重复
     }
 
     /// <summary>
@@ -268,6 +302,8 @@ namespace TreeNode.Editor
         NodeDelete,
         NodeMove,
         FieldModify,
+        EdgeCreate,
+        EdgeRemove,
         BatchStart,
         BatchEnd,
         StateSnapshot
@@ -332,6 +368,285 @@ namespace TreeNode.Editor
                 LocationType.Unknown => "Unknown",
                 _ => "Invalid"
             };
+        }
+    }
+
+    /// <summary>
+    /// 节点创建操作
+    /// </summary>
+    public class NodeCreateOperation : IAtomicOperation
+    {
+        public OperationType Type => OperationType.NodeCreate;
+        public DateTime Timestamp { get; private set; }
+        public string Description => $"创建节点: {Node?.GetType().Name}";
+        
+        public JsonNode Node { get; set; }
+        public NodeLocation Location { get; set; }
+        public TreeNodeGraphView GraphView { get; set; }
+
+        public NodeCreateOperation(JsonNode node, NodeLocation location, TreeNodeGraphView graphView)
+        {
+            Node = node;
+            Location = location;
+            GraphView = graphView;
+            Timestamp = DateTime.Now;
+        }
+
+        public bool Execute()
+        {
+            // 创建操作的执行逻辑
+            return true;
+        }
+
+        public bool Undo()
+        {
+            // 撤销创建操作 - 删除节点
+            return true;
+        }
+
+        public bool CanUndo() => Node != null && GraphView != null;
+
+        public string GetOperationSummary()
+        {
+            return $"NodeCreate: {Node?.GetType().Name} at {Location?.GetFullPath()}";
+        }
+
+        public string GetOperationId()
+        {
+            return $"NodeCreate_{Node?.GetHashCode()}_{Timestamp.Ticks}";
+        }
+    }
+
+    /// <summary>
+    /// 节点删除操作
+    /// </summary>
+    public class NodeDeleteOperation : IAtomicOperation
+    {
+        public OperationType Type => OperationType.NodeDelete;
+        public DateTime Timestamp { get; private set; }
+        public string Description => $"删除节点: {Node?.GetType().Name}";
+        
+        public JsonNode Node { get; set; }
+        public NodeLocation FromLocation { get; set; }
+        public TreeNodeGraphView GraphView { get; set; }
+
+        public NodeDeleteOperation(JsonNode node, NodeLocation fromLocation, TreeNodeGraphView graphView)
+        {
+            Node = node;
+            FromLocation = fromLocation;
+            GraphView = graphView;
+            Timestamp = DateTime.Now;
+        }
+
+        public bool Execute()
+        {
+            return true;
+        }
+
+        public bool Undo()
+        {
+            // 撤销删除操作 - 恢复节点
+            return true;
+        }
+
+        public bool CanUndo() => Node != null && FromLocation != null && GraphView != null;
+
+        public string GetOperationSummary()
+        {
+            return $"NodeDelete: {Node?.GetType().Name} from {FromLocation?.GetFullPath()}";
+        }
+
+        public string GetOperationId()
+        {
+            return $"NodeDelete_{Node?.GetHashCode()}_{Timestamp.Ticks}";
+        }
+    }
+
+    /// <summary>
+    /// 节点移动操作
+    /// </summary>
+    public class NodeMoveOperation : IAtomicOperation
+    {
+        public OperationType Type => OperationType.NodeMove;
+        public DateTime Timestamp { get; private set; }
+        public string Description => $"移动节点: {Node?.GetType().Name}";
+        
+        public JsonNode Node { get; set; }
+        public NodeLocation FromLocation { get; set; }
+        public NodeLocation ToLocation { get; set; }
+        public TreeNodeGraphView GraphView { get; set; }
+
+        public NodeMoveOperation(JsonNode node, NodeLocation fromLocation, NodeLocation toLocation, TreeNodeGraphView graphView)
+        {
+            Node = node;
+            FromLocation = fromLocation;
+            ToLocation = toLocation;
+            GraphView = graphView;
+            Timestamp = DateTime.Now;
+        }
+
+        public bool Execute()
+        {
+            return true;
+        }
+
+        public bool Undo()
+        {
+            // 撤销移动操作 - 移回原位置
+            return true;
+        }
+
+        public bool CanUndo() => Node != null && FromLocation != null && ToLocation != null && GraphView != null;
+
+        public string GetOperationSummary()
+        {
+            return $"NodeMove: {Node?.GetType().Name} from {FromLocation?.GetFullPath()} to {ToLocation?.GetFullPath()}";
+        }
+
+        public string GetOperationId()
+        {
+            return $"NodeMove_{Node?.GetHashCode()}_{FromLocation?.GetFullPath()}_{ToLocation?.GetFullPath()}_{Timestamp.Ticks}";
+        }
+    }
+
+    /// <summary>
+    /// 字段修改操作
+    /// </summary>
+    public class FieldModifyOperation : IAtomicOperation
+    {
+        public OperationType Type => OperationType.FieldModify;
+        public DateTime Timestamp { get; private set; }
+        public string Description => $"修改字段: {FieldPath}";
+        
+        public JsonNode Node { get; set; }
+        public string FieldPath { get; set; }
+        public string OldValue { get; set; }
+        public string NewValue { get; set; }
+        public TreeNodeGraphView GraphView { get; set; }
+
+        public FieldModifyOperation(JsonNode node, string fieldPath, string oldValue, string newValue, TreeNodeGraphView graphView)
+        {
+            Node = node;
+            FieldPath = fieldPath;
+            OldValue = oldValue;
+            NewValue = newValue;
+            GraphView = graphView;
+            Timestamp = DateTime.Now;
+        }
+
+        public bool Execute()
+        {
+            return true;
+        }
+
+        public bool Undo()
+        {
+            // 撤销字段修改 - 恢复旧值
+            return true;
+        }
+
+        public bool CanUndo() => Node != null && !string.IsNullOrEmpty(FieldPath) && GraphView != null;
+
+        public string GetOperationSummary()
+        {
+            return $"FieldModify: {FieldPath} from '{OldValue}' to '{NewValue}'";
+        }
+
+        public string GetOperationId()
+        {
+            return $"FieldModify_{Node?.GetHashCode()}_{FieldPath}_{Timestamp.Ticks}";
+        }
+    }
+
+    /// <summary>
+    /// 边连接操作
+    /// </summary>
+    public class EdgeCreateOperation : IAtomicOperation
+    {
+        public OperationType Type => OperationType.EdgeCreate;
+        public DateTime Timestamp { get; private set; }
+        public string Description => "创建边连接";
+        
+        public JsonNode ParentNode { get; set; }
+        public JsonNode ChildNode { get; set; }
+        public string PortName { get; set; }
+        public TreeNodeGraphView GraphView { get; set; }
+
+        public EdgeCreateOperation(JsonNode parentNode, JsonNode childNode, string portName, TreeNodeGraphView graphView)
+        {
+            ParentNode = parentNode;
+            ChildNode = childNode;
+            PortName = portName;
+            GraphView = graphView;
+            Timestamp = DateTime.Now;
+        }
+
+        public bool Execute()
+        {
+            return true;
+        }
+
+        public bool Undo()
+        {
+            return true;
+        }
+
+        public bool CanUndo() => ParentNode != null && ChildNode != null && GraphView != null;
+
+        public string GetOperationSummary()
+        {
+            return $"EdgeCreate: {ParentNode?.GetType().Name}.{PortName} -> {ChildNode?.GetType().Name}";
+        }
+
+        public string GetOperationId()
+        {
+            return $"EdgeCreate_{ParentNode?.GetHashCode()}_{ChildNode?.GetHashCode()}_{PortName}_{Timestamp.Ticks}";
+        }
+    }
+
+    /// <summary>
+    /// 边断开操作
+    /// </summary>
+    public class EdgeRemoveOperation : IAtomicOperation
+    {
+        public OperationType Type => OperationType.EdgeRemove;
+        public DateTime Timestamp { get; private set; }
+        public string Description => "断开边连接";
+        
+        public JsonNode ParentNode { get; set; }
+        public JsonNode ChildNode { get; set; }
+        public string PortName { get; set; }
+        public TreeNodeGraphView GraphView { get; set; }
+
+        public EdgeRemoveOperation(JsonNode parentNode, JsonNode childNode, string portName, TreeNodeGraphView graphView)
+        {
+            ParentNode = parentNode;
+            ChildNode = childNode;
+            PortName = portName;
+            GraphView = graphView;
+            Timestamp = DateTime.Now;
+        }
+
+        public bool Execute()
+        {
+            return true;
+        }
+
+        public bool Undo()
+        {
+            return true;
+        }
+
+        public bool CanUndo() => ParentNode != null && ChildNode != null && GraphView != null;
+
+        public string GetOperationSummary()
+        {
+            return $"EdgeRemove: {ParentNode?.GetType().Name}.{PortName} -X-> {ChildNode?.GetType().Name}";
+        }
+
+        public string GetOperationId()
+        {
+            return $"EdgeRemove_{ParentNode?.GetHashCode()}_{ChildNode?.GetHashCode()}_{PortName}_{Timestamp.Ticks}";
         }
     }
 

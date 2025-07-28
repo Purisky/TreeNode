@@ -23,6 +23,11 @@ namespace TreeNode.Editor
 
         public virtual void AddNode(JsonNode node)
         {
+            // 记录节点创建操作
+            var location = NodeLocation.Root(Asset.Data.Nodes.Count);
+            var createOperation = new NodeCreateOperation(node, location, this);
+            Window.History.RecordOperation(createOperation);
+            
             Asset.Data.Nodes.Add(node);
             NodeTree.OnNodeAdded(node);
             Window.History.AddStep();
@@ -33,6 +38,11 @@ namespace TreeNode.Editor
         {
             if (string.IsNullOrEmpty(path))
             {
+                // 记录节点创建操作
+                var location = NodeLocation.Root(Asset.Data.Nodes.Count);
+                var createOperation = new NodeCreateOperation(node, location, this);
+                Window.History.RecordOperation(createOperation);
+                
                 Asset.Data.Nodes.Add(node);
                 NodeTree.OnNodeAdded(node);
                 return true;
@@ -51,9 +61,25 @@ namespace TreeNode.Editor
                         PropertyAccessor.SetValue(parent, last, oldValue);
                     }
                 }
-                if (oldValue is IList list)
+                
+                // 记录节点移动操作
+                JsonNode parentNode = parent as JsonNode;
+                if (parentNode != null)
                 {
-                    list.Add(node);
+                    var fromLocation = NodeLocation.Root(-1); // 从根移动
+                    int listIndex = 0;
+                    if (oldValue is IList targetList)
+                    {
+                        listIndex = targetList.Count;
+                    }
+                    var toLocation = NodeLocation.Child(parentNode, last, oldValue is IList, listIndex);
+                    var moveOperation = new NodeMoveOperation(node, fromLocation, toLocation, this);
+                    Window.History.RecordOperation(moveOperation);
+                }
+                
+                if (oldValue is IList nodeList)
+                {
+                    nodeList.Add(node);
                 }
                 else
                 {
@@ -71,6 +97,12 @@ namespace TreeNode.Editor
 
         void RemoveNode(JsonNode node)
         {
+            // 记录节点删除操作
+            int index = Asset.Data.Nodes.IndexOf(node);
+            var location = NodeLocation.Root(index);
+            var deleteOperation = new NodeDeleteOperation(node, location, this);
+            Window.History.RecordOperation(deleteOperation);
+            
             Asset.Data.Nodes.Remove(node);
             NodeTree.OnNodeRemoved(node);
         }
@@ -212,12 +244,23 @@ namespace TreeNode.Editor
         {
             //Debug.Log("CreateEdge");
             ViewNode childNode = edge.ParentPort().node;
+            ViewNode parentNode = edge.ChildPort()?.node;
+            
+            // 记录边创建操作
+            if (parentNode != null && childNode != null)
+            {
+                ChildPort childPortOfParent = edge.ChildPort();
+                string portName = GetPortName(childPortOfParent);
+                var edgeCreateOperation = new EdgeCreateOperation(parentNode.Data, childNode.Data, portName, this);
+                Window.History.RecordOperation(edgeCreateOperation);
+            }
+            
             Asset.Data.Nodes.Remove(childNode.Data);
-            ChildPort childport_of_parent = edge.ChildPort();
-            childport_of_parent.SetNodeValue(childNode.Data, false);
+            ChildPort childPortOfParentNode = edge.ChildPort();
+            childPortOfParentNode.SetNodeValue(childNode.Data, false);
             edge.ParentPort().Connect(edge);
-            childport_of_parent.Connect(edge);
-            childport_of_parent.OnAddEdge(edge);
+            childPortOfParentNode.Connect(edge);
+            childPortOfParentNode.OnAddEdge(edge);
         }
 
         public virtual void RemoveEdge(Edge edge)
@@ -225,11 +268,30 @@ namespace TreeNode.Editor
             ViewNode parent = edge.ChildPort()?.node;
             ViewNode child = edge.ParentPort()?.node;
             if (parent == null || child == null) { return; }
-            ChildPort childport_of_parent = edge.ChildPort();
-            childport_of_parent.SetNodeValue(child.Data);
+            
+            // 记录边断开操作
+            ChildPort childPortOfParent = edge.ChildPort();
+            string portName = GetPortName(childPortOfParent);
+            var edgeRemoveOperation = new EdgeRemoveOperation(parent.Data, child.Data, portName, this);
+            Window.History.RecordOperation(edgeRemoveOperation);
+            
+            childPortOfParent.SetNodeValue(child.Data);
             Asset.Data.Nodes.Add(child.Data);
             edge.ParentPort().DisconnectAll();
-            childport_of_parent.OnRemoveEdge(edge);
+            childPortOfParent.OnRemoveEdge(edge);
+        }
+
+        /// <summary>
+        /// 获取端口名称
+        /// </summary>
+        private string GetPortName(ChildPort childPort)
+        {
+            var propertyElement = childPort.GetFirstAncestorOfType<PropertyElement>();
+            if (propertyElement != null)
+            {
+                return propertyElement.MemberMeta.Path.Split('.').LastOrDefault() ?? "";
+            }
+            return "";
         }
 
         #endregion
@@ -384,13 +446,28 @@ namespace TreeNode.Editor
 
         private GraphViewChange OnGraphViewChanged(GraphViewChange graphViewChange)
         {
+            // 检测批量操作
+            bool isBatchOperation = false;
             if (graphViewChange.elementsToRemove != null)
             {
-                IEnumerable<ViewNode> nodes = graphViewChange.elementsToRemove.OfType<ViewNode>().Reverse();
-                List<Edge> temp = new();
-                if (nodes.Any())
+                var nodesToRemove = graphViewChange.elementsToRemove.OfType<ViewNode>().ToList();
+                var edgesToRemove = graphViewChange.elementsToRemove.OfType<Edge>().ToList();
+                
+                // 如果有多个节点或边被删除，启动批量模式
+                if (nodesToRemove.Count > 1 || (nodesToRemove.Count > 0 && edgesToRemove.Count > 0))
                 {
-                    foreach (ViewNode viewNode in nodes)
+                    isBatchOperation = true;
+                    Window.History.BeginBatch($"批量删除 {nodesToRemove.Count} 个节点和 {edgesToRemove.Count} 个边");
+                }
+                
+                // 修正：创建副本并反转顺序
+                var reversedNodes = new List<ViewNode>(nodesToRemove);
+                reversedNodes.Reverse();
+                
+                List<Edge> temp = new();
+                if (reversedNodes.Any())
+                {
+                    foreach (ViewNode viewNode in reversedNodes)
                     {
                         temp.AddRange(viewNode.GetAllEdges());
                     }
@@ -404,19 +481,37 @@ namespace TreeNode.Editor
                         RemoveEdge(edge);
                     }
                 }
-                foreach (ViewNode viewNode in nodes)
+                foreach (ViewNode viewNode in reversedNodes)
                 {
                     RemoveViewNode(viewNode);
                 }
             }
+            
             if (graphViewChange.edgesToCreate != null)
             {
+                // 如果有多个边被创建，也可以考虑批量模式
+                if (graphViewChange.edgesToCreate.Count > 1 && !isBatchOperation)
+                {
+                    isBatchOperation = true;
+                    Window.History.BeginBatch($"批量创建 {graphViewChange.edgesToCreate.Count} 个边连接");
+                }
+                
                 foreach (Edge edge in graphViewChange.edgesToCreate)
                 {
                     CreateEdge(edge);
                 }
             }
-            Window.History.AddStep();
+            
+            // 结束批量操作
+            if (isBatchOperation)
+            {
+                Window.History.EndBatch();
+            }
+            else
+            {
+                Window.History.AddStep();
+            }
+            
             return graphViewChange;
         }
 
