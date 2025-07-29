@@ -7,6 +7,10 @@ namespace TreeNode.Editor
 {
     public partial class History
     {
+        const int MaxStep = 20; // 增加历史步骤数量
+        const int MaxMemoryUsageMB = 50; // 最大内存使用限制(MB)
+        const int OperationMergeWindowMs = 500; // 操作合并时间窗口(毫秒)
+
         // 内存管理
         private readonly Dictionary<string, WeakReference> _nodeCache = new Dictionary<string, WeakReference>();
         private long _lastGCTime = DateTime.Now.Ticks;
