@@ -96,18 +96,23 @@ namespace TreeNode.Editor
         /// </summary>
         public void RecordOperation(IAtomicOperation operation)
         {
+            Debug.Log($"RecordOperation:{operation.Description}");
             if (operation == null) return;
 
             var startTime = DateTime.Now;
 
-            // 🔥 优化防重复机制 - 对于字段修改操作，允许连续记录以便合并，但要避免真正的重复
+            // 优化防重复机制 - 对于字段修改操作，允许连续记录以便合并，但要避免真正的重复
             string operationId = operation.GetOperationId();
             
-            // 🔥 特殊处理FieldModifyOperation：检查是否是真正的重复操作（相同的新旧值）
-            if (operation is FieldModifyOperation fieldOp)
+            // 特殊处理FieldModifyOperation：检查是否是真正的重复操作（相同的新旧值）
+            if (operation.Type == OperationType.FieldModify)
             {
+                // 获取新旧值字符串表示
+                var oldValue = operation.GetOldValueString();
+                var newValue = operation.GetNewValueString();
+                
                 // 如果新旧值相同，跳过这个无意义的操作
-                if (fieldOp.OldValue == fieldOp.NewValue)
+                if (oldValue == newValue)
                 {
                     return;
                 }
@@ -215,7 +220,7 @@ namespace TreeNode.Editor
             
             var startTime = DateTime.Now;
             Debug.Log($"执行撤销操作 - 当前步骤数:[{Steps.Count}]");
-            
+            Debug.Log(GetHistorySummary());
             HistoryStep step = Steps[^1];
             Steps.RemoveAt(Steps.Count - 1);
             RedoSteps.Push(step);
@@ -267,6 +272,57 @@ namespace TreeNode.Editor
             summary.AppendLine($"内存使用: {stats.MemoryUsageMB:F2}MB");
             summary.AppendLine($"缓存节点: {stats.CachedOperations}");
             summary.AppendLine($"合并操作: {stats.MergedOperations}");
+
+            // 显示最近的步骤详情，最多5个
+            summary.AppendLine();
+            summary.AppendLine("=== 最近的步骤详情 ===");
+            
+            if (Steps.Count <= 1)
+            {
+                summary.AppendLine("无历史步骤");
+            }
+            else
+            {
+                // 获取最近的步骤（跳过第一个初始步骤）
+                var recentSteps = Steps.Skip(Math.Max(1, Steps.Count - 5)).ToList();
+                
+                for (int i = 0; i < recentSteps.Count; i++)
+                {
+                    var step = recentSteps[i];
+                    var stepIndex = Steps.Count - recentSteps.Count + i;
+                    
+                    summary.AppendLine($"步骤 {stepIndex}:");
+                    summary.AppendLine($"  时间: {step.Timestamp:HH:mm:ss.fff}");
+                    summary.AppendLine($"  描述: {step.Description}");
+                    summary.AppendLine($"  状态: {(step.IsCommitted ? "已提交" : "未提交")}");
+                    
+                    if (step.Operations.Count > 0)
+                    {
+                        summary.AppendLine($"  原子操作数: {step.Operations.Count}");
+                        
+                        // 显示操作摘要（最多显示3个操作）
+                        var operationsToShow = step.Operations.Take(3);
+                        foreach (var operation in operationsToShow)
+                        {
+                            summary.AppendLine($"    - {operation.GetOperationSummary()}");
+                        }
+                        
+                        if (step.Operations.Count > 3)
+                        {
+                            summary.AppendLine($"    ... 还有 {step.Operations.Count - 3} 个操作");
+                        }
+                    }
+                    else
+                    {
+                        summary.AppendLine($"  操作类型: 传统操作（状态快照）");
+                    }
+                    
+                    if (i < recentSteps.Count - 1)
+                    {
+                        summary.AppendLine();
+                    }
+                }
+            }
             
             return summary.ToString();
         }

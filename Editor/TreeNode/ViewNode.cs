@@ -43,7 +43,7 @@ namespace TreeNode.Editor
             // 纯UI绘制，不包含连接逻辑
             Draw();
             OnChange();
-            
+            base.SetPosition(new Rect(data.Position, new Vector2()));
         }
 
         public override void SetPosition(Rect newPos)
@@ -65,20 +65,21 @@ namespace TreeNode.Editor
             }
         }
 
+
         /// <summary>
-        /// 🔥 简化的位置变化记录 - 统一通过SetPosition处理
+        /// 简化的位置变化记录 - 统一通过SetPosition处理
         /// </summary>
         private void RecordPositionChange(Vec2 oldPosition, Vec2 newPosition)
         {
             try
             {
-                // 创建位置变化的字段修改操作
+                // 创建位置变化的字段修改操作 - 使用Vec2版本避免字符串转换
                 // History系统会自动处理同一节点连续位置变化的合并
-                var positionChangeOperation = new FieldModifyOperation(
+                var positionChangeOperation = new FieldModifyOperation<Vec2>(
                     Data,
                     "Position",
-                    $"({oldPosition.x:F2}, {oldPosition.y:F2})",
-                    $"({newPosition.x:F2}, {newPosition.y:F2})",
+                    oldPosition,
+                    newPosition,
                     View
                 );
 

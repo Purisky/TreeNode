@@ -365,7 +365,6 @@ namespace TreeNode.Editor
                     viewNode = new ViewNode(node, this);
                 }
 
-                viewNode.SetPosition(new Rect(node.Position, new Vector2()));
                 ViewNodes.Add(viewNode);
                 NodeDic.Add(node, viewNode);
                 AddElement(viewNode);

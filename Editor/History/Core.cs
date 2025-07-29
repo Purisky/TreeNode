@@ -75,23 +75,30 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 智能合并操作 - 优化位置变化处理
+        /// 智能合并操作 - 支持泛型FieldModifyOperation
         /// </summary>
         private List<IAtomicOperation> MergeOperations(List<IAtomicOperation> operations)
         {
             var merged = new List<IAtomicOperation>();
-            var fieldModifyGroups = new Dictionary<string, List<FieldModifyOperation>>();
+            var fieldModifyGroups = new Dictionary<string, List<IAtomicOperation>>();
 
             foreach (var operation in operations)
             {
-                if (operation is FieldModifyOperation fieldOp)
+                if (operation.Type == OperationType.FieldModify)
                 {
-                    string key = $"{fieldOp.Node?.GetHashCode()}_{fieldOp.FieldPath}";
-                    if (!fieldModifyGroups.ContainsKey(key))
+                    string key = operation.GetMergeKey();
+                    if (!string.IsNullOrEmpty(key))
                     {
-                        fieldModifyGroups[key] = new List<FieldModifyOperation>();
+                        if (!fieldModifyGroups.ContainsKey(key))
+                        {
+                            fieldModifyGroups[key] = new List<IAtomicOperation>();
+                        }
+                        fieldModifyGroups[key].Add(operation);
                     }
-                    fieldModifyGroups[key].Add(fieldOp);
+                    else
+                    {
+                        merged.Add(operation);
+                    }
                 }
                 else
                 {
@@ -108,41 +115,144 @@ namespace TreeNode.Editor
                 }
                 else
                 {
-                    // 🔥 智能合并逻辑：按时间戳排序确保正确的合并顺序
+                    // 智能合并逻辑：按时间戳排序确保正确的合并顺序
                     var sortedGroup = group.OrderBy(op => op.Timestamp).ToList();
                     var first = sortedGroup[0];
                     var last = sortedGroup[sortedGroup.Count - 1];
 
-                    // 如果最终值等于初始值，则操作可以完全消除
-                    if (first.OldValue == last.NewValue)
+                    // 尝试合并操作
+                    var mergedOperation = TryMergeFieldOperations(first, last, sortedGroup.Count);
+                    if (mergedOperation != null)
                     {
-                        // 🔥 针对Position字段的特殊处理：即使回到原位置，如果有中间移动过程也记录为一次"移动并返回"操作
-                        if (first.FieldPath == "Position" && sortedGroup.Count > 2)
-                        {
-                            var mergedOp = new FieldModifyOperation(
-                                first.Node, first.FieldPath, first.OldValue, last.NewValue, first.GraphView);
-                            // 🔥 通过构造后设置描述信息
-                            mergedOp.SetDescription($"节点位置移动（经过{sortedGroup.Count}步最终返回原位置）");
-                            merged.Add(mergedOp);
-                        }
-                        continue; // 其他情况跳过这个操作组
+                        merged.Add(mergedOperation);
                     }
-
-                    // 创建合并操作，包含更丰富的描述信息
-                    var mergedOperation = new FieldModifyOperation(
-                        first.Node, first.FieldPath, first.OldValue, last.NewValue, first.GraphView);
-
-                    // 🔥 为Position字段提供更好的描述
-                    if (first.FieldPath == "Position")
-                    {
-                        mergedOperation.SetDescription($"节点位置变化（{sortedGroup.Count}步操作已合并）: {first.OldValue} → {last.NewValue}");
-                    }
-
-                    merged.Add(mergedOperation);
                 }
             }
 
             return merged;
+        }
+
+        /// <summary>
+        /// 尝试合并字段操作 - 支持泛型FieldModifyOperation
+        /// </summary>
+        private IAtomicOperation TryMergeFieldOperations(IAtomicOperation first, IAtomicOperation last, int operationCount)
+        {
+            try
+            {
+                var firstOldValue = first.GetOldValueString();
+                var lastNewValue = last.GetNewValueString();
+                var fieldPath = first.GetFieldPath();
+
+                // 如果最终值等于初始值，则操作可以完全消除
+                if (firstOldValue == lastNewValue)
+                {
+                    // 针对Position字段的特殊处理：即使回到原位置，如果有中间移动过程也记录为一次"移动并返回"操作
+                    if (fieldPath == "Position" && operationCount > 2)
+                    {
+                        return CreateMergedPositionOperation(first, last, operationCount, true);
+                    }
+                    return null; // 其他情况跳过这个操作组
+                }
+
+                // 创建合并操作
+                if (fieldPath == "Position")
+                {
+                    return CreateMergedPositionOperation(first, last, operationCount, false);
+                }
+                else
+                {
+                    return CreateMergedGenericOperation(first, last, operationCount);
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"合并字段操作失败: {e.Message}");
+                return first; // 失败时返回第一个操作
+            }
+        }
+
+        /// <summary>
+        /// 创建合并后的Position操作
+        /// </summary>
+        private IAtomicOperation CreateMergedPositionOperation(IAtomicOperation first, IAtomicOperation last, int operationCount, bool returnedToOriginal)
+        {
+            var node = first.GetNode();
+            var firstOldValue = first.GetOldValueString();
+            var lastNewValue = last.GetNewValueString();
+            
+            // 尝试解析为Vec2
+            if (TryParseVec2(firstOldValue, out var oldPos) && TryParseVec2(lastNewValue, out var newPos))
+            {
+                var mergedOp = new FieldModifyOperation<Vec2>(
+                    node, "Position", oldPos, newPos, 
+                    first.GetType().GetProperty("GraphView")?.GetValue(first) as TreeNodeGraphView);
+                
+                if (returnedToOriginal)
+                {
+                    mergedOp.SetDescription($"节点位置移动（经过{operationCount}步最终返回原位置）");
+                }
+                else
+                {
+                    mergedOp.SetDescription($"节点位置变化（{operationCount}步操作已合并）: {oldPos} → {newPos}");
+                }
+                
+                return mergedOp;
+            }
+            else
+            {
+                // 回退到字符串版本
+                var mergedOp = new FieldModifyOperation<string>(
+                    node, "Position", firstOldValue, lastNewValue,
+                    first.GetType().GetProperty("GraphView")?.GetValue(first) as TreeNodeGraphView);
+                
+                mergedOp.SetDescription($"节点位置变化（{operationCount}步操作已合并）");
+                return mergedOp;
+            }
+        }
+
+        /// <summary>
+        /// 创建合并后的通用操作
+        /// </summary>
+        private IAtomicOperation CreateMergedGenericOperation(IAtomicOperation first, IAtomicOperation last, int operationCount)
+        {
+            var node = first.GetNode();
+            var fieldPath = first.GetFieldPath();
+            var firstOldValue = first.GetOldValueString();
+            var lastNewValue = last.GetNewValueString();
+            
+            var mergedOp = new FieldModifyOperation<string>(
+                node, fieldPath, firstOldValue, lastNewValue,
+                first.GetType().GetProperty("GraphView")?.GetValue(first) as TreeNodeGraphView);
+            
+            mergedOp.SetDescription($"字段修改（{operationCount}步操作已合并）: {fieldPath}");
+            return mergedOp;
+        }
+
+        /// <summary>
+        /// 尝试解析Vec2字符串
+        /// </summary>
+        private bool TryParseVec2(string vec2Str, out Vec2 result)
+        {
+            result = default;
+            
+            if (string.IsNullOrEmpty(vec2Str))
+                return false;
+
+            // 移除括号和空格
+            vec2Str = vec2Str.Trim('(', ')', ' ');
+            var parts = vec2Str.Split(',');
+
+            if (parts.Length != 2)
+                return false;
+
+            if (float.TryParse(parts[0].Trim(), out var x) &&
+                float.TryParse(parts[1].Trim(), out var y))
+            {
+                result = new Vec2(x, y);
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -153,8 +263,8 @@ namespace TreeNode.Editor
             switch (operation.Type)
             {
                 case OperationType.FieldModify:
-                    if (operation is FieldModifyOperation fieldOp &&
-                        TryGetViewNode(fieldOp.Node, out var viewNode))
+                    var node = operation.GetNode();
+                    if (node != null && TryGetViewNode(node, out var viewNode))
                     {
                         _dirtyNodes.Add(viewNode);
                     }

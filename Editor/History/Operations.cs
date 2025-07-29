@@ -6,7 +6,7 @@ using UnityEngine;
 namespace TreeNode.Editor
 {
     /// <summary>
-    /// 🔥 新增：FieldModifyOperation泛型支持扩展类
+    /// FieldModifyOperation泛型支持扩展类 - 支持所有版本的FieldModifyOperation
     /// </summary>
     public static class FieldModifyOperationExtensions
     {
@@ -144,6 +144,28 @@ namespace TreeNode.Editor
             }
             
             return null;
+        }
+
+        /// <summary>
+        /// 检查两个FieldModifyOperation是否可以合并
+        /// </summary>
+        public static bool CanMergeWith(this IAtomicOperation operation, IAtomicOperation other)
+        {
+            if (operation?.Type != OperationType.FieldModify || other?.Type != OperationType.FieldModify)
+                return false;
+
+            // 必须是同一个节点的同一个字段
+            var node1 = operation.GetNode();
+            var node2 = other.GetNode();
+            var field1 = operation.GetFieldPath();
+            var field2 = other.GetFieldPath();
+
+            if (node1 != node2 || field1 != field2)
+                return false;
+
+            // 时间窗口检查（1秒内）
+            var timeDiff = Math.Abs((operation.Timestamp - other.Timestamp).TotalMilliseconds);
+            return timeDiff < 1000;
         }
     }
 
@@ -944,7 +966,7 @@ namespace TreeNode.Editor
         public OperationType Type => OperationType.FieldModify;
         public DateTime Timestamp { get; private set; }
 
-        // 🔥 支持自定义描述信息
+        // 支持自定义描述信息
         private string _description;
         public string Description
         {
@@ -1032,7 +1054,7 @@ namespace TreeNode.Editor
                     return ApplyPositionValue(value);
                 }
 
-                // 🔥 修复：使用JsonNode的本地字段路径而不是全局路径
+                // 使用JsonNode的本地字段路径而不是全局路径
                 // 通过反射设置字段值 - 使用Node.SetValue方法更准确
                 return ApplyFieldValueViaJsonNode(value);
             }
@@ -1116,7 +1138,7 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 🔥 新增：通过JsonNode的本地路径应用字段值 - 更准确的实现
+        /// 通过JsonNode的本地路径应用字段值 - 更准确的实现
         /// </summary>
         private bool ApplyFieldValueViaJsonNode(T value)
         {
@@ -1183,13 +1205,13 @@ namespace TreeNode.Editor
 
         public string GetOperationId()
         {
-            // 🔥 优化操作ID生成 - 使用本地字段路径，确保同一节点同一字段的操作能被识别为同类操作进行合并
+            // 优化操作ID生成 - 使用本地字段路径，确保同一节点同一字段的操作能被识别为同类操作进行合并
             // 这样连续的字段变化操作会有相同的操作ID前缀，便于合并逻辑识别
             return $"FieldModify_{Node?.GetHashCode()}_{FieldPath}";
         }
 
         /// <summary>
-        /// 🔥 新增：获取旧值的序列化字符串表示 - 用于兼容原有的合并逻辑
+        /// 获取旧值的序列化字符串表示 - 用于兼容原有的合并逻辑
         /// </summary>
         public string GetOldValueString()
         {
@@ -1197,7 +1219,7 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 🔥 新增：获取新值的序列化字符串表示 - 用于兼容原有的合并逻辑
+        /// 获取新值的序列化字符串表示 - 用于兼容原有的合并逻辑
         /// </summary>
         public string GetNewValueString()
         {
@@ -1205,7 +1227,7 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 🔥 新增：用于支持合并操作的类型检查
+        /// 用于支持合并操作的类型检查
         /// </summary>
         public bool CanMergeWith(IAtomicOperation other)
         {
@@ -1218,7 +1240,7 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 🔥 新增：创建合并后的操作
+        /// 创建合并后的操作
         /// </summary>
         public FieldModifyOperation<T> MergeWith(FieldModifyOperation<T> other)
         {
@@ -1239,335 +1261,24 @@ namespace TreeNode.Editor
     }
 
     /// <summary>
-    /// 兼容性保留：非泛型字段修改操作 - 实现具体的Execute/Undo逻辑
-    /// 🔥 保留原有版本以确保现有代码继续工作，但推荐使用泛型版本
+    /// 便利别名：为了向后兼容，提供创建字符串版本FieldModifyOperation的便利方法
     /// </summary>
-    public class FieldModifyOperation : IAtomicOperation
+    public static class FieldModifyOperationFactory
     {
-        public OperationType Type => OperationType.FieldModify;
-        public DateTime Timestamp { get; private set; }
-
-        // 🔥 支持自定义描述信息
-        private string _description;
-        public string Description
+        /// <summary>
+        /// 创建字符串版本的FieldModifyOperation - 保持向后兼容
+        /// </summary>
+        public static FieldModifyOperation<string> CreateStringOperation(JsonNode node, string fieldPath, string oldValue, string newValue, TreeNodeGraphView graphView)
         {
-            get => _description ?? $"修改字段: {FieldPath}";
-        }
-
-        public JsonNode Node { get; set; }
-        public string FieldPath { get; set; }
-        public string OldValue { get; set; }
-        public string NewValue { get; set; }
-        public TreeNodeGraphView GraphView { get; set; }
-
-        public FieldModifyOperation(JsonNode node, string fieldPath, string oldValue, string newValue, TreeNodeGraphView graphView)
-        {
-            Node = node;
-            FieldPath = fieldPath;
-            OldValue = oldValue;
-            NewValue = newValue;
-            GraphView = graphView;
-            Timestamp = DateTime.Now;
+            return new FieldModifyOperation<string>(node, fieldPath, oldValue, newValue, graphView);
         }
 
         /// <summary>
-        /// 设置自定义描述信息 - 用于合并操作
+        /// 创建Vec2版本的FieldModifyOperation - 用于Position字段
         /// </summary>
-        public void SetDescription(string description)
+        public static FieldModifyOperation<Vec2> CreateVec2Operation(JsonNode node, string fieldPath, Vec2 oldValue, Vec2 newValue, TreeNodeGraphView graphView)
         {
-            _description = description;
-        }
-
-        /// <summary>
-        /// 执行字段修改操作 - 将字段设置为新值
-        /// </summary>
-        public bool Execute()
-        {
-            try
-            {
-                if (Node == null)
-                {
-                    Debug.LogError("FieldModifyOperation.Execute: Node为空");
-                    return false;
-                }
-
-                return ApplyFieldValue(NewValue);
-            }
-            catch (Exception e)
-            {
-                Debug.LogError($"执行字段修改操作失败: {e.Message}");
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// 撤销字段修改操作 - 将字段恢复为旧值
-        /// </summary>
-        public bool Undo()
-        {
-            try
-            {
-                if (Node == null)
-                {
-                    Debug.LogError("FieldModifyOperation.Undo: Node为空");
-                    return false;
-                }
-
-                return ApplyFieldValue(OldValue);
-            }
-            catch (Exception e)
-            {
-                Debug.LogError($"撤销字段修改操作失败: {e.Message}");
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// 应用字段值 - 核心逻辑，支持各种字段类型
-        /// </summary>
-        private bool ApplyFieldValue(string value)
-        {
-            try
-            {
-                // 处理Position字段的特殊情况
-                if (FieldPath == "Position")
-                {
-                    return ApplyPositionValue(value);
-                }
-
-                // 🔥 修复：使用JsonNode的本地字段路径而不是全局路径
-                // 通过反射设置字段值 - 使用Node.SetValue方法更准确
-                return ApplyFieldValueViaJsonNode(value);
-            }
-            catch (Exception e)
-            {
-                Debug.LogError($"应用字段值失败 {FieldPath} = {value}: {e.Message}");
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// 应用Position字段值
-        /// </summary>
-        private bool ApplyPositionValue(string value)
-        {
-            try
-            {
-                // 解析Position字符串，格式："(x, y)"
-                if (TryParsePosition(value, out var position))
-                {
-                    Node.Position = position;
-
-                    // 同步更新ViewNode的位置
-                    if (GraphView?.NodeDic.TryGetValue(Node, out var viewNode) == true)
-                    {
-                        viewNode.SetPosition(new Rect(position, Vector2.zero));
-                    }
-
-                    return true;
-                }
-
-                Debug.LogWarning($"无法解析Position值: {value}");
-                return false;
-            }
-            catch (Exception e)
-            {
-                Debug.LogError($"应用Position值失败: {e.Message}");
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// 解析Position字符串
-        /// </summary>
-        private bool TryParsePosition(string positionStr, out Vec2 position)
-        {
-            position = default;
-
-            if (string.IsNullOrEmpty(positionStr))
-                return false;
-
-            // 移除括号和空格
-            positionStr = positionStr.Trim('(', ')', ' ');
-            var parts = positionStr.Split(',');
-
-            if (parts.Length != 2)
-                return false;
-
-            if (float.TryParse(parts[0].Trim(), out var x) &&
-                float.TryParse(parts[1].Trim(), out var y))
-            {
-                position = new Vec2(x, y);
-                return true;
-            }
-
-            return false;
-        }
-
-        /// <summary>
-        /// 🔥 新增：通过JsonNode的本地路径应用字段值 - 更准确的实现
-        /// </summary>
-        private bool ApplyFieldValueViaJsonNode(string value)
-        {
-            try
-            {
-                // 使用JsonNode的SetValue方法，支持本地字段路径  
-                var convertedValue = ConvertStringToValue(value);
-                Node.SetValue(FieldPath, convertedValue);
-                return true; // SetValue方法返回void，成功执行即返回true
-            }
-            catch (Exception e)
-            {
-                Debug.LogError($"通过JsonNode设置字段值失败: {e.Message}");
-                // 如果JsonNode.SetValue失败，回退到反射方式
-                return ApplyFieldValueViaReflection(value);
-            }
-        }
-
-        /// <summary>
-        /// 🔥 优化：将字符串转换为合适的值类型 - 简化版本
-        /// </summary>
-        private object ConvertStringToValue(string value)
-        {
-            if (string.IsNullOrEmpty(value))
-                return null;
-
-            // 尝试从Node获取字段类型进行更准确的转换
-            try
-            {
-                var currentValue = Node.GetValue<object>(FieldPath);
-                if (currentValue != null)
-                {
-                    var targetType = currentValue.GetType();
-                    return ConvertStringToFieldType(value, targetType);
-                }
-            }
-            catch
-            {
-                // 获取当前值失败，使用通用转换
-            }
-
-            // 通用类型推断和转换
-            return ConvertStringToGenericType(value);
-        }
-
-        /// <summary>
-        /// 通用字符串到类型转换
-        /// </summary>
-        private object ConvertStringToGenericType(string value)
-        {
-            // 尝试常见类型转换
-            if (bool.TryParse(value, out var boolValue))
-                return boolValue;
-            if (int.TryParse(value, out var intValue))
-                return intValue;
-            if (float.TryParse(value, out var floatValue))
-                return floatValue;
-            if (double.TryParse(value, out var doubleValue))
-                return doubleValue;
-
-            // 默认返回字符串
-            return value;
-        }
-
-        /// <summary>
-        /// 通过反射应用字段值 - 保留作为后备方案
-        /// </summary>
-        private bool ApplyFieldValueViaReflection(string value)
-        {
-            try
-            {
-                var nodeType = Node.GetType();
-                var fieldInfo = nodeType.GetField(FieldPath,
-                    System.Reflection.BindingFlags.Public |
-                    System.Reflection.BindingFlags.NonPublic |
-                    System.Reflection.BindingFlags.Instance);
-
-                if (fieldInfo != null)
-                {
-                    var convertedValue = ConvertStringToFieldType(value, fieldInfo.FieldType);
-                    fieldInfo.SetValue(Node, convertedValue);
-                    return true;
-                }
-
-                var propertyInfo = nodeType.GetProperty(FieldPath,
-                    System.Reflection.BindingFlags.Public |
-                    System.Reflection.BindingFlags.NonPublic |
-                    System.Reflection.BindingFlags.Instance);
-
-                if (propertyInfo != null && propertyInfo.CanWrite)
-                {
-                    var convertedValue = ConvertStringToFieldType(value, propertyInfo.PropertyType);
-                    propertyInfo.SetValue(Node, convertedValue);
-                    return true;
-                }
-
-                Debug.LogWarning($"未找到字段或属性: {FieldPath} 在类型 {nodeType.Name} 中");
-                return false;
-            }
-            catch (Exception e)
-            {
-                Debug.LogError($"反射设置字段值失败: {e.Message}");
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// 将字符串转换为对应的字段类型
-        /// </summary>
-        private object ConvertStringToFieldType(string value, Type targetType)
-        {
-            if (string.IsNullOrEmpty(value))
-                return GetDefaultValue(targetType);
-
-            // 处理可空类型
-            var underlyingType = Nullable.GetUnderlyingType(targetType) ?? targetType;
-
-            try
-            {
-                if (underlyingType == typeof(string))
-                    return value;
-                if (underlyingType == typeof(int))
-                    return int.Parse(value);
-                if (underlyingType == typeof(float))
-                    return float.Parse(value);
-                if (underlyingType == typeof(double))
-                    return double.Parse(value);
-                if (underlyingType == typeof(bool))
-                    return bool.Parse(value);
-                if (underlyingType.IsEnum)
-                    return Enum.Parse(underlyingType, value);
-
-                // 使用Convert.ChangeType作为后备方案
-                return Convert.ChangeType(value, underlyingType);
-            }
-            catch (Exception e)
-            {
-                Debug.LogWarning($"类型转换失败 {value} -> {targetType}: {e.Message}");
-                return GetDefaultValue(targetType);
-            }
-        }
-
-        /// <summary>
-        /// 获取类型的默认值
-        /// </summary>
-        private object GetDefaultValue(Type type)
-        {
-            return type.IsValueType ? Activator.CreateInstance(type) : null;
-        }
-
-        public bool CanUndo() => Node != null && !string.IsNullOrEmpty(FieldPath) && GraphView != null;
-
-        public string GetOperationSummary()
-        {
-            return $"FieldModify: {FieldPath} from '{OldValue}' to '{NewValue}'";
-        }
-
-        public string GetOperationId()
-        {
-            // 🔥 优化操作ID生成 - 使用本地字段路径，确保同一节点同一字段的操作能被识别为同类操作进行合并
-            // 这样连续的字段变化操作会有相同的操作ID前缀，便于合并逻辑识别
-            return $"FieldModify_{Node?.GetHashCode()}_{FieldPath}";
+            return new FieldModifyOperation<Vec2>(node, fieldPath, oldValue, newValue, graphView);
         }
     }
 
