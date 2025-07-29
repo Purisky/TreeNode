@@ -876,85 +876,6 @@ namespace TreeNode.Editor
         string GetOperationSummary();
         string GetOperationId(); // 用于防重复
     }
-
-    /// <summary>
-    /// 操作类型枚举
-    /// </summary>
-    public enum OperationType
-    {
-        NodeCreate,
-        NodeDelete,
-        NodeMove,
-        FieldModify,
-        EdgeCreate,
-        EdgeRemove,
-        BatchStart,
-        BatchEnd,
-        StateSnapshot
-    }
-
-    /// <summary>
-    /// 位置类型枚举
-    /// </summary>
-    public enum LocationType
-    {
-        Root,
-        Child,
-        Deleted,
-        Unknown
-    }
-
-    /// <summary>
-    /// 节点位置描述
-    /// </summary>
-    public class NodeLocation
-    {
-        public LocationType Type { get; set; }
-        public int RootIndex { get; set; } = -1;
-        public JsonNode ParentNode { get; set; }
-        public string PortName { get; set; } = "";
-        public bool IsMultiPort { get; set; } = false;
-        public int ListIndex { get; set; } = -1;
-
-        public static NodeLocation Root(int index = -1) => new()
-        {
-            Type = LocationType.Root,
-            RootIndex = index
-        };
-
-        public static NodeLocation Child(JsonNode parent, string portName, bool isMultiPort, int listIndex) => new()
-        {
-            Type = LocationType.Child,
-            ParentNode = parent,
-            PortName = portName,
-            IsMultiPort = isMultiPort,
-            ListIndex = listIndex
-        };
-
-        public static NodeLocation Deleted() => new()
-        {
-            Type = LocationType.Deleted
-        };
-
-        public static NodeLocation Unknown() => new()
-        {
-            Type = LocationType.Unknown
-        };
-
-        public string GetFullPath()
-        {
-            return Type switch
-            {
-                LocationType.Root => $"Root[{RootIndex}]",
-                LocationType.Child => $"{ParentNode?.GetType().Name}.{PortName}" + 
-                                     (IsMultiPort ? $"[{ListIndex}]" : ""),
-                LocationType.Deleted => "Deleted",
-                LocationType.Unknown => "Unknown",
-                _ => "Invalid"
-            };
-        }
-    }
-
     /// <summary>
     /// 节点创建操作
     /// </summary>
@@ -2083,15 +2004,6 @@ namespace TreeNode.Editor
         public string GetOperationId()
         {
             return $"EdgeRemove_{ParentNode?.GetHashCode()}_{ChildNode?.GetHashCode()}_{PortName}_{Timestamp.Ticks}";
-        }
-    }
-
-    public static class HistoryExtensions
-    {
-        public static void SetDirty(this VisualElement visualElement)
-        {
-            ViewNode viewNode = visualElement.GetFirstAncestorOfType<ViewNode>();
-            viewNode?.View.Window.History.AddStep();
         }
     }
 
