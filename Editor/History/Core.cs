@@ -18,30 +18,31 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 立即处理操作
+        /// 立即处理操作 - 修改为智能步骤合并版本
         /// </summary>
         private void ProcessOperationImmediate(IAtomicOperation operation)
         {
             if (_isBatchMode && _currentBatch != null)
             {
                 _currentBatch.AddOperation(operation);
+                Debug.Log($"[批量模式] 添加操作到当前批次: {operation.Description}");
             }
             else
             {
-                var step = new HistoryStep();
-                step.AddOperation(operation);
-                step.Commit(operation.Description);
-                // 确保步骤包含当前状态的快照
-                step.EnsureSnapshot(Window.JsonAsset);
-                Steps.Add(step);
-
-                if (Steps.Count > MaxStep)
+                // 🔥 关键改进：尝试合并到最后一个步骤而不是总是创建新步骤
+                var lastStep = GetLastModifiableStep();
+                if (lastStep != null && CanMergeToStep(lastStep, operation))
                 {
-                    Steps.RemoveAt(0);
-                    TriggerMemoryOptimization();
+                    lastStep.AddOperation(operation);
+                    lastStep.EnsureSnapshot(Window.JsonAsset); // 更新快照
+                    Debug.Log($"[智能合并] 合并操作到现有步骤: {operation.Description} -> 步骤[{Steps.Count - 1}]");
                 }
-
-                RedoSteps.Clear();
+                else
+                {
+                    // 只有在不能合并时才创建新步骤
+                    CreateNewStepWithOperation(operation);
+                    Debug.Log($"[新建步骤] 创建新步骤: {operation.Description} -> 步骤[{Steps.Count - 1}]");
+                }
             }
 
             // 标记需要增量渲染
@@ -49,7 +50,164 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 处理待合并的操作 - 简化为同步处理
+        /// 获取最后一个可修改的步骤
+        /// </summary>
+        private HistoryStep GetLastModifiableStep()
+        {
+            if (Steps.Count <= 1) return null; // 跳过初始步骤
+            
+            var lastStep = Steps[^1];
+            
+            // 只有原子操作步骤才能被合并，传统快照步骤不能合并
+            if (lastStep.Operations.Count == 0) return null;
+            
+            return lastStep;
+        }
+
+        /// <summary>
+        /// 判断操作是否可以合并到指定步骤
+        /// </summary>
+        private bool CanMergeToStep(HistoryStep step, IAtomicOperation operation)
+        {
+            if (step == null || operation == null) return false;
+            
+            // 时间窗口检查（1秒内的操作可以合并）
+            var timeSinceStep = DateTime.Now - step.Timestamp;
+            if (timeSinceStep.TotalMilliseconds > 1000)
+            {
+                Debug.Log($"[合并检查] 时间窗口超时: {timeSinceStep.TotalMilliseconds}ms > 1000ms");
+                return false;
+            }
+            
+            // 如果是空步骤，总是可以合并
+            if (step.Operations.Count == 0) return true;
+            
+            // 操作类型兼容性检查
+            switch (operation.Type)
+            {
+                case OperationType.FieldModify:
+                    // 字段修改操作通常可以合并，特别是同一字段的连续修改
+                    return CanMergeFieldModifyOperation(step, operation);
+                
+                case OperationType.NodeCreate:
+                case OperationType.NodeDelete:
+                case OperationType.EdgeCreate:
+                case OperationType.EdgeRemove:
+                    // 结构性操作：如果步骤中已有相同类型的操作，可以合并
+                    return HasCompatibleStructuralOperations(step, operation);
+                
+                case OperationType.NodeMove:
+                    // 节点移动操作可以与其他移动操作合并
+                    return step.Operations.Any(op => op.Type == OperationType.NodeMove);
+                
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// 检查字段修改操作是否可以合并
+        /// </summary>
+        private bool CanMergeFieldModifyOperation(HistoryStep step, IAtomicOperation operation)
+        {
+            // 字段修改操作更宽松的合并策略：
+            // 1. 同一节点的不同字段修改可以合并（如同时修改位置和名称）
+            // 2. 同一字段的连续修改应该在上层合并逻辑中处理
+            
+            var operationNode = operation.GetNode();
+            if (operationNode == null) return true; // 安全合并
+            
+            // 检查是否有同一节点的操作
+            foreach (var existingOp in step.Operations)
+            {
+                if (existingOp.Type == OperationType.FieldModify)
+                {
+                    var existingNode = existingOp.GetNode();
+                    if (existingNode == operationNode)
+                    {
+                        // 同一节点的字段修改，允许合并
+                        Debug.Log($"[合并检查] 同节点字段修改合并: {existingOp.GetFieldPath()} + {operation.GetFieldPath()}");
+                        return true;
+                    }
+                }
+            }
+            
+            // 不同节点的字段修改也可以合并到同一步骤
+            return true;
+        }
+
+        /// <summary>
+        /// 检查结构性操作是否可以合并
+        /// </summary>
+        private bool HasCompatibleStructuralOperations(HistoryStep step, IAtomicOperation operation)
+        {
+            // 结构性操作的合并策略：
+            // 1. 同类型操作可以合并（如批量删除节点）
+            // 2. 兼容的操作类型可以合并（如删除节点 + 删除边）
+            
+            var operationType = operation.Type;
+            
+            foreach (var existingOp in step.Operations)
+            {
+                // 同类型操作
+                if (existingOp.Type == operationType) return true;
+                
+                // 兼容的操作类型组合
+                if (AreCompatibleOperationTypes(existingOp.Type, operationType))
+                {
+                    return true;
+                }
+            }
+            
+            return false;
+        }
+
+        /// <summary>
+        /// 检查两种操作类型是否兼容
+        /// </summary>
+        private bool AreCompatibleOperationTypes(OperationType type1, OperationType type2)
+        {
+            // 定义兼容的操作类型组合
+            var compatiblePairs = new[]
+            {
+                (OperationType.NodeDelete, OperationType.EdgeRemove), // 删除节点时删除相关边
+                (OperationType.EdgeRemove, OperationType.NodeDelete), // 反向兼容
+                (OperationType.NodeCreate, OperationType.EdgeCreate), // 创建节点时创建连接
+                (OperationType.EdgeCreate, OperationType.NodeCreate), // 反向兼容
+            };
+            
+            return compatiblePairs.Any(pair => 
+                (pair.Item1 == type1 && pair.Item2 == type2) ||
+                (pair.Item1 == type2 && pair.Item2 == type1));
+        }
+
+        /// <summary>
+        /// 创建包含单个操作的新步骤
+        /// </summary>
+        private void CreateNewStepWithOperation(IAtomicOperation operation)
+        {
+            var step = new HistoryStep();
+            step.AddOperation(operation);
+            step.Commit(operation.Description);
+            
+            // 确保步骤包含当前状态的快照
+            step.EnsureSnapshot(Window.JsonAsset);
+            
+            Steps.Add(step);
+
+            // 清理超出限制的旧步骤
+            if (Steps.Count > MaxStep)
+            {
+                Steps.RemoveAt(0);
+                TriggerMemoryOptimization();
+            }
+
+            // 清空重做栈
+            RedoSteps.Clear();
+        }
+
+        /// <summary>
+        /// 处理待合并的操作 - 使用智能步骤合并版本
         /// </summary>
         private void ProcessPendingOperations()
         {
@@ -61,10 +219,14 @@ namespace TreeNode.Editor
 
             if (operationsToProcess.Count == 0) return;
 
+            Debug.Log($"[待处理操作] 开始处理 {operationsToProcess.Count} 个待合并操作");
+
             // 智能合并操作
             var mergedOperations = MergeOperations(operationsToProcess);
 
-            // 处理合并后的操作
+            Debug.Log($"[操作合并] 合并后剩余 {mergedOperations.Count} 个操作 (原 {operationsToProcess.Count} 个)");
+
+            // 🔥 关键改进：合并后的操作仍然使用智能步骤合并逻辑
             foreach (var operation in mergedOperations)
             {
                 ProcessOperationImmediate(operation);

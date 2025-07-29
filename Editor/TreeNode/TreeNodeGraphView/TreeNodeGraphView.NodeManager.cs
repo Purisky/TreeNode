@@ -160,7 +160,8 @@ namespace TreeNode.Editor
             
             Asset.Data.Nodes.Add(node);
             NodeTree.OnNodeAdded(node);
-            Window.History.AddStep();
+            // 🔥 重要修复：移除这里的AddStep调用，让RecordOperation的智能合并机制处理
+            // Window.History.AddStep();
             AddViewNode(node);
         }
 
@@ -403,7 +404,7 @@ namespace TreeNode.Editor
                         return;
                     }
                     
-                    // 检查是否超过最大重试次数
+                    // 检查是否超过最大的重试次数
                     if (attempt.CurrentRetry >= attempt.MaxRetries)
                     {
                         var elapsed = (DateTime.Now - attempt.StartTime).TotalMilliseconds;
@@ -917,10 +918,14 @@ namespace TreeNode.Editor
                 Debug.Log($"结束批量操作: {batchDescription}");
                 Window.History.EndBatch();
             }
+            // 🔥 重要修复：移除这里的AddStep调用
+            // 如果操作都是通过RecordOperation记录的原子操作，让智能合并机制自动处理
+            // 只有在使用传统非原子操作时才需要手动AddStep
             else if (totalOperations > 0)
             {
-                Debug.Log("添加单步历史记录");
-                Window.History.AddStep();
+                Debug.Log($"单步操作完成，操作数量: {totalOperations}");
+                // 不再调用 Window.History.AddStep()，因为原子操作已经通过RecordOperation处理了
+                // Window.History.AddStep();
             }
             
             return graphViewChange;

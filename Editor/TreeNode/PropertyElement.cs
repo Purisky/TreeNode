@@ -517,7 +517,13 @@ namespace TreeNode.Editor
             if (!Selected || !evt.ctrlKey) { return; }
             if (SetOutput(!Output))
             {
-                GraphView.Window.History.AddStep();
+                // 🔥 重要修复：移除此处的AddStep调用
+                // PropertyElement的状态变化应该通过RecordOperation记录为原子操作
+                // GraphView.Window.History.AddStep();
+                
+                // 💡 可选择：如果需要记录这种UI状态变化，应该创建相应的原子操作
+                // 但通常UI状态（如选中状态）不需要记录到撤销历史中
+                Debug.Log($"PropertyElement输出状态变化: {PrefabProperty.Path} -> {Output}");
             }
         }
     }
