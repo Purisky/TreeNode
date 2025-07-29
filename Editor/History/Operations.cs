@@ -889,8 +889,9 @@ namespace TreeNode.Editor
                     return ApplyPositionValue(value);
                 }
 
-                // 通过反射设置字段值
-                return ApplyFieldValueViaReflection(value);
+                // 🔥 修复：使用JsonNode的本地字段路径而不是全局路径
+                // 通过反射设置字段值 - 使用Node.SetValue方法更准确
+                return ApplyFieldValueViaJsonNode(value);
             }
             catch (Exception e)
             {
@@ -958,7 +959,73 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 通过反射应用字段值
+        /// 🔥 新增：通过JsonNode的本地路径应用字段值 - 更准确的实现
+        /// </summary>
+        private bool ApplyFieldValueViaJsonNode(string value)
+        {
+            try
+            {
+                // 使用JsonNode的SetValue方法，支持本地字段路径  
+                var convertedValue = ConvertStringToValue(value);
+                Node.SetValue(FieldPath, convertedValue);
+                return true; // SetValue方法返回void，成功执行即返回true
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"通过JsonNode设置字段值失败: {e.Message}");
+                // 如果JsonNode.SetValue失败，回退到反射方式
+                return ApplyFieldValueViaReflection(value);
+            }
+        }
+
+        /// <summary>
+        /// 🔥 优化：将字符串转换为合适的值类型 - 简化版本
+        /// </summary>
+        private object ConvertStringToValue(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return null;
+
+            // 尝试从Node获取字段类型进行更准确的转换
+            try
+            {
+                var currentValue = Node.GetValue<object>(FieldPath);
+                if (currentValue != null)
+                {
+                    var targetType = currentValue.GetType();
+                    return ConvertStringToFieldType(value, targetType);
+                }
+            }
+            catch
+            {
+                // 获取当前值失败，使用通用转换
+            }
+
+            // 通用类型推断和转换
+            return ConvertStringToGenericType(value);
+        }
+
+        /// <summary>
+        /// 通用字符串到类型转换
+        /// </summary>
+        private object ConvertStringToGenericType(string value)
+        {
+            // 尝试常见类型转换
+            if (bool.TryParse(value, out var boolValue))
+                return boolValue;
+            if (int.TryParse(value, out var intValue))
+                return intValue;
+            if (float.TryParse(value, out var floatValue))
+                return floatValue;
+            if (double.TryParse(value, out var doubleValue))
+                return doubleValue;
+
+            // 默认返回字符串
+            return value;
+        }
+
+        /// <summary>
+        /// 通过反射应用字段值 - 保留作为后备方案
         /// </summary>
         private bool ApplyFieldValueViaReflection(string value)
         {
@@ -1052,8 +1119,8 @@ namespace TreeNode.Editor
 
         public string GetOperationId()
         {
-            // 🔥 优化操作ID生成 - 移除时间戳，确保同一节点同一字段的操作能被识别为同类操作进行合并
-            // 这样连续的Position变化操作会有相同的操作ID前缀，便于合并逻辑识别
+            // 🔥 优化操作ID生成 - 使用本地字段路径，确保同一节点同一字段的操作能被识别为同类操作进行合并
+            // 这样连续的字段变化操作会有相同的操作ID前缀，便于合并逻辑识别
             return $"FieldModify_{Node?.GetHashCode()}_{FieldPath}";
         }
     }

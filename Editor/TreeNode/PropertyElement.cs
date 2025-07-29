@@ -343,10 +343,11 @@ namespace TreeNode.Editor
                     newValueJson = newValue?.ToString() ?? "";
                 }
                 
-                // 创建字段修改操作
+                // 🔥 修复：使用LocalPath而不是GlobalPath，因为FieldModifyOperation已经有JsonNode信息
+                // LocalPath是节点内的字段路径，MemberMeta.Path更准确地表示字段路径
                 var fieldModifyOperation = new FieldModifyOperation(
                     ViewNode.Data,
-                    GetGlobalPath(),
+                    MemberMeta.Path,  // 使用MemberMeta.Path而不是GetGlobalPath()
                     oldValueJson,
                     newValueJson,
                     ViewNode.View as TreeNodeGraphView
