@@ -233,49 +233,6 @@ namespace TreeNode.Editor
             }
         }
 
-        // 原有的单独注册方法保持不变，用于兼容性
-        private void RegisterTextFieldCallbacks()
-        {
-            var textFields = this.Query<TextField>().ToList();
-            foreach (var textField in textFields)
-            {
-                textField.RegisterValueChangedCallback(OnTextFieldValueChanged);
-            }
-        }
-
-        private void RegisterNumericFieldCallbacks()
-        {
-            var floatFields = this.Query<FloatField>().ToList();
-            foreach (var floatField in floatFields)
-            {
-                floatField.RegisterValueChangedCallback(OnFloatFieldValueChanged);
-            }
-
-            var intFields = this.Query<IntegerField>().ToList();
-            foreach (var intField in intFields)
-            {
-                intField.RegisterValueChangedCallback(OnIntFieldValueChanged);
-            }
-        }
-
-        private void RegisterBooleanFieldCallbacks()
-        {
-            var toggles = this.Query<Toggle>().ToList();
-            foreach (var toggle in toggles)
-            {
-                toggle.RegisterValueChangedCallback(OnToggleValueChanged);
-            }
-        }
-
-        private void RegisterEnumFieldCallbacks()
-        {
-            var enumFields = this.Query<EnumField>().ToList();
-            foreach (var enumField in enumFields)
-            {
-                enumField.RegisterValueChangedCallback(OnEnumFieldValueChanged);
-            }
-        }
-
         // 优化的值变化处理器 - 增加防抖动
         private DateTime _lastChangeTime = DateTime.MinValue;
         private const int ChangeThrottleMs = 50; // 50毫秒防抖动
@@ -286,7 +243,7 @@ namespace TreeNode.Editor
         private void OnTextFieldValueChanged(ChangeEvent<string> evt)
         {
             if (ShouldThrottleChange()) return;
-            RecordFieldModification(evt.previousValue, evt.newValue);
+            RecordFieldModification<string>(evt.previousValue, evt.newValue);
         }
 
         /// <summary>
@@ -295,7 +252,7 @@ namespace TreeNode.Editor
         private void OnFloatFieldValueChanged(ChangeEvent<float> evt)
         {
             if (ShouldThrottleChange()) return;
-            RecordFieldModification(evt.previousValue, evt.newValue);
+            RecordFieldModification<float>(evt.previousValue, evt.newValue);
         }
 
         /// <summary>
@@ -304,7 +261,7 @@ namespace TreeNode.Editor
         private void OnIntFieldValueChanged(ChangeEvent<int> evt)
         {
             if (ShouldThrottleChange()) return;
-            RecordFieldModification(evt.previousValue, evt.newValue);
+            RecordFieldModification<int>(evt.previousValue, evt.newValue);
         }
 
         /// <summary>
@@ -313,7 +270,7 @@ namespace TreeNode.Editor
         private void OnToggleValueChanged(ChangeEvent<bool> evt)
         {
             if (ShouldThrottleChange()) return;
-            RecordFieldModification(evt.previousValue, evt.newValue);
+            RecordFieldModification<bool>(evt.previousValue, evt.newValue);
         }
 
         /// <summary>
@@ -322,7 +279,7 @@ namespace TreeNode.Editor
         private void OnEnumFieldValueChanged(ChangeEvent<Enum> evt)
         {
             if (ShouldThrottleChange()) return;
-            RecordFieldModification(evt.previousValue, evt.newValue);
+            RecordFieldModification<Enum>(evt.previousValue, evt.newValue);
         }
 
         /// <summary>
@@ -340,46 +297,28 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 记录字段修改操作 - 优化版本，增加调试信息
+        /// 🔥 新增：泛型版本的字段修改记录方法 - 减少装箱操作
         /// </summary>
-        private void RecordFieldModification(object oldValue, object newValue)
+        private void RecordFieldModification<T>(T oldValue, T newValue)
         {
             if (!_isMonitoringValue) return;
             
             try
             {
-                // 快速值比较，避免不必要的序列化
-                if (FastValueEquals(oldValue, newValue)) return;
+                // 快速值比较，避免不必要的处理
+                if (FastValueEquals<T>(oldValue, newValue)) return;
                 
                 // 🔥 调试信息：记录触发字段修改的PropertyElement详细信息
                 Debug.Log($"🔥 字段修改触发: PropertyElement[{GetGlobalPath()}] " +
                          $"LocalPath='{LocalPath}' MemberPath='{MemberMeta.Path}' " +
-                         $"值变化: '{oldValue}' -> '{newValue}'");
+                         $"值变化: '{oldValue}' -> '{newValue}' (类型: {typeof(T).Name})");
                 
-                // 延迟序列化：只在确实需要记录时才序列化
-                string oldValueJson = null;
-                string newValueJson = null;
-                
-                // 使用更高效的序列化方式
-                if (ShouldSerializeValue(oldValue, newValue))
-                {
-                    oldValueJson = SerializeValueEfficiently(oldValue);
-                    newValueJson = SerializeValueEfficiently(newValue);
-                }
-                else
-                {
-                    // 对于简单类型，直接转换为字符串
-                    oldValueJson = oldValue?.ToString() ?? "";
-                    newValueJson = newValue?.ToString() ?? "";
-                }
-                
-                // 🔥 修复：使用LocalPath而不是GlobalPath，因为FieldModifyOperation已经有JsonNode信息
-                // LocalPath是节点内的字段路径，MemberMeta.Path更准确地表示字段路径
-                var fieldModifyOperation = new FieldModifyOperation(
+                // 🔥 使用泛型版本的FieldModifyOperation，避免装箱
+                var fieldModifyOperation = new FieldModifyOperation<T>(
                     ViewNode.Data,
                     MemberMeta.Path,  // 使用MemberMeta.Path而不是GetGlobalPath()
-                    oldValueJson,
-                    newValueJson,
+                    oldValue,
+                    newValue,
                     ViewNode.View as TreeNodeGraphView
                 );
                 
@@ -387,7 +326,7 @@ namespace TreeNode.Editor
                 if (ViewNode.View is TreeNodeGraphView graphView)
                 {
                     graphView.Window.History.RecordOperation(fieldModifyOperation);
-                    Debug.Log($"✅ 字段修改已记录到历史系统: Node={ViewNode.Data.GetType().Name}, Field={MemberMeta.Path}");
+                    Debug.Log($"✅ 字段修改已记录到历史系统: Node={ViewNode.Data.GetType().Name}, Field={MemberMeta.Path}, Type={typeof(T).Name}");
                 }
                 
                 _lastValue = newValue;
@@ -399,83 +338,22 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 快速值比较
+        /// 🔥 新增：泛型版本的快速值比较
         /// </summary>
-        private bool FastValueEquals(object oldValue, object newValue)
+        private bool FastValueEquals<T>(T oldValue, T newValue)
         {
             if (ReferenceEquals(oldValue, newValue)) return true;
             if (oldValue == null || newValue == null) return false;
             
-            // 对于简单类型，直接比较
-            var type = oldValue.GetType();
-            if (type.IsPrimitive || type == typeof(string) || type.IsEnum)
+            // 对于值类型和简单类型，直接比较
+            var type = typeof(T);
+            if (type.IsPrimitive || type == typeof(string) || type.IsEnum || type.IsValueType)
             {
-                return oldValue.Equals(newValue);
+                return EqualityComparer<T>.Default.Equals(oldValue, newValue);
             }
             
             // 对于复杂类型，使用引用比较
             return ReferenceEquals(oldValue, newValue);
-        }
-
-        /// <summary>
-        /// 判断是否需要序列化值
-        /// </summary>
-        private bool ShouldSerializeValue(object oldValue, object newValue)
-        {
-            if (oldValue == null && newValue == null) return false;
-            if (oldValue == null || newValue == null) return true;
-            
-            var type = oldValue.GetType();
-            
-            // 复杂类型需要序列化
-            return !type.IsPrimitive && type != typeof(string) && !type.IsEnum;
-        }
-
-        /// <summary>
-        /// 高效的值序列化
-        /// </summary>
-        private string SerializeValueEfficiently(object value)
-        {
-            if (value == null) return "";
-            
-            try
-            {
-                // 对于简单类型，直接转换
-                var type = value.GetType();
-                if (type.IsPrimitive || type == typeof(string) || type.IsEnum)
-                {
-                    return value.ToString();
-                }
-                
-                // 对于复杂类型，使用JSON序列化
-                return Json.ToJson(value);
-            }
-            catch
-            {
-                return value.ToString();
-            }
-        }
-
-        /// <summary>
-        /// 🔥 优化：将字符串转换为合适的值类型 - 简化版本，增加调试信息
-        /// </summary>
-        private object ConvertStringToValue(string value)
-        {
-            if (string.IsNullOrEmpty(value))
-                return null;
-
-            // 🔥 调试信息：记录字段修改的详细信息
-            try
-            {
-                Debug.Log($"PropertyElement [{ViewNode.Data.GetType().Name}].{MemberMeta.Path}: 字段值变化 '{_lastValue}' -> '{value}'");
-            }
-            catch
-            {
-                // 忽略日志错误
-            }
-
-            // 🔥 简化的类型转换 - 直接返回字符串值，让FieldModifyOperation处理类型转换
-            return value;
         }
 
         /// <summary>
