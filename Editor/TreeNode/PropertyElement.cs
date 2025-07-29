@@ -127,23 +127,48 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 批量收集UI元素
+        /// 批量收集UI元素 - 🔥 修复：只收集直接属于当前PropertyElement的UI元素，避免收集嵌套PropertyElement的元素
         /// </summary>
         private void CollectUIElements(Dictionary<Type, List<VisualElement>> allFields)
         {
-            // 使用单次遍历收集所有元素类型
-            this.Query<VisualElement>().ForEach(element =>
+            // 🔥 修复策略：使用深度优先遍历，但遇到嵌套的PropertyElement时停止向下递归
+            CollectUIElementsRecursive(this, allFields, 0);
+        }
+
+        /// <summary>
+        /// 🔥 新增：递归收集UI元素，但避免跨越PropertyElement边界
+        /// </summary>
+        private void CollectUIElementsRecursive(VisualElement current, Dictionary<Type, List<VisualElement>> allFields, int depth)
+        {
+            // 防止无限递归
+            if (depth > 20) return;
+
+            // 检查当前元素是否为可监听的输入控件
+            var elementType = current.GetType();
+            if (IsMonitorableElement(elementType))
             {
-                var elementType = element.GetType();
-                if (IsMonitorableElement(elementType))
+                if (!allFields.ContainsKey(elementType))
                 {
-                    if (!allFields.ContainsKey(elementType))
-                    {
-                        allFields[elementType] = new List<VisualElement>();
-                    }
-                    allFields[elementType].Add(element);
+                    allFields[elementType] = new List<VisualElement>();
                 }
-            });
+                allFields[elementType].Add(current);
+            }
+
+            // 🔥 关键修复：遍历子元素，但跳过嵌套的PropertyElement
+            for (int i = 0; i < current.childCount; i++)
+            {
+                var child = current[i];
+                
+                // 如果子元素是PropertyElement且不是当前PropertyElement，则跳过其子树
+                // 这样避免了收集嵌套PropertyElement中的控件
+                if (child is PropertyElement childPropertyElement && childPropertyElement != this)
+                {
+                    continue; // 跳过嵌套PropertyElement的整个子树
+                }
+
+                // 递归处理非PropertyElement的子元素
+                CollectUIElementsRecursive(child, allFields, depth + 1);
+            }
         }
 
         /// <summary>
@@ -315,7 +340,7 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 记录字段修改操作 - 优化版本
+        /// 记录字段修改操作 - 优化版本，增加调试信息
         /// </summary>
         private void RecordFieldModification(object oldValue, object newValue)
         {
@@ -325,6 +350,11 @@ namespace TreeNode.Editor
             {
                 // 快速值比较，避免不必要的序列化
                 if (FastValueEquals(oldValue, newValue)) return;
+                
+                // 🔥 调试信息：记录触发字段修改的PropertyElement详细信息
+                Debug.Log($"🔥 字段修改触发: PropertyElement[{GetGlobalPath()}] " +
+                         $"LocalPath='{LocalPath}' MemberPath='{MemberMeta.Path}' " +
+                         $"值变化: '{oldValue}' -> '{newValue}'");
                 
                 // 延迟序列化：只在确实需要记录时才序列化
                 string oldValueJson = null;
@@ -357,6 +387,7 @@ namespace TreeNode.Editor
                 if (ViewNode.View is TreeNodeGraphView graphView)
                 {
                     graphView.Window.History.RecordOperation(fieldModifyOperation);
+                    Debug.Log($"✅ 字段修改已记录到历史系统: Node={ViewNode.Data.GetType().Name}, Field={MemberMeta.Path}");
                 }
                 
                 _lastValue = newValue;
@@ -423,6 +454,28 @@ namespace TreeNode.Editor
             {
                 return value.ToString();
             }
+        }
+
+        /// <summary>
+        /// 🔥 优化：将字符串转换为合适的值类型 - 简化版本，增加调试信息
+        /// </summary>
+        private object ConvertStringToValue(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return null;
+
+            // 🔥 调试信息：记录字段修改的详细信息
+            try
+            {
+                Debug.Log($"PropertyElement [{ViewNode.Data.GetType().Name}].{MemberMeta.Path}: 字段值变化 '{_lastValue}' -> '{value}'");
+            }
+            catch
+            {
+                // 忽略日志错误
+            }
+
+            // 🔥 简化的类型转换 - 直接返回字符串值，让FieldModifyOperation处理类型转换
+            return value;
         }
 
         /// <summary>
