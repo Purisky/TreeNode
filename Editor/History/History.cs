@@ -24,31 +24,22 @@ namespace TreeNode.Editor
         // 批量操作管理
         private HistoryStep _currentBatch;
         private bool _isBatchMode = false;
-        private readonly object _batchLock = new object();
         
         // 防重复记录机制
         private HashSet<string> _recordedOperationIds = new HashSet<string>();
-        private readonly object _duplicateLock = new object();
 
-
-        // 操作合并和缓存
-        private ConcurrentQueue<IAtomicOperation> _pendingOperations = new ConcurrentQueue<IAtomicOperation>();
-        private System.Threading.Timer _mergeTimer;
-        private readonly object _mergeLock = new object();
+        // 操作合并和缓存 - 简化为同步机制
+        private List<IAtomicOperation> _pendingOperations = new List<IAtomicOperation>();
+        private DateTime _lastMergeTime = DateTime.MinValue;
         
         // 增量渲染
         private HashSet<ViewNode> _dirtyNodes = new HashSet<ViewNode>();
         private bool _needsFullRedraw = false;
-        private readonly object _renderLock = new object();
 
         public History(TreeNodeGraphWindow window)
         {
             Window = window;
             AddStep(false);
-            
-            // 初始化操作合并定时器
-            _mergeTimer = new System.Threading.Timer(ProcessPendingOperations, null, 
-                OperationMergeWindowMs, OperationMergeWindowMs);
         }
 
         public void Clear()
@@ -58,22 +49,13 @@ namespace TreeNode.Editor
             Steps.Add(historyStep);
             RedoSteps.Clear();
             
-            lock (_batchLock)
-            {
-                _currentBatch = null;
-                _isBatchMode = false;
-            }
+            _currentBatch = null;
+            _isBatchMode = false;
             
-            lock (_duplicateLock)
-            {
-                _recordedOperationIds.Clear();
-            }
+            _recordedOperationIds.Clear();
 
             // 清理缓存和统计
-            lock (_statsLock)
-            {
-                _performanceStats.Reset();
-            }
+            _performanceStats.Reset();
             
             ClearNodeCache();
             ClearRenderingState();
@@ -90,12 +72,9 @@ namespace TreeNode.Editor
             }
 
             // 如果在批量模式中，不创建新步骤
-            lock (_batchLock)
+            if (_isBatchMode && _currentBatch != null)
             {
-                if (_isBatchMode && _currentBatch != null)
-                {
-                    return;
-                }
+                return;
             }
 
             Steps.Add(new HistoryStep(Window.JsonAsset));
@@ -107,10 +86,7 @@ namespace TreeNode.Editor
             RedoSteps.Clear();
             
             // 清理操作ID缓存
-            lock (_duplicateLock)
-            {
-                _recordedOperationIds.Clear();
-            }
+            _recordedOperationIds.Clear();
 
             UpdatePerformanceStats();
         }
@@ -142,21 +118,19 @@ namespace TreeNode.Editor
             else
             {
                 // 对于非字段修改操作，继续使用防重复机制
-                lock (_duplicateLock)
+                if (_recordedOperationIds.Contains(operationId))
                 {
-                    if (_recordedOperationIds.Contains(operationId))
-                    {
-                        //Debug.LogWarning($"重复操作被忽略: {operationId}");
-                        return;
-                    }
-                    _recordedOperationIds.Add(operationId);
+                    //Debug.LogWarning($"重复操作被忽略: {operationId}");
+                    return;
                 }
+                _recordedOperationIds.Add(operationId);
             }
 
             // 智能操作合并：将操作加入待处理队列
             if (ShouldMergeOperation(operation))
             {
-                _pendingOperations.Enqueue(operation);
+                _pendingOperations.Add(operation);
+                TryProcessPendingOperations();
                 return;
             }
 
@@ -165,79 +139,76 @@ namespace TreeNode.Editor
 
             // 更新性能统计
             var elapsed = (DateTime.Now - startTime).TotalMilliseconds;
-            lock (_statsLock)
-            {
-                _performanceStats.RecordOperationTime(elapsed);
-            }
+            _performanceStats.RecordOperationTime(elapsed);
 
             Window.MakeDirty();
         }
+
+        /// <summary>
+        /// 基于时间窗口尝试处理待合并操作
+        /// </summary>
+        private void TryProcessPendingOperations()
+        {
+            var timeSinceLastMerge = DateTime.Now - _lastMergeTime;
+            if (timeSinceLastMerge.TotalMilliseconds >= OperationMergeWindowMs || _pendingOperations.Count >= 10)
+            {
+                ProcessPendingOperations();
+            }
+        }
+
         /// <summary>
         /// 开始批量操作
         /// </summary>
         public void BeginBatch(string description = "批量操作")
         {
-            lock (_batchLock)
+            if (_isBatchMode)
             {
-                if (_isBatchMode)
-                {
-                    EndBatch();
-                }
-
-                _currentBatch = new HistoryStep();
-                _currentBatch.Description = description;
-                // 确保批量操作开始时记录当前状态
-                _currentBatch.EnsureSnapshot(Window.JsonAsset);
-                _isBatchMode = true;
+                EndBatch();
             }
+
+            _currentBatch = new HistoryStep();
+            _currentBatch.Description = description;
+            // 确保批量操作开始时记录当前状态
+            _currentBatch.EnsureSnapshot(Window.JsonAsset);
+            _isBatchMode = true;
             
             // 清理操作ID缓存，为批量操作准备
-            lock (_duplicateLock)
-            {
-                _recordedOperationIds.Clear();
-            }
+            _recordedOperationIds.Clear();
 
-            lock (_statsLock)
-            {
-                _performanceStats.IsBatchMode = true;
-            }
+            _performanceStats.IsBatchMode = true;
         }
+
         /// <summary>
         /// 结束批量操作
         /// </summary>
         public void EndBatch()
         {
-            lock (_batchLock)
-            {
-                if (!_isBatchMode || _currentBatch == null) return;
+            if (!_isBatchMode || _currentBatch == null) return;
 
-                if (_currentBatch.Operations.Count > 0)
+            if (_currentBatch.Operations.Count > 0)
+            {
+                _currentBatch.Commit();
+                // 确保批量操作结束时包含正确的状态快照
+                _currentBatch.EnsureSnapshot(Window.JsonAsset);
+                Steps.Add(_currentBatch);
+                
+                if (Steps.Count > MaxStep)
                 {
-                    _currentBatch.Commit();
-                    // 确保批量操作结束时包含正确的状态快照
-                    _currentBatch.EnsureSnapshot(Window.JsonAsset);
-                    Steps.Add(_currentBatch);
-                    
-                    if (Steps.Count > MaxStep)
-                    {
-                        Steps.RemoveAt(0);
-                        TriggerMemoryOptimization();
-                    }
-                    
-                    RedoSteps.Clear();
+                    Steps.RemoveAt(0);
+                    TriggerMemoryOptimization();
                 }
-
-                _currentBatch = null;
-                _isBatchMode = false;
+                
+                RedoSteps.Clear();
             }
 
-            lock (_statsLock)
-            {
-                _performanceStats.IsBatchMode = false;
-            }
+            _currentBatch = null;
+            _isBatchMode = false;
+
+            _performanceStats.IsBatchMode = false;
 
             Window.MakeDirty();
         }
+
         public bool Undo()
         {
             if (Steps.Count <= 1) { return false; }
@@ -254,14 +225,12 @@ namespace TreeNode.Editor
             
             // 更新性能统计
             var elapsed = (DateTime.Now - startTime).TotalMilliseconds;
-            lock (_statsLock)
-            {
-                _performanceStats.RecordUndoTime(elapsed);
-            }
+            _performanceStats.RecordUndoTime(elapsed);
             
             Debug.Log($"撤销操作完成 - 耗时:{elapsed:F2}ms");
             return true;
         }
+
         public bool Redo()
         {
             if (!RedoSteps.Any()) { return false; }
@@ -277,15 +246,13 @@ namespace TreeNode.Editor
             
             // 更新性能统计
             var elapsed = (DateTime.Now - startTime).TotalMilliseconds;
-            lock (_statsLock)
-            {
-                _performanceStats.RecordRedoTime(elapsed);
-                _performanceStats.RedoSteps++;
-            }
+            _performanceStats.RecordRedoTime(elapsed);
+            _performanceStats.RedoSteps++;
             
             Debug.Log($"重做操作完成 - 耗时:{elapsed:F2}ms");
             return true;
         }
+
         /// <summary>
         /// 获取历史记录摘要
         /// </summary>
@@ -303,19 +270,14 @@ namespace TreeNode.Editor
             
             return summary.ToString();
         }
+
         /// <summary>
         /// 释放资源
         /// </summary>
         public void Dispose()
         {
-            _mergeTimer?.Dispose();
             ClearNodeCache();
             ClearRenderingState();
         }
-
     }
-
-
-
-
 }

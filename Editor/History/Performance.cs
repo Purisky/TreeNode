@@ -16,21 +16,17 @@ namespace TreeNode.Editor
         private long _lastGCTime = DateTime.Now.Ticks;
         private const long GCIntervalTicks = TimeSpan.TicksPerMinute * 5; // 每5分钟检查一次GC
 
-        // 性能优化相关
+        // 性能优化相关 - 移除不必要的锁
         private PerformanceStats _performanceStats = new PerformanceStats();
-        private readonly object _statsLock = new object();
 
         /// <summary>
         /// 更新性能统计
         /// </summary>
         private void UpdatePerformanceStats()
         {
-            lock (_statsLock)
-            {
-                _performanceStats.TotalSteps = Steps.Count;
-                _performanceStats.RedoSteps = RedoSteps.Count;
-                _performanceStats.CachedOperations = _nodeCache.Count;
-            }
+            _performanceStats.TotalSteps = Steps.Count;
+            _performanceStats.RedoSteps = RedoSteps.Count;
+            _performanceStats.CachedOperations = _nodeCache.Count;
         }
 
         /// <summary>
@@ -38,11 +34,8 @@ namespace TreeNode.Editor
         /// </summary>
         public PerformanceStats GetPerformanceStats()
         {
-            lock (_statsLock)
-            {
-                UpdatePerformanceStats();
-                return _performanceStats.Clone();
-            }
+            UpdatePerformanceStats();
+            return _performanceStats.Clone();
         }
 
         /// <summary>
@@ -67,16 +60,13 @@ namespace TreeNode.Editor
         {
             var memoryUsage = GC.GetTotalMemory(false) / (1024 * 1024); // MB
 
-            lock (_statsLock)
-            {
-                _performanceStats.MemoryUsageMB = memoryUsage;
+            _performanceStats.MemoryUsageMB = memoryUsage;
 
-                if (memoryUsage > MaxMemoryUsageMB)
-                {
-                    Debug.LogWarning($"History memory usage ({memoryUsage}MB) exceeds limit ({MaxMemoryUsageMB}MB)");
-                    // 触发更积极的内存清理
-                    PerformAggressiveCleanup();
-                }
+            if (memoryUsage > MaxMemoryUsageMB)
+            {
+                Debug.LogWarning($"History memory usage ({memoryUsage}MB) exceeds limit ({MaxMemoryUsageMB}MB)");
+                // 触发更积极的内存清理
+                PerformAggressiveCleanup();
             }
         }
 
@@ -138,6 +128,7 @@ namespace TreeNode.Editor
             _nodeCache.Clear();
         }
     }
+    
     /// <summary>
     /// 性能统计信息
     /// </summary>

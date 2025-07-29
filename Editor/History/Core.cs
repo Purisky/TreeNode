@@ -22,29 +22,26 @@ namespace TreeNode.Editor
         /// </summary>
         private void ProcessOperationImmediate(IAtomicOperation operation)
         {
-            lock (_batchLock)
+            if (_isBatchMode && _currentBatch != null)
             {
-                if (_isBatchMode && _currentBatch != null)
-                {
-                    _currentBatch.AddOperation(operation);
-                }
-                else
-                {
-                    var step = new HistoryStep();
-                    step.AddOperation(operation);
-                    step.Commit(operation.Description);
-                    // 确保步骤包含当前状态的快照
-                    step.EnsureSnapshot(Window.JsonAsset);
-                    Steps.Add(step);
+                _currentBatch.AddOperation(operation);
+            }
+            else
+            {
+                var step = new HistoryStep();
+                step.AddOperation(operation);
+                step.Commit(operation.Description);
+                // 确保步骤包含当前状态的快照
+                step.EnsureSnapshot(Window.JsonAsset);
+                Steps.Add(step);
 
-                    if (Steps.Count > MaxStep)
-                    {
-                        Steps.RemoveAt(0);
-                        TriggerMemoryOptimization();
-                    }
-
-                    RedoSteps.Clear();
+                if (Steps.Count > MaxStep)
+                {
+                    Steps.RemoveAt(0);
+                    TriggerMemoryOptimization();
                 }
+
+                RedoSteps.Clear();
             }
 
             // 标记需要增量渲染
@@ -52,39 +49,29 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 处理待合并的操作
+        /// 处理待合并的操作 - 简化为同步处理
         /// </summary>
-        private void ProcessPendingOperations(object state)
+        private void ProcessPendingOperations()
         {
-            if (_pendingOperations.IsEmpty) return;
+            if (_pendingOperations.Count == 0) return;
 
-            lock (_mergeLock)
+            var operationsToProcess = new List<IAtomicOperation>(_pendingOperations);
+            _pendingOperations.Clear();
+            _lastMergeTime = DateTime.Now;
+
+            if (operationsToProcess.Count == 0) return;
+
+            // 智能合并操作
+            var mergedOperations = MergeOperations(operationsToProcess);
+
+            // 处理合并后的操作
+            foreach (var operation in mergedOperations)
             {
-                var operationsToProcess = new List<IAtomicOperation>();
-
-                // 收集所有待处理操作
-                while (_pendingOperations.TryDequeue(out var operation))
-                {
-                    operationsToProcess.Add(operation);
-                }
-
-                if (operationsToProcess.Count == 0) return;
-
-                // 智能合并操作
-                var mergedOperations = MergeOperations(operationsToProcess);
-
-                // 处理合并后的操作
-                foreach (var operation in mergedOperations)
-                {
-                    ProcessOperationImmediate(operation);
-                }
-
-                // 更新统计
-                lock (_statsLock)
-                {
-                    _performanceStats.MergedOperations += operationsToProcess.Count - mergedOperations.Count;
-                }
+                ProcessOperationImmediate(operation);
             }
+
+            // 更新统计
+            _performanceStats.MergedOperations += operationsToProcess.Count - mergedOperations.Count;
         }
 
         /// <summary>
@@ -163,24 +150,21 @@ namespace TreeNode.Editor
         /// </summary>
         private void MarkForIncrementalRender(IAtomicOperation operation)
         {
-            lock (_renderLock)
+            switch (operation.Type)
             {
-                switch (operation.Type)
-                {
-                    case OperationType.FieldModify:
-                        if (operation is FieldModifyOperation fieldOp &&
-                            TryGetViewNode(fieldOp.Node, out var viewNode))
-                        {
-                            _dirtyNodes.Add(viewNode);
-                        }
-                        break;
+                case OperationType.FieldModify:
+                    if (operation is FieldModifyOperation fieldOp &&
+                        TryGetViewNode(fieldOp.Node, out var viewNode))
+                    {
+                        _dirtyNodes.Add(viewNode);
+                    }
+                    break;
 
-                    case OperationType.NodeCreate:
-                    case OperationType.NodeDelete:
-                    case OperationType.NodeMove:
-                        _needsFullRedraw = true;
-                        break;
-                }
+                case OperationType.NodeCreate:
+                case OperationType.NodeDelete:
+                case OperationType.NodeMove:
+                    _needsFullRedraw = true;
+                    break;
             }
         }
 
@@ -209,6 +193,7 @@ namespace TreeNode.Editor
 
             return false;
         }
+
         /// <summary>
         /// 使用增量渲染优化的提交 - 修复版本，确保GraphView同步
         /// </summary>
@@ -309,27 +294,24 @@ namespace TreeNode.Editor
         /// </summary>
         private void IncrementalRedraw(HistoryStep step)
         {
-            lock (_renderLock)
+            if (_needsFullRedraw)
             {
-                if (_needsFullRedraw)
-                {
-                    Window.GraphView.Redraw();
-                    ClearRenderingState();
-                    return;
-                }
-
-                // 只更新脏节点
-                foreach (var dirtyNode in _dirtyNodes)
-                {
-                    if (dirtyNode != null)
-                    {
-                        // 只刷新属性面板，不重建整个节点
-                        dirtyNode.RefreshPropertyElements();
-                    }
-                }
-
+                Window.GraphView.Redraw();
                 ClearRenderingState();
+                return;
             }
+
+            // 只更新脏节点
+            foreach (var dirtyNode in _dirtyNodes)
+            {
+                if (dirtyNode != null)
+                {
+                    // 只刷新属性面板，不重建整个节点
+                    dirtyNode.RefreshPropertyElements();
+                }
+            }
+
+            ClearRenderingState();
         }
 
         /// <summary>
@@ -337,11 +319,8 @@ namespace TreeNode.Editor
         /// </summary>
         private void ClearRenderingState()
         {
-            lock (_renderLock)
-            {
-                _dirtyNodes.Clear();
-                _needsFullRedraw = false;
-            }
+            _dirtyNodes.Clear();
+            _needsFullRedraw = false;
         }
     }
 }
