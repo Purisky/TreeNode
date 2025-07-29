@@ -767,7 +767,7 @@ namespace TreeNode.Editor
             summary.AppendLine($"历史步骤总数: {Steps.Count}");
             summary.AppendLine($"可重做步骤: {RedoSteps.Count}");
             summary.AppendLine($"批量模式: {(_isBatchMode ? "开启" : "关闭")}");
-            
+
             var stats = GetPerformanceStats();
             summary.AppendLine($"内存使用: {stats.MemoryUsageMB:F2}MB");
             summary.AppendLine($"缓存节点: {stats.CachedOperations}");
@@ -976,19 +976,295 @@ namespace TreeNode.Editor
             Timestamp = DateTime.Now;
         }
 
+        /// <summary>
+        /// 执行节点创建操作 - 将节点添加到指定位置
+        /// </summary>
         public bool Execute()
         {
-            // 创建操作的执行逻辑
-            return true;
+            try
+            {
+                if (Node == null || Location == null || GraphView == null)
+                {
+                    Debug.LogError("NodeCreateOperation.Execute: 参数不完整");
+                    return false;
+                }
+
+                // 根据位置类型添加节点
+                bool success = AddNodeToLocation();
+                
+                if (success)
+                {
+                    // 创建对应的ViewNode
+                    CreateViewNode();
+                    
+                    Debug.Log($"成功执行节点创建: {Node.GetType().Name} at {Location.GetFullPath()}");
+                }
+
+                return success;
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"执行节点创建操作失败: {e.Message}");
+                return false;
+            }
         }
 
+        /// <summary>
+        /// 撤销节点创建操作 - 从指定位置移除节点
+        /// </summary>
         public bool Undo()
         {
-            // 撤销创建操作 - 删除节点
-            return true;
+            try
+            {
+                if (Node == null || Location == null || GraphView == null)
+                {
+                    Debug.LogError("NodeCreateOperation.Undo: 参数不完整");
+                    return false;
+                }
+
+                // 移除ViewNode
+                RemoveViewNode();
+                
+                // 从位置移除节点
+                bool success = RemoveNodeFromLocation();
+                
+                if (success)
+                {
+                    Debug.Log($"成功撤销节点创建: {Node.GetType().Name} from {Location.GetFullPath()}");
+                }
+
+                return success;
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"撤销节点创建操作失败: {e.Message}");
+                return false;
+            }
         }
 
-        public bool CanUndo() => Node != null && GraphView != null;
+        /// <summary>
+        /// 将节点添加到指定位置
+        /// </summary>
+        private bool AddNodeToLocation()
+        {
+            try
+            {
+                var asset = GraphView.Window.JsonAsset;
+                if (asset == null)
+                    return false;
+
+                switch (Location.Type)
+                {
+                    case LocationType.Root:
+                        // 添加到根节点列表
+                        if (Location.RootIndex >= 0 && Location.RootIndex <= asset.Data.Nodes.Count)
+                        {
+                            asset.Data.Nodes.Insert(Location.RootIndex, Node);
+                        }
+                        else
+                        {
+                            asset.Data.Nodes.Add(Node);
+                        }
+                        return true;
+
+                    case LocationType.Child:
+                        // 添加到父节点的子节点端口
+                        return AddNodeToParentPort();
+
+                    default:
+                        Debug.LogWarning($"不支持的位置类型: {Location.Type}");
+                        return false;
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"添加节点到位置失败: {e.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 从指定位置移除节点
+        /// </summary>
+        private bool RemoveNodeFromLocation()
+        {
+            try
+            {
+                var asset = GraphView.Window.JsonAsset;
+                if (asset == null)
+                    return false;
+
+                switch (Location.Type)
+                {
+                    case LocationType.Root:
+                        // 从根节点列表移除
+                        return asset.Data.Nodes.Remove(Node);
+
+                    case LocationType.Child:
+                        // 从父节点的子节点端口移除
+                        return RemoveNodeFromParentPort();
+
+                    default:
+                        Debug.LogWarning($"不支持的位置类型: {Location.Type}");
+                        return false;
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"从位置移除节点失败: {e.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 将节点添加到父节点的端口
+        /// </summary>
+        private bool AddNodeToParentPort()
+        {
+            try
+            {
+                if (Location.ParentNode == null || string.IsNullOrEmpty(Location.PortName))
+                    return false;
+
+                var parentType = Location.ParentNode.GetType();
+                var portField = parentType.GetField(Location.PortName) ?? 
+                               parentType.GetProperty(Location.PortName)?.GetValue(Location.ParentNode) as System.Reflection.FieldInfo;
+
+                if (portField == null)
+                {
+                    // 尝试属性
+                    var portProperty = parentType.GetProperty(Location.PortName);
+                    if (portProperty == null)
+                        return false;
+
+                    var portValue = portProperty.GetValue(Location.ParentNode);
+                    
+                    if (Location.IsMultiPort)
+                    {
+                        // 多端口：添加到列表
+                        if (portValue is System.Collections.IList list)
+                        {
+                            if (Location.ListIndex >= 0 && Location.ListIndex <= list.Count)
+                            {
+                                list.Insert(Location.ListIndex, Node);
+                            }
+                            else
+                            {
+                                list.Add(Node);
+                            }
+                            return true;
+                        }
+                    }
+                    else
+                    {
+                        // 单端口：直接设置
+                        portProperty.SetValue(Location.ParentNode, Node);
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"添加节点到父端口失败: {e.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 从父节点的端口移除节点
+        /// </summary>
+        private bool RemoveNodeFromParentPort()
+        {
+            try
+            {
+                if (Location.ParentNode == null || string.IsNullOrEmpty(Location.PortName))
+                    return false;
+
+                var parentType = Location.ParentNode.GetType();
+                var portProperty = parentType.GetProperty(Location.PortName);
+                if (portProperty == null)
+                    return false;
+
+                var portValue = portProperty.GetValue(Location.ParentNode);
+                
+                if (Location.IsMultiPort)
+                {
+                    if (portValue is System.Collections.IList list)
+                    {
+                        list.Remove(Node);
+                        return true;
+                    }
+                }
+                else
+                {
+                    // 单端口：设置为null
+                    portProperty.SetValue(Location.ParentNode, null);
+                    return true;
+                }
+
+                return false;
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"从父端口移除节点失败: {e.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 创建ViewNode
+        /// </summary>
+        private void CreateViewNode()
+        {
+            try
+            {
+                if (GraphView.NodeDic.ContainsKey(Node))
+                    return; // 已存在
+
+                ViewNode viewNode;
+                if (Node.PrefabData != null)
+                {
+                    viewNode = new PrefabViewNode(Node, GraphView);
+                }
+                else
+                {
+                    viewNode = new ViewNode(Node, GraphView);
+                }
+
+                viewNode.SetPosition(new Rect(Node.Position, Vector2.zero));
+                GraphView.ViewNodes.Add(viewNode);
+                GraphView.NodeDic.Add(Node, viewNode);
+                GraphView.AddElement(viewNode);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"创建ViewNode失败: {e.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 移除ViewNode
+        /// </summary>
+        private void RemoveViewNode()
+        {
+            try
+            {
+                if (GraphView.NodeDic.TryGetValue(Node, out var viewNode))
+                {
+                    GraphView.ViewNodes.Remove(viewNode);
+                    GraphView.NodeDic.Remove(Node);
+                    GraphView.RemoveElement(viewNode);
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"移除ViewNode失败: {e.Message}");
+            }
+        }
+
+        public bool CanUndo() => Node != null && Location != null && GraphView != null;
 
         public string GetOperationSummary()
         {
@@ -1002,7 +1278,7 @@ namespace TreeNode.Editor
     }
 
     /// <summary>
-    /// 节点删除操作
+    /// 节点删除操作 - 实现具体的Execute/Undo逻辑
     /// </summary>
     public class NodeDeleteOperation : IAtomicOperation
     {
@@ -1014,23 +1290,371 @@ namespace TreeNode.Editor
         public NodeLocation FromLocation { get; set; }
         public TreeNodeGraphView GraphView { get; set; }
 
+        // 保存节点在删除前的连接信息
+        private List<EdgeInfo> _savedEdges = new List<EdgeInfo>();
+
         public NodeDeleteOperation(JsonNode node, NodeLocation fromLocation, TreeNodeGraphView graphView)
         {
             Node = node;
             FromLocation = fromLocation;
             GraphView = graphView;
             Timestamp = DateTime.Now;
+            
+            // 删除前保存边连接信息
+            SaveEdgeConnections();
         }
 
+        /// <summary>
+        /// 执行节点删除操作 - 从指定位置移除节点
+        /// </summary>
         public bool Execute()
         {
-            return true;
+            try
+            {
+                if (Node == null || FromLocation == null || GraphView == null)
+                {
+                    Debug.LogError("NodeDeleteOperation.Execute: 参数不完整");
+                    return false;
+                }
+
+                // 保存边连接（如果还没保存）
+                if (_savedEdges.Count == 0)
+                {
+                    SaveEdgeConnections();
+                }
+
+                // 移除ViewNode
+                RemoveViewNode();
+                
+                // 从位置移除节点
+                bool success = RemoveNodeFromLocation();
+                
+                if (success)
+                {
+                    Debug.Log($"成功执行节点删除: {Node.GetType().Name} from {FromLocation.GetFullPath()}");
+                }
+
+                return success;
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"执行节点删除操作失败: {e.Message}");
+                return false;
+            }
         }
 
+        /// <summary>
+        /// 撤销节点删除操作 - 将节点恢复到原位置
+        /// </summary>
         public bool Undo()
         {
-            // 撤销删除操作 - 恢复节点
-            return true;
+            try
+            {
+                if (Node == null || FromLocation == null || GraphView == null)
+                {
+                    Debug.LogError("NodeDeleteOperation.Undo: 参数不完整");
+                    return false;
+                }
+
+                // 将节点添加回原位置
+                bool success = AddNodeToLocation();
+                
+                if (success)
+                {
+                    // 创建对应的ViewNode
+                    CreateViewNode();
+                    
+                    // 恢复边连接
+                    RestoreEdgeConnections();
+                    
+                    Debug.Log($"成功撤销节点删除: {Node.GetType().Name} at {FromLocation.GetFullPath()}");
+                }
+
+                return success;
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"撤销节点删除操作失败: {e.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 保存节点的边连接信息
+        /// </summary>
+        private void SaveEdgeConnections()
+        {
+            try
+            {
+                _savedEdges.Clear();
+                
+                // 保存作为子节点的连接（父节点指向此节点）
+                var asset = GraphView.Window.JsonAsset;
+                if (asset != null)
+                {
+                    SaveIncomingEdges(asset.Data.Nodes);
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"保存边连接信息失败: {e.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 递归保存输入边
+        /// </summary>
+        private void SaveIncomingEdges(List<JsonNode> nodes)
+        {
+            foreach (var node in nodes)
+            {
+                if (node == null) continue;
+
+                var nodeType = node.GetType();
+                var properties = nodeType.GetProperties();
+
+                foreach (var prop in properties)
+                {
+                    var value = prop.GetValue(node);
+                    
+                    // 检查单个子节点连接
+                    if (value == Node)
+                    {
+                        _savedEdges.Add(new EdgeInfo
+                        {
+                            ParentNode = node,
+                            ChildNode = Node,
+                            PortName = prop.Name,
+                            IsMultiPort = false,
+                            ListIndex = -1
+                        });
+                    }
+                    // 检查多个子节点连接
+                    else if (value is System.Collections.IList list)
+                    {
+                        for (int i = 0; i < list.Count; i++)
+                        {
+                            if (list[i] == Node)
+                            {
+                                _savedEdges.Add(new EdgeInfo
+                                {
+                                    ParentNode = node,
+                                    ChildNode = Node,
+                                    PortName = prop.Name,
+                                    IsMultiPort = true,
+                                    ListIndex = i
+                                });
+                            }
+                        }
+                    }
+                }
+
+                // 递归检查子节点
+                SaveIncomingEdgesFromNode(node);
+            }
+        }
+
+        /// <summary>
+        /// 递归保存输入边
+        /// </summary>
+        private void SaveIncomingEdgesFromNode(JsonNode node)
+        {
+            var nodeType = node.GetType();
+            var properties = nodeType.GetProperties();
+
+            foreach (var prop in properties)
+            {
+                var value = prop.GetValue(node);
+                
+                if (value is JsonNode childNode && childNode != null)
+                {
+                    SaveIncomingEdges(new List<JsonNode> { childNode });
+                }
+                else if (value is System.Collections.IList list)
+                {
+                    var childNodes = new List<JsonNode>();
+                    foreach (var item in list)
+                    {
+                        if (item is JsonNode child)
+                            childNodes.Add(child);
+                    }
+                    if (childNodes.Count > 0)
+                        SaveIncomingEdges(childNodes);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 恢复边连接
+        /// </summary>
+        private void RestoreEdgeConnections()
+        {
+            try
+            {
+                foreach (var edge in _savedEdges)
+                {
+                    var parentType = edge.ParentNode.GetType();
+                    var portProperty = parentType.GetProperty(edge.PortName);
+                    
+                    if (portProperty == null) continue;
+
+                    if (edge.IsMultiPort)
+                    {
+                        var list = portProperty.GetValue(edge.ParentNode) as System.Collections.IList;
+                        if (list != null)
+                        {
+                            if (edge.ListIndex >= 0 && edge.ListIndex <= list.Count)
+                            {
+                                list.Insert(edge.ListIndex, Node);
+                            }
+                            else
+                            {
+                                list.Add(Node);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        portProperty.SetValue(edge.ParentNode, Node);
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"恢复边连接失败: {e.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 将节点添加到位置（复用NodeCreateOperation的逻辑）
+        /// </summary>
+        private bool AddNodeToLocation()
+        {
+            // 创建临时的NodeCreateOperation来复用逻辑
+            var createOp = new NodeCreateOperation(Node, FromLocation, GraphView);
+            return createOp.Execute();
+        }
+
+        /// <summary>
+        /// 从位置移除节点
+        /// </summary>
+        private bool RemoveNodeFromLocation()
+        {
+            try
+            {
+                var asset = GraphView.Window.JsonAsset;
+                if (asset == null)
+                    return false;
+
+                switch (FromLocation.Type)
+                {
+                    case LocationType.Root:
+                        return asset.Data.Nodes.Remove(Node);
+
+                    case LocationType.Child:
+                        return RemoveNodeFromParentPort();
+
+                    default:
+                        Debug.LogWarning($"不支持的位置类型: {FromLocation.Type}");
+                        return false;
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"从位置移除节点失败: {e.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 从父节点的端口移除节点
+        /// </summary>
+        private bool RemoveNodeFromParentPort()
+        {
+            try
+            {
+                if (FromLocation.ParentNode == null || string.IsNullOrEmpty(FromLocation.PortName))
+                    return false;
+
+                var parentType = FromLocation.ParentNode.GetType();
+                var portProperty = parentType.GetProperty(FromLocation.PortName);
+                if (portProperty == null)
+                    return false;
+
+                var portValue = portProperty.GetValue(FromLocation.ParentNode);
+                
+                if (FromLocation.IsMultiPort)
+                {
+                    if (portValue is System.Collections.IList list)
+                    {
+                        list.Remove(Node);
+                        return true;
+                    }
+                }
+                else
+                {
+                    portProperty.SetValue(FromLocation.ParentNode, null);
+                    return true;
+                }
+
+                return false;
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"从父端口移除节点失败: {e.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 创建ViewNode
+        /// </summary>
+        private void CreateViewNode()
+        {
+            try
+            {
+                if (GraphView.NodeDic.ContainsKey(Node))
+                    return;
+
+                ViewNode viewNode;
+                if (Node.PrefabData != null)
+                {
+                    viewNode = new PrefabViewNode(Node, GraphView);
+                }
+                else
+                {
+                    viewNode = new ViewNode(Node, GraphView);
+                }
+
+                viewNode.SetPosition(new Rect(Node.Position, Vector2.zero));
+                GraphView.ViewNodes.Add(viewNode);
+                GraphView.NodeDic.Add(Node, viewNode);
+                GraphView.AddElement(viewNode);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"创建ViewNode失败: {e.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 移除ViewNode
+        /// </summary>
+        private void RemoveViewNode()
+        {
+            try
+            {
+                if (GraphView.NodeDic.TryGetValue(Node, out var viewNode))
+                {
+                    GraphView.ViewNodes.Remove(viewNode);
+                    GraphView.NodeDic.Remove(Node);
+                    GraphView.RemoveElement(viewNode);
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"移除ViewNode失败: {e.Message}");
+            }
         }
 
         public bool CanUndo() => Node != null && FromLocation != null && GraphView != null;
@@ -1043,6 +1667,18 @@ namespace TreeNode.Editor
         public string GetOperationId()
         {
             return $"NodeDelete_{Node?.GetHashCode()}_{Timestamp.Ticks}";
+        }
+
+        /// <summary>
+        /// 边连接信息
+        /// </summary>
+        private class EdgeInfo
+        {
+            public JsonNode ParentNode { get; set; }
+            public JsonNode ChildNode { get; set; }
+            public string PortName { get; set; }
+            public bool IsMultiPort { get; set; }
+            public int ListIndex { get; set; }
         }
     }
 
@@ -1094,7 +1730,7 @@ namespace TreeNode.Editor
     }
 
     /// <summary>
-    /// 字段修改操作
+    /// 字段修改操作 - 实现具体的Execute/Undo逻辑
     /// </summary>
     public class FieldModifyOperation : IAtomicOperation
     {
@@ -1132,15 +1768,215 @@ namespace TreeNode.Editor
             _description = description;
         }
 
+        /// <summary>
+        /// 执行字段修改操作 - 将字段设置为新值
+        /// </summary>
         public bool Execute()
         {
-            return true;
+            try
+            {
+                if (Node == null)
+                {
+                    Debug.LogError("FieldModifyOperation.Execute: Node为空");
+                    return false;
+                }
+
+                return ApplyFieldValue(NewValue);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"执行字段修改操作失败: {e.Message}");
+                return false;
+            }
         }
 
+        /// <summary>
+        /// 撤销字段修改操作 - 将字段恢复为旧值
+        /// </summary>
         public bool Undo()
         {
-            // 撤销字段修改 - 恢复旧值
-            return true;
+            try
+            {
+                if (Node == null)
+                {
+                    Debug.LogError("FieldModifyOperation.Undo: Node为空");
+                    return false;
+                }
+
+                return ApplyFieldValue(OldValue);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"撤销字段修改操作失败: {e.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 应用字段值 - 核心逻辑，支持各种字段类型
+        /// </summary>
+        private bool ApplyFieldValue(string value)
+        {
+            try
+            {
+                // 处理Position字段的特殊情况
+                if (FieldPath == "Position")
+                {
+                    return ApplyPositionValue(value);
+                }
+
+                // 通过反射设置字段值
+                return ApplyFieldValueViaReflection(value);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"应用字段值失败 {FieldPath} = {value}: {e.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 应用Position字段值
+        /// </summary>
+        private bool ApplyPositionValue(string value)
+        {
+            try
+            {
+                // 解析Position字符串，格式："(x, y)"
+                if (TryParsePosition(value, out var position))
+                {
+                    Node.Position = position;
+                    
+                    // 同步更新ViewNode的位置
+                    if (GraphView?.NodeDic.TryGetValue(Node, out var viewNode) == true)
+                    {
+                        viewNode.SetPosition(new Rect(position, Vector2.zero));
+                    }
+                    
+                    return true;
+                }
+                
+                Debug.LogWarning($"无法解析Position值: {value}");
+                return false;
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"应用Position值失败: {e.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 解析Position字符串
+        /// </summary>
+        private bool TryParsePosition(string positionStr, out Vec2 position)
+        {
+            position = default;
+            
+            if (string.IsNullOrEmpty(positionStr))
+                return false;
+                
+            // 移除括号和空格
+            positionStr = positionStr.Trim('(', ')', ' ');
+            var parts = positionStr.Split(',');
+            
+            if (parts.Length != 2)
+                return false;
+                
+            if (float.TryParse(parts[0].Trim(), out var x) && 
+                float.TryParse(parts[1].Trim(), out var y))
+            {
+                position = new Vec2(x, y);
+                return true;
+            }
+            
+            return false;
+        }
+
+        /// <summary>
+        /// 通过反射应用字段值
+        /// </summary>
+        private bool ApplyFieldValueViaReflection(string value)
+        {
+            try
+            {
+                var nodeType = Node.GetType();
+                var fieldInfo = nodeType.GetField(FieldPath, 
+                    System.Reflection.BindingFlags.Public | 
+                    System.Reflection.BindingFlags.NonPublic | 
+                    System.Reflection.BindingFlags.Instance);
+                
+                if (fieldInfo != null)
+                {
+                    var convertedValue = ConvertStringToFieldType(value, fieldInfo.FieldType);
+                    fieldInfo.SetValue(Node, convertedValue);
+                    return true;
+                }
+
+                var propertyInfo = nodeType.GetProperty(FieldPath, 
+                    System.Reflection.BindingFlags.Public | 
+                    System.Reflection.BindingFlags.NonPublic | 
+                    System.Reflection.BindingFlags.Instance);
+                
+                if (propertyInfo != null && propertyInfo.CanWrite)
+                {
+                    var convertedValue = ConvertStringToFieldType(value, propertyInfo.PropertyType);
+                    propertyInfo.SetValue(Node, convertedValue);
+                    return true;
+                }
+
+                Debug.LogWarning($"未找到字段或属性: {FieldPath} 在类型 {nodeType.Name} 中");
+                return false;
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"反射设置字段值失败: {e.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 将字符串转换为对应的字段类型
+        /// </summary>
+        private object ConvertStringToFieldType(string value, Type targetType)
+        {
+            if (string.IsNullOrEmpty(value))
+                return GetDefaultValue(targetType);
+
+            // 处理可空类型
+            var underlyingType = Nullable.GetUnderlyingType(targetType) ?? targetType;
+
+            try
+            {
+                if (underlyingType == typeof(string))
+                    return value;
+                if (underlyingType == typeof(int))
+                    return int.Parse(value);
+                if (underlyingType == typeof(float))
+                    return float.Parse(value);
+                if (underlyingType == typeof(double))
+                    return double.Parse(value);
+                if (underlyingType == typeof(bool))
+                    return bool.Parse(value);
+                if (underlyingType.IsEnum)
+                    return Enum.Parse(underlyingType, value);
+
+                // 使用Convert.ChangeType作为后备方案
+                return Convert.ChangeType(value, underlyingType);
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"类型转换失败 {value} -> {targetType}: {e.Message}");
+                return GetDefaultValue(targetType);
+            }
+        }
+
+        /// <summary>
+        /// 获取类型的默认值
+        /// </summary>
+        private object GetDefaultValue(Type type)
+        {
+            return type.IsValueType ? Activator.CreateInstance(type) : null;
         }
 
         public bool CanUndo() => Node != null && !string.IsNullOrEmpty(FieldPath) && GraphView != null;
