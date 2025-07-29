@@ -17,8 +17,6 @@ namespace TreeNode.Editor
     /// </summary>
     public partial class History
     {
-
-
         TreeNodeGraphWindow Window;
         List<HistoryStep> Steps = new();
         Stack<HistoryStep> RedoSteps = new();
