@@ -6,6 +6,148 @@ using UnityEngine;
 namespace TreeNode.Editor
 {
     /// <summary>
+    /// 🔥 新增：FieldModifyOperation泛型支持扩展类
+    /// </summary>
+    public static class FieldModifyOperationExtensions
+    {
+        /// <summary>
+        /// 从任意FieldModifyOperation中获取Node
+        /// </summary>
+        public static JsonNode GetNode(this IAtomicOperation operation)
+        {
+            if (operation?.Type != OperationType.FieldModify) return null;
+            
+            try
+            {
+                var operationType = operation.GetType();
+                var nodeProperty = operationType.GetProperty("Node");
+                return nodeProperty?.GetValue(operation) as JsonNode;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 从任意FieldModifyOperation中获取FieldPath
+        /// </summary>
+        public static string GetFieldPath(this IAtomicOperation operation)
+        {
+            if (operation?.Type != OperationType.FieldModify) return null;
+            
+            try
+            {
+                var operationType = operation.GetType();
+                var fieldPathProperty = operationType.GetProperty("FieldPath");
+                return fieldPathProperty?.GetValue(operation) as string;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 获取操作的分组key，用于合并逻辑
+        /// </summary>
+        public static string GetMergeKey(this IAtomicOperation operation)
+        {
+            if (operation?.Type != OperationType.FieldModify) return null;
+            
+            var node = operation.GetNode();
+            var fieldPath = operation.GetFieldPath();
+            
+            if (node != null && !string.IsNullOrEmpty(fieldPath))
+            {
+                return $"{node.GetHashCode()}_{fieldPath}";
+            }
+            
+            return null;
+        }
+
+        /// <summary>
+        /// 检查是否为泛型FieldModifyOperation
+        /// </summary>
+        public static bool IsGenericFieldModifyOperation(this IAtomicOperation operation)
+        {
+            if (operation?.Type != OperationType.FieldModify) return false;
+            
+            var type = operation.GetType();
+            return type.IsGenericType && 
+                   type.GetGenericTypeDefinition().Name.StartsWith("FieldModifyOperation");
+        }
+
+        /// <summary>
+        /// 尝试获取旧值的字符串表示
+        /// </summary>
+        public static string GetOldValueString(this IAtomicOperation operation)
+        {
+            if (operation?.Type != OperationType.FieldModify) return null;
+            
+            try
+            {
+                var operationType = operation.GetType();
+                
+                // 尝试泛型版本的方法
+                var getOldValueStringMethod = operationType.GetMethod("GetOldValueString");
+                if (getOldValueStringMethod != null)
+                {
+                    return getOldValueStringMethod.Invoke(operation, null) as string;
+                }
+                
+                // 回退到直接获取OldValue属性
+                var oldValueProperty = operationType.GetProperty("OldValue");
+                if (oldValueProperty != null)
+                {
+                    var oldValue = oldValueProperty.GetValue(operation);
+                    return oldValue?.ToString() ?? "";
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"获取OldValue字符串表示失败: {e.Message}");
+            }
+            
+            return null;
+        }
+
+        /// <summary>
+        /// 尝试获取新值的字符串表示
+        /// </summary>
+        public static string GetNewValueString(this IAtomicOperation operation)
+        {
+            if (operation?.Type != OperationType.FieldModify) return null;
+            
+            try
+            {
+                var operationType = operation.GetType();
+                
+                // 尝试泛型版本的方法
+                var getNewValueStringMethod = operationType.GetMethod("GetNewValueString");
+                if (getNewValueStringMethod != null)
+                {
+                    return getNewValueStringMethod.Invoke(operation, null) as string;
+                }
+                
+                // 回退到直接获取NewValue属性
+                var newValueProperty = operationType.GetProperty("NewValue");
+                if (newValueProperty != null)
+                {
+                    var newValue = newValueProperty.GetValue(operation);
+                    return newValue?.ToString() ?? "";
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"获取NewValue字符串表示失败: {e.Message}");
+            }
+            
+            return null;
+        }
+    }
+
+    /// <summary>
     /// 原子操作接口
     /// </summary>
     public interface IAtomicOperation
@@ -19,6 +161,7 @@ namespace TreeNode.Editor
         string GetOperationSummary();
         string GetOperationId(); // 用于防重复
     }
+
     /// <summary>
     /// 节点创建操作
     /// </summary>
@@ -794,7 +937,310 @@ namespace TreeNode.Editor
     }
 
     /// <summary>
-    /// 字段修改操作 - 实现具体的Execute/Undo逻辑
+    /// 泛型字段修改操作 - 减少装箱操作的优化版本
+    /// </summary>
+    public class FieldModifyOperation<T> : IAtomicOperation
+    {
+        public OperationType Type => OperationType.FieldModify;
+        public DateTime Timestamp { get; private set; }
+
+        // 🔥 支持自定义描述信息
+        private string _description;
+        public string Description
+        {
+            get => _description ?? $"修改字段: {FieldPath}";
+        }
+
+        public JsonNode Node { get; set; }
+        public string FieldPath { get; set; }
+        public T OldValue { get; set; }
+        public T NewValue { get; set; }
+        public TreeNodeGraphView GraphView { get; set; }
+
+        public FieldModifyOperation(JsonNode node, string fieldPath, T oldValue, T newValue, TreeNodeGraphView graphView)
+        {
+            Node = node;
+            FieldPath = fieldPath;
+            OldValue = oldValue;
+            NewValue = newValue;
+            GraphView = graphView;
+            Timestamp = DateTime.Now;
+        }
+
+        /// <summary>
+        /// 设置自定义描述信息 - 用于合并操作
+        /// </summary>
+        public void SetDescription(string description)
+        {
+            _description = description;
+        }
+
+        /// <summary>
+        /// 执行字段修改操作 - 将字段设置为新值
+        /// </summary>
+        public bool Execute()
+        {
+            try
+            {
+                if (Node == null)
+                {
+                    Debug.LogError("FieldModifyOperation.Execute: Node为空");
+                    return false;
+                }
+
+                return ApplyFieldValue(NewValue);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"执行字段修改操作失败: {e.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 撤销字段修改操作 - 将字段恢复为旧值
+        /// </summary>
+        public bool Undo()
+        {
+            try
+            {
+                if (Node == null)
+                {
+                    Debug.LogError("FieldModifyOperation.Undo: Node为空");
+                    return false;
+                }
+
+                return ApplyFieldValue(OldValue);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"撤销字段修改操作失败: {e.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 应用字段值 - 核心逻辑，支持各种字段类型
+        /// </summary>
+        private bool ApplyFieldValue(T value)
+        {
+            try
+            {
+                // 处理Position字段的特殊情况
+                if (FieldPath == "Position")
+                {
+                    return ApplyPositionValue(value);
+                }
+
+                // 🔥 修复：使用JsonNode的本地字段路径而不是全局路径
+                // 通过反射设置字段值 - 使用Node.SetValue方法更准确
+                return ApplyFieldValueViaJsonNode(value);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"应用字段值失败 {FieldPath} = {value}: {e.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 应用Position字段值
+        /// </summary>
+        private bool ApplyPositionValue(T value)
+        {
+            try
+            {
+                // 如果T是Vec2类型，直接设置
+                if (value is Vec2 position)
+                {
+                    Node.Position = position;
+
+                    // 同步更新ViewNode的位置
+                    if (GraphView?.NodeDic.TryGetValue(Node, out var viewNode) == true)
+                    {
+                        viewNode.SetPosition(new Rect(position, Vector2.zero));
+                    }
+
+                    return true;
+                }
+
+                // 如果T是string类型，尝试解析
+                if (value is string positionStr && TryParsePosition(positionStr, out var parsedPosition))
+                {
+                    Node.Position = parsedPosition;
+
+                    // 同步更新ViewNode的位置
+                    if (GraphView?.NodeDic.TryGetValue(Node, out var viewNode) == true)
+                    {
+                        viewNode.SetPosition(new Rect(parsedPosition, Vector2.zero));
+                    }
+
+                    return true;
+                }
+
+                Debug.LogWarning($"无法应用Position值: {value} (类型: {typeof(T)})");
+                return false;
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"应用Position值失败: {e.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 解析Position字符串
+        /// </summary>
+        private bool TryParsePosition(string positionStr, out Vec2 position)
+        {
+            position = default;
+
+            if (string.IsNullOrEmpty(positionStr))
+                return false;
+
+            // 移除括号和空格
+            positionStr = positionStr.Trim('(', ')', ' ');
+            var parts = positionStr.Split(',');
+
+            if (parts.Length != 2)
+                return false;
+
+            if (float.TryParse(parts[0].Trim(), out var x) &&
+                float.TryParse(parts[1].Trim(), out var y))
+            {
+                position = new Vec2(x, y);
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 🔥 新增：通过JsonNode的本地路径应用字段值 - 更准确的实现
+        /// </summary>
+        private bool ApplyFieldValueViaJsonNode(T value)
+        {
+            try
+            {
+                // 使用JsonNode的SetValue方法，支持本地字段路径  
+                Node.SetValue(FieldPath, value);
+                return true; // SetValue方法返回void，成功执行即返回true
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"通过JsonNode设置字段值失败: {e.Message}");
+                // 如果JsonNode.SetValue失败，回退到反射方式
+                return ApplyFieldValueViaReflection(value);
+            }
+        }
+
+        /// <summary>
+        /// 通过反射应用字段值 - 保留作为后备方案
+        /// </summary>
+        private bool ApplyFieldValueViaReflection(T value)
+        {
+            try
+            {
+                var nodeType = Node.GetType();
+                var fieldInfo = nodeType.GetField(FieldPath,
+                    System.Reflection.BindingFlags.Public |
+                    System.Reflection.BindingFlags.NonPublic |
+                    System.Reflection.BindingFlags.Instance);
+
+                if (fieldInfo != null)
+                {
+                    fieldInfo.SetValue(Node, value);
+                    return true;
+                }
+
+                var propertyInfo = nodeType.GetProperty(FieldPath,
+                    System.Reflection.BindingFlags.Public |
+                    System.Reflection.BindingFlags.NonPublic |
+                    System.Reflection.BindingFlags.Instance);
+
+                if (propertyInfo != null && propertyInfo.CanWrite)
+                {
+                    propertyInfo.SetValue(Node, value);
+                    return true;
+                }
+
+                Debug.LogWarning($"未找到字段或属性: {FieldPath} 在类型 {nodeType.Name} 中");
+                return false;
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"反射设置字段值失败: {e.Message}");
+                return false;
+            }
+        }
+
+        public bool CanUndo() => Node != null && !string.IsNullOrEmpty(FieldPath) && GraphView != null;
+
+        public string GetOperationSummary()
+        {
+            return $"FieldModify<{typeof(T).Name}>: {FieldPath} from '{OldValue}' to '{NewValue}'";
+        }
+
+        public string GetOperationId()
+        {
+            // 🔥 优化操作ID生成 - 使用本地字段路径，确保同一节点同一字段的操作能被识别为同类操作进行合并
+            // 这样连续的字段变化操作会有相同的操作ID前缀，便于合并逻辑识别
+            return $"FieldModify_{Node?.GetHashCode()}_{FieldPath}";
+        }
+
+        /// <summary>
+        /// 🔥 新增：获取旧值的序列化字符串表示 - 用于兼容原有的合并逻辑
+        /// </summary>
+        public string GetOldValueString()
+        {
+            return OldValue?.ToString() ?? "";
+        }
+
+        /// <summary>
+        /// 🔥 新增：获取新值的序列化字符串表示 - 用于兼容原有的合并逻辑
+        /// </summary>
+        public string GetNewValueString()
+        {
+            return NewValue?.ToString() ?? "";
+        }
+
+        /// <summary>
+        /// 🔥 新增：用于支持合并操作的类型检查
+        /// </summary>
+        public bool CanMergeWith(IAtomicOperation other)
+        {
+            if (other is not FieldModifyOperation<T> otherTyped)
+                return false;
+
+            return Node == otherTyped.Node && 
+                   FieldPath == otherTyped.FieldPath &&
+                   Math.Abs((Timestamp - otherTyped.Timestamp).TotalMilliseconds) < 1000; // 1秒内的操作可以合并
+        }
+
+        /// <summary>
+        /// 🔥 新增：创建合并后的操作
+        /// </summary>
+        public FieldModifyOperation<T> MergeWith(FieldModifyOperation<T> other)
+        {
+            var merged = new FieldModifyOperation<T>(Node, FieldPath, OldValue, other.NewValue, GraphView);
+            
+            // 设置合并描述
+            if (FieldPath == "Position")
+            {
+                merged.SetDescription($"节点位置变化（已合并）: {OldValue} → {other.NewValue}");
+            }
+            else
+            {
+                merged.SetDescription($"字段修改（已合并）: {FieldPath}");
+            }
+            
+            return merged;
+        }
+    }
+
+    /// <summary>
+    /// 兼容性保留：非泛型字段修改操作 - 实现具体的Execute/Undo逻辑
+    /// 🔥 保留原有版本以确保现有代码继续工作，但推荐使用泛型版本
     /// </summary>
     public class FieldModifyOperation : IAtomicOperation
     {
@@ -1148,27 +1594,11 @@ namespace TreeNode.Editor
             Timestamp = DateTime.Now;
         }
 
-        public bool Execute()
-        {
-            return true;
-        }
-
-        public bool Undo()
-        {
-            return true;
-        }
-
+        public bool Execute() => true; // TODO: Implement
+        public bool Undo() => true; // TODO: Implement
         public bool CanUndo() => ParentNode != null && ChildNode != null && GraphView != null;
-
-        public string GetOperationSummary()
-        {
-            return $"EdgeCreate: {ParentNode?.GetType().Name}.{PortName} -> {ChildNode?.GetType().Name}";
-        }
-
-        public string GetOperationId()
-        {
-            return $"EdgeCreate_{ParentNode?.GetHashCode()}_{ChildNode?.GetHashCode()}_{PortName}_{Timestamp.Ticks}";
-        }
+        public string GetOperationSummary() => $"EdgeCreate: {ParentNode?.GetType().Name}.{PortName} -> {ChildNode?.GetType().Name}";
+        public string GetOperationId() => $"EdgeCreate_{ParentNode?.GetHashCode()}_{ChildNode?.GetHashCode()}_{PortName}_{Timestamp.Ticks}";
     }
 
     /// <summary>
@@ -1194,26 +1624,10 @@ namespace TreeNode.Editor
             Timestamp = DateTime.Now;
         }
 
-        public bool Execute()
-        {
-            return true;
-        }
-
-        public bool Undo()
-        {
-            return true;
-        }
-
+        public bool Execute() => true; // TODO: Implement
+        public bool Undo() => true; // TODO: Implement
         public bool CanUndo() => ParentNode != null && ChildNode != null && GraphView != null;
-
-        public string GetOperationSummary()
-        {
-            return $"EdgeRemove: {ParentNode?.GetType().Name}.{PortName} -X-> {ChildNode?.GetType().Name}";
-        }
-
-        public string GetOperationId()
-        {
-            return $"EdgeRemove_{ParentNode?.GetHashCode()}_{ChildNode?.GetHashCode()}_{PortName}_{Timestamp.Ticks}";
-        }
+        public string GetOperationSummary() => $"EdgeRemove: {ParentNode?.GetType().Name}.{PortName} -X-> {ChildNode?.GetType().Name}";
+        public string GetOperationId() => $"EdgeRemove_{ParentNode?.GetHashCode()}_{ChildNode?.GetHashCode()}_{PortName}_{Timestamp.Ticks}";
     }
 }
