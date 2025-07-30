@@ -1,22 +1,709 @@
-﻿using UnityEngine;
+﻿using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+using UnityEngine;
 
 namespace TreeNode.Runtime
 {
-    public struct PAPath
+    /// <summary>
+    /// 高性能字段路径结构 - 支持路径解析、缓存和快速访问
+    /// 提供与PropertyAccessor兼容的高性能路径操作
+    /// </summary>
+    public struct PAPath : IEquatable<PAPath>
     {
+        #region 字段
+
         public PAPart[] Parts;
+        private readonly string _originalPath;
+        private readonly int _hashCode;
 
+        #endregion
 
+        #region 静态缓存
+
+        // 路径解析缓存
+        private static readonly ConcurrentDictionary<string, PAPath> PathCache = new();
+        
+        // 路径分割缓存
+        private static readonly ConcurrentDictionary<string, string[]> SegmentCache = new();
+        
+        // 路径验证缓存
+        private static readonly ConcurrentDictionary<(Type type, string path), bool> ValidationCache = new();
+
+        #endregion
+
+        #region 构造函数
+
+        /// <summary>
+        /// 从字符串路径构造PAPath
+        /// </summary>
+        /// <param name="path">字符串路径</param>
         public PAPath(string path)
         {
-            Parts = new PAPart[0];
-        }
-    }
-    public struct PAPart
-    {
-        public int Index;
-        public string Name;
+            if (string.IsNullOrEmpty(path))
+            {
+                Parts = new PAPart[0];
+                _originalPath = string.Empty;
+                _hashCode = 0;
+                return;
+            }
 
+            _originalPath = path;
+            Parts = ParsePathToParts(path);
+            _hashCode = ComputeHashCode(path);
+        }
+
+        /// <summary>
+        /// 从路径部分数组构造PAPath
+        /// </summary>
+        /// <param name="parts">路径部分数组</param>
+        public PAPath(PAPart[] parts)
+        {
+            Parts = parts ?? new PAPart[0];
+            _originalPath = PartsToString(Parts);
+            _hashCode = ComputeHashCode(_originalPath);
+        }
+
+        #endregion
+
+        #region 公共属性
+
+        /// <summary>
+        /// 路径是否为空
+        /// </summary>
+        public readonly bool IsEmpty => Parts == null || Parts.Length == 0;
+
+        /// <summary>
+        /// 路径深度
+        /// </summary>
+        public readonly int Depth => Parts?.Length ?? 0;
+
+        /// <summary>
+        /// 原始路径字符串
+        /// </summary>
+        public readonly string OriginalPath => _originalPath ?? string.Empty;
+
+        /// <summary>
+        /// 是否只包含字段访问（不包含索引器）
+        /// </summary>
+        public readonly bool IsFieldsOnly
+        {
+            get
+            {
+                if (Parts == null) return true;
+                foreach (var part in Parts)
+                {
+                    if (part.IsIndex) return false;
+                }
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// 是否包含索引器访问
+        /// </summary>
+        public readonly bool HasIndexer
+        {
+            get
+            {
+                if (Parts == null) return false;
+                foreach (var part in Parts)
+                {
+                    if (part.IsIndex) return true;
+                }
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 最后一个路径部分
+        /// </summary>
+        public readonly PAPart LastPart => Parts != null && Parts.Length > 0 ? Parts[Parts.Length - 1] : default;
+
+        /// <summary>
+        /// 第一个路径部分
+        /// </summary>
+        public readonly PAPart FirstPart => Parts != null && Parts.Length > 0 ? Parts[0] : default;
+
+        #endregion
+
+        #region 静态工厂方法
+
+        /// <summary>
+        /// 从字符串创建PAPath（使用缓存）
+        /// </summary>
+        /// <param name="path">字符串路径</param>
+        /// <returns>PAPath实例</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static PAPath Create(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+                return new PAPath();
+
+            return PathCache.GetOrAdd(path, p => new PAPath(p));
+        }
+
+        /// <summary>
+        /// 从多个路径部分创建PAPath
+        /// </summary>
+        /// <param name="parts">路径部分</param>
+        /// <returns>PAPath实例</returns>
+        public static PAPath Create(params string[] parts)
+        {
+            if (parts == null || parts.Length == 0)
+                return new PAPath();
+
+            var pathParts = new PAPart[parts.Length];
+            for (int i = 0; i < parts.Length; i++)
+            {
+                pathParts[i] = PAPart.FromString(parts[i]);
+            }
+
+            return new PAPath(pathParts);
+        }
+
+        /// <summary>
+        /// 创建字段访问路径
+        /// </summary>
+        /// <param name="fieldName">字段名</param>
+        /// <returns>PAPath实例</returns>
+        public static PAPath Field(string fieldName) => Create(fieldName);
+
+        /// <summary>
+        /// 创建索引访问路径
+        /// </summary>
+        /// <param name="index">索引值</param>
+        /// <returns>PAPath实例</returns>
+        public static PAPath Index(int index) => new PAPath(new[] { PAPart.FromIndex(index) });
+
+        /// <summary>
+        /// 创建字段+索引访问路径
+        /// </summary>
+        /// <param name="fieldName">字段名</param>
+        /// <param name="index">索引值</param>
+        /// <returns>PAPath实例</returns>
+        public static PAPath FieldIndex(string fieldName, int index) => 
+            Create($"{fieldName}[{index}]");
+
+        #endregion
+
+        #region 路径操作方法
+
+        /// <summary>
+        /// 添加字段访问
+        /// </summary>
+        /// <param name="fieldName">字段名</param>
+        /// <returns>新的PAPath</returns>
+        public readonly PAPath AppendField(string fieldName)
+        {
+            if (string.IsNullOrEmpty(fieldName))
+                return this;
+
+            var newParts = new PAPart[Depth + 1];
+            if (Parts != null)
+                Array.Copy(Parts, newParts, Parts.Length);
+            
+            newParts[Depth] = PAPart.FromString(fieldName);
+            return new PAPath(newParts);
+        }
+
+        /// <summary>
+        /// 添加索引访问
+        /// </summary>
+        /// <param name="index">索引值</param>
+        /// <returns>新的PAPath</returns>
+        public readonly PAPath AppendIndex(int index)
+        {
+            var newParts = new PAPart[Depth + 1];
+            if (Parts != null)
+                Array.Copy(Parts, newParts, Parts.Length);
+            
+            newParts[Depth] = PAPart.FromIndex(index);
+            return new PAPath(newParts);
+        }
+
+        /// <summary>
+        /// 组合另一个路径
+        /// </summary>
+        /// <param name="other">要组合的路径</param>
+        /// <returns>新的PAPath</returns>
+        public readonly PAPath Combine(PAPath other)
+        {
+            if (other.IsEmpty) return this;
+            if (IsEmpty) return other;
+
+            var newParts = new PAPart[Depth + other.Depth];
+            Array.Copy(Parts, newParts, Parts.Length);
+            Array.Copy(other.Parts, 0, newParts, Parts.Length, other.Parts.Length);
+            
+            return new PAPath(newParts);
+        }
+
+        /// <summary>
+        /// 获取父级路径
+        /// </summary>
+        /// <returns>父级路径，如果没有则返回空路径</returns>
+        public readonly PAPath GetParent()
+        {
+            if (Depth <= 1) return new PAPath();
+
+            var parentParts = new PAPart[Depth - 1];
+            Array.Copy(Parts, parentParts, parentParts.Length);
+            return new PAPath(parentParts);
+        }
+
+        /// <summary>
+        /// 获取指定深度的子路径
+        /// </summary>
+        /// <param name="startIndex">起始索引</param>
+        /// <param name="count">部分数量</param>
+        /// <returns>子路径</returns>
+        public readonly PAPath GetSubPath(int startIndex, int count = -1)
+        {
+            if (Parts == null || startIndex >= Parts.Length || startIndex < 0)
+                return new PAPath();
+
+            if (count < 0)
+                count = Parts.Length - startIndex;
+
+            count = Math.Min(count, Parts.Length - startIndex);
+            if (count <= 0)
+                return new PAPath();
+
+            var subParts = new PAPart[count];
+            Array.Copy(Parts, startIndex, subParts, 0, count);
+            return new PAPath(subParts);
+        }
+
+        #endregion
+
+        #region 性能优化方法
+
+        /// <summary>
+        /// 快速访问 - 直接使用PropertyAccessor获取值
+        /// </summary>
+        /// <typeparam name="T">返回值类型</typeparam>
+        /// <param name="obj">目标对象</param>
+        /// <returns>属性值</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly T GetValue<T>(object obj)
+        {
+            return PropertyAccessor.GetValue<T>(obj, OriginalPath);
+        }
+
+        /// <summary>
+        /// 快速设置 - 直接使用PropertyAccessor设置值
+        /// </summary>
+        /// <typeparam name="T">值类型</typeparam>
+        /// <param name="obj">目标对象</param>
+        /// <param name="value">要设置的值</param>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly void SetValue<T>(object obj, T value)
+        {
+            PropertyAccessor.SetValue(obj, OriginalPath, value);
+        }
+
+        /// <summary>
+        /// 安全获取值
+        /// </summary>
+        /// <typeparam name="T">返回值类型</typeparam>
+        /// <param name="obj">目标对象</param>
+        /// <param name="defaultValue">默认值</param>
+        /// <returns>属性值或默认值</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly T GetValueOrDefault<T>(object obj, T defaultValue = default)
+        {
+            try
+            {
+                return GetValue<T>(obj);
+            }
+            catch
+            {
+                return defaultValue;
+            }
+        }
+
+        /// <summary>
+        /// 安全设置值
+        /// </summary>
+        /// <typeparam name="T">值类型</typeparam>
+        /// <param name="obj">目标对象</param>
+        /// <param name="value">要设置的值</param>
+        /// <returns>是否设置成功</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly bool TrySetValue<T>(object obj, T value)
+        {
+            try
+            {
+                SetValue(obj, value);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        #endregion
+
+        #region 私有方法
+
+        /// <summary>
+        /// 解析字符串路径为路径部分数组
+        /// </summary>
+        private static PAPart[] ParsePathToParts(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+                return new PAPart[0];
+
+            var segments = SegmentCache.GetOrAdd(path, SplitPathString);
+            var parts = new List<PAPart>();
+
+            foreach (var segment in segments)
+            {
+                if (string.IsNullOrEmpty(segment)) continue;
+
+                // 检查是否包含索引器
+                if (segment.Contains('[') && segment.Contains(']'))
+                {
+                    var indexStart = segment.IndexOf('[');
+                    if (indexStart > 0)
+                    {
+                        // 先添加字段部分
+                        var fieldName = segment.Substring(0, indexStart);
+                        parts.Add(PAPart.FromString(fieldName));
+                    }
+
+                    // 解析所有索引器
+                    var remaining = segment.Substring(indexStart);
+                    while (remaining.Contains('[') && remaining.Contains(']'))
+                    {
+                        var start = remaining.IndexOf('[');
+                        var end = remaining.IndexOf(']');
+                        var indexStr = remaining.Substring(start + 1, end - start - 1);
+                        
+                        if (int.TryParse(indexStr, out int index))
+                        {
+                            parts.Add(PAPart.FromIndex(index));
+                        }
+
+                        remaining = remaining.Substring(end + 1);
+                    }
+                }
+                else
+                {
+                    parts.Add(PAPart.FromString(segment));
+                }
+            }
+
+            return parts.ToArray();
+        }
+
+        /// <summary>
+        /// 分割路径字符串
+        /// </summary>
+        private static string[] SplitPathString(string path)
+        {
+            return path.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        }
+
+        /// <summary>
+        /// 将路径部分数组转换为字符串
+        /// </summary>
+        private static string PartsToString(PAPart[] parts)
+        {
+            if (parts == null || parts.Length == 0)
+                return string.Empty;
+
+            var result = new System.Text.StringBuilder();
+            bool needsDot = false;
+
+            foreach (var part in parts)
+            {
+                if (part.IsIndex)
+                {
+                    result.Append($"[{part.Index}]");
+                }
+                else
+                {
+                    if (needsDot) result.Append('.');
+                    result.Append(part.Name);
+                    needsDot = true;
+                }
+            }
+
+            return result.ToString();
+        }
+
+        /// <summary>
+        /// 计算哈希码
+        /// </summary>
+        private static int ComputeHashCode(string path)
+        {
+            return path?.GetHashCode() ?? 0;
+        }
+
+        /// <summary>
+        /// 内部路径验证逻辑
+        /// </summary>
+        private static bool ValidatePathInternal(Type type, string path)
+        {
+            try
+            {
+                return PropertyAccessor.GetValidPath(new object(), path, out var validLength) && 
+                       validLength == path.Length;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        #endregion
+
+        #region 相等性和哈希
+
+        public readonly bool Equals(PAPath other)
+        {
+            return string.Equals(OriginalPath, other.OriginalPath, StringComparison.Ordinal);
+        }
+
+        public override readonly bool Equals(object obj)
+        {
+            return obj is PAPath other && Equals(other);
+        }
+
+        public override readonly int GetHashCode()
+        {
+            return _hashCode;
+        }
+
+        public static bool operator ==(PAPath left, PAPath right)
+        {
+            return left.Equals(right);
+        }
+
+        public static bool operator !=(PAPath left, PAPath right)
+        {
+            return !left.Equals(right);
+        }
+
+        #endregion
+
+        #region 类型转换
+
+        /// <summary>
+        /// 隐式转换从字符串到PAPath
+        /// </summary>
+        public static implicit operator PAPath(string path)
+        {
+            return Create(path);
+        }
+
+        /// <summary>
+        /// 隐式转换从PAPath到字符串
+        /// </summary>
+        public static implicit operator string(PAPath path)
+        {
+            return path.OriginalPath;
+        }
+
+        #endregion
+
+        #region 缓存管理
+
+        /// <summary>
+        /// 清除所有缓存
+        /// </summary>
+        public static void ClearCache()
+        {
+            PathCache.Clear();
+            SegmentCache.Clear();
+            ValidationCache.Clear();
+        }
+
+        /// <summary>
+        /// 获取缓存统计信息
+        /// </summary>
+        /// <returns>缓存统计信息</returns>
+        public static (int pathCache, int segmentCache, int validationCache) GetCacheStats()
+        {
+            return (PathCache.Count, SegmentCache.Count, ValidationCache.Count);
+        }
+
+        #endregion
+
+        #region ToString
+
+        public override readonly string ToString()
+        {
+            return OriginalPath;
+        }
+
+        #endregion
+    }
+
+    /// <summary>
+    /// 路径部分结构 - 表示路径中的单个部分（字段名或索引）
+    /// </summary>
+    public struct PAPart : IEquatable<PAPart>
+    {
+        #region 字段
+
+        public readonly int Index;
+        public readonly string Name;
+
+        #endregion
+
+        #region 属性
+
+        /// <summary>
+        /// 是否为索引访问
+        /// </summary>
         public readonly bool IsIndex => Name == null;
+
+        /// <summary>
+        /// 是否为字段访问
+        /// </summary>
+        public readonly bool IsField => Name != null;
+
+        #endregion
+
+        #region 构造函数
+
+        /// <summary>
+        /// 创建字段访问部分
+        /// </summary>
+        private PAPart(string name)
+        {
+            Name = name;
+            Index = 0;
+        }
+
+        /// <summary>
+        /// 创建索引访问部分
+        /// </summary>
+        private PAPart(int index)
+        {
+            Name = null;
+            Index = index;
+        }
+
+        #endregion
+
+        #region 静态工厂方法
+
+        /// <summary>
+        /// 从字符串创建路径部分
+        /// </summary>
+        public static PAPart FromString(string name) => new PAPart(name);
+
+        /// <summary>
+        /// 从索引创建路径部分
+        /// </summary>
+        public static PAPart FromIndex(int index) => new PAPart(index);
+
+        #endregion
+
+        #region 验证方法
+
+        /// <summary>
+        /// 验证此部分在指定类型上是否有效
+        /// </summary>
+        /// <param name="type">目标类型</param>
+        /// <returns>是否有效</returns>
+        public readonly bool IsValidFor(Type type)
+        {
+            if (type == null) return false;
+
+            if (IsIndex)
+            {
+                // 检查是否支持索引访问
+                return type.IsArray || 
+                       typeof(System.Collections.IList).IsAssignableFrom(type) ||
+                       type.GetProperty("Item") != null;
+            }
+            else if (IsField)
+            {
+                // 检查字段或属性是否存在
+                return type.GetProperty(Name) != null ||
+                       type.GetField(Name, System.Reflection.BindingFlags.Instance | 
+                                          System.Reflection.BindingFlags.Public | 
+                                          System.Reflection.BindingFlags.NonPublic) != null;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 获取此部分访问后的目标类型
+        /// </summary>
+        /// <param name="sourceType">源类型</param>
+        /// <returns>目标类型</returns>
+        public readonly Type GetTargetType(Type sourceType)
+        {
+            if (sourceType == null) return null;
+
+            if (IsIndex)
+            {
+                if (sourceType.IsArray)
+                    return sourceType.GetElementType();
+                
+                var itemProperty = sourceType.GetProperty("Item");
+                return itemProperty?.PropertyType;
+            }
+            else if (IsField)
+            {
+                var property = sourceType.GetProperty(Name);
+                if (property != null)
+                    return property.PropertyType;
+
+                var field = sourceType.GetField(Name, System.Reflection.BindingFlags.Instance | 
+                                                      System.Reflection.BindingFlags.Public | 
+                                                      System.Reflection.BindingFlags.NonPublic);
+                return field?.FieldType;
+            }
+
+            return null;
+        }
+
+        #endregion
+
+        #region 相等性和哈希
+
+        public readonly bool Equals(PAPart other)
+        {
+            return Index == other.Index && string.Equals(Name, other.Name);
+        }
+
+        public override readonly bool Equals(object obj)
+        {
+            return obj is PAPart other && Equals(other);
+        }
+
+        public override readonly int GetHashCode()
+        {
+            return HashCode.Combine(Index, Name);
+        }
+
+        public static bool operator ==(PAPart left, PAPart right)
+        {
+            return left.Equals(right);
+        }
+
+        public static bool operator !=(PAPart left, PAPart right)
+        {
+            return !left.Equals(right);
+        }
+
+        #endregion
+
+        #region ToString
+
+        public override readonly string ToString() => 
+            IsIndex ? $"[{Index}]" : $".{Name}";
+
+        #endregion
     }
 }
