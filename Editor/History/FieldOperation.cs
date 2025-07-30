@@ -6,7 +6,7 @@ namespace TreeNode.Editor
 {
     public abstract class FieldModifyOperation : IAtomicOperation
     {
-        public string FieldPath;
+        public PAPath FieldPath;
         public JsonNode Node;
         public DateTime Timestamp { get; protected set; }
         public string Description=> $"修改字段: {FieldPath}";
@@ -24,7 +24,7 @@ namespace TreeNode.Editor
     {
         public T OldValue;
         public T NewValue;
-        public FieldModifyOperation(JsonNode node, string fieldPath, T oldValue, T newValue, TreeNodeGraphView graphView)
+        public FieldModifyOperation(JsonNode node, PAPath fieldPath, T oldValue, T newValue, TreeNodeGraphView graphView)
         {
             Node = node;
             FieldPath = fieldPath;

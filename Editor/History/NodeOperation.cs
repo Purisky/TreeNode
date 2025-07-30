@@ -90,44 +90,36 @@ namespace TreeNode.Editor
     /// <summary>
     /// 节点移动操作
     /// </summary>
-    public class NodeMoveOperation : IAtomicOperation
+    public class NodeMoveOperation : NodeOperation
     {
-        public OperationType Type => OperationType.Move;
-        public DateTime Timestamp { get; private set; }
-        public string Description => $"移动节点: {Node?.GetType().Name}";
+        public override OperationType Type => OperationType.Move;
+        public override string Description => $"移动节点: {From}->{To}";
 
         public JsonNode Node { get; set; }
-        public NodeLocation FromLocation { get; set; }
-        public NodeLocation ToLocation { get; set; }
-        public TreeNodeGraphView GraphView { get; set; }
 
-        public NodeMoveOperation(JsonNode node, NodeLocation fromLocation, NodeLocation toLocation, TreeNodeGraphView graphView)
+        public PAPath From;
+        public PAPath To;
+
+        public NodeMoveOperation(JsonNode node, PAPath from, PAPath to, TreeNodeGraphView graphView)
         {
             Node = node;
-            FromLocation = fromLocation;
-            ToLocation = toLocation;
+            From = from;
+            To = to;
             GraphView = graphView;
-            Timestamp = DateTime.Now;
         }
 
-        public bool Execute()
+        public override bool Execute()
         {
             return true;
         }
 
-        public bool Undo()
+        public override bool Undo()
         {
-            // 撤销移动操作 - 移回原位置
             return true;
         }
-        public string GetOperationSummary()
+        public override string GetOperationSummary()
         {
-            return $"NodeMove: {Node?.GetType().Name} from {FromLocation?.GetFullPath()} to {ToLocation?.GetFullPath()}";
-        }
-
-        public string GetOperationId()
-        {
-            return $"NodeMove_{Node?.GetHashCode()}_{FromLocation?.GetFullPath()}_{ToLocation?.GetFullPath()}_{Timestamp.Ticks}";
+            return $"NodeMove: {Node?.GetType().Name} from {From} to {To}";
         }
     }
 }
