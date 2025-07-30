@@ -27,9 +27,6 @@ namespace TreeNode.Runtime
         
         // 路径分割缓存
         private static readonly ConcurrentDictionary<string, string[]> SegmentCache = new();
-        
-        // 路径验证缓存
-        private static readonly ConcurrentDictionary<(Type type, string path), bool> ValidationCache = new();
 
         #endregion
 
