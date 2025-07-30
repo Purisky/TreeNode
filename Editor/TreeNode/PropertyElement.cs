@@ -302,33 +302,27 @@ namespace TreeNode.Editor
         private void RecordFieldModification<T>(T oldValue, T newValue)
         {
             if (!_isMonitoringValue) return;
-            
+
             try
             {
                 // 快速值比较，避免不必要的处理
                 if (FastValueEquals<T>(oldValue, newValue)) return;
-                
+
                 // 🔥 调试信息：记录触发字段修改的PropertyElement详细信息
                 Debug.Log($"🔥 字段修改触发: PropertyElement[{GetGlobalPath()}] " +
                          $"LocalPath='{LocalPath}' MemberPath='{MemberMeta.Path}' " +
                          $"值变化: '{oldValue}' -> '{newValue}' (类型: {typeof(T).Name})");
-                
+
                 // 🔥 使用泛型版本的FieldModifyOperation，避免装箱
                 var fieldModifyOperation = new FieldModifyOperation<T>(
                     ViewNode.Data,
                     MemberMeta.Path,  // 使用MemberMeta.Path而不是GetGlobalPath()
                     oldValue,
                     newValue,
-                    ViewNode.View as TreeNodeGraphView
+                    ViewNode.View
                 );
-                
-                // 记录到历史系统
-                if (ViewNode.View is TreeNodeGraphView graphView)
-                {
-                    graphView.Window.History.RecordOperation(fieldModifyOperation);
-                    Debug.Log($"✅ 字段修改已记录到历史系统: Node={ViewNode.Data.GetType().Name}, Field={MemberMeta.Path}, Type={typeof(T).Name}");
-                }
-                
+                ViewNode.View.Window.History.RecordOperation(fieldModifyOperation);
+                Debug.Log($"✅ 字段修改已记录到历史系统: Node={ViewNode.Data.GetType().Name}, Field={MemberMeta.Path}, Type={typeof(T).Name}");
                 _lastValue = newValue;
             }
             catch (Exception e)

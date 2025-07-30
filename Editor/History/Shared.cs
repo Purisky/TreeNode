@@ -15,17 +15,10 @@ namespace TreeNode.Editor
     /// </summary>
     public enum OperationType
     {
-        NodeCreate,
-        NodeDelete,
-        NodeMove,
-        FieldModify,
-        EdgeCreate,
-        EdgeRemove,
-        BatchStart,
-        BatchEnd,
-        StateSnapshot
+        Create,
+        Delete,
+        Move,
     }
-
     /// <summary>
     /// 位置类型枚举
     /// </summary>
@@ -97,18 +90,9 @@ namespace TreeNode.Editor
             };
         }
     }
+    
 
-    /// <summary>
-    /// 边连接信息
-    /// </summary>
-    public class EdgeInfo
-    {
-        public JsonNode ParentNode { get; set; }
-        public JsonNode ChildNode { get; set; }
-        public string PortName { get; set; }
-        public bool IsMultiPort { get; set; }
-        public int ListIndex { get; set; }
-    }
+
 
     /// <summary>
     /// 操作元数据

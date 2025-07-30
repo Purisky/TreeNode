@@ -153,15 +153,11 @@ namespace TreeNode.Editor
 
         public virtual void AddNode(JsonNode node)
         {
-            // 记录节点创建操作
-            var location = NodeLocation.Root(Asset.Data.Nodes.Count);
-            var createOperation = new NodeCreateOperation(node, location, this);
-            Window.History.RecordOperation(createOperation);
-            
             Asset.Data.Nodes.Add(node);
+            var createOperation = new NodeCreateOperation(node,$"[{Asset.Data.Nodes.Count}]" , this);
+            Window.History.RecordOperation(createOperation);
+
             NodeTree.OnNodeAdded(node);
-            // 🔥 重要修复：移除这里的AddStep调用，让RecordOperation的智能合并机制处理
-            // Window.History.AddStep();
             AddViewNode(node);
         }
 
@@ -169,12 +165,10 @@ namespace TreeNode.Editor
         {
             if (string.IsNullOrEmpty(path))
             {
-                // 记录节点创建操作
-                var location = NodeLocation.Root(Asset.Data.Nodes.Count);
-                var createOperation = new NodeCreateOperation(node, location, this);
-                Window.History.RecordOperation(createOperation);
-                
                 Asset.Data.Nodes.Add(node);
+                var createOperation = new NodeCreateOperation(node, $"[{Asset.Data.Nodes.Count}]", this);
+                Window.History.RecordOperation(createOperation);
+
                 NodeTree.OnNodeAdded(node);
                 return true;
             }
@@ -230,8 +224,7 @@ namespace TreeNode.Editor
         {
             // 记录节点删除操作
             int index = Asset.Data.Nodes.IndexOf(node);
-            var location = NodeLocation.Root(index);
-            var deleteOperation = new NodeDeleteOperation(node, location, this);
+            var deleteOperation = new NodeDeleteOperation(node,$"[{index}]", this);
             Window.History.RecordOperation(deleteOperation);
             
             Asset.Data.Nodes.Remove(node);
@@ -701,9 +694,6 @@ namespace TreeNode.Editor
             if (parentNode != null && childNode != null)
             {
                 ChildPort childPortOfParent = edge.ChildPort();
-                string portName = GetPortName(childPortOfParent);
-                var edgeCreateOperation = new EdgeCreateOperation(parentNode.Data, childNode.Data, portName, this);
-                Window.History.RecordOperation(edgeCreateOperation);
             }
             
             Asset.Data.Nodes.Remove(childNode.Data);
@@ -722,9 +712,6 @@ namespace TreeNode.Editor
             
             // 记录边断开操作
             ChildPort childPortOfParent = edge.ChildPort();
-            string portName = GetPortName(childPortOfParent);
-            var edgeRemoveOperation = new EdgeRemoveOperation(parent.Data, child.Data, portName, this);
-            Window.History.RecordOperation(edgeRemoveOperation);
             
             childPortOfParent.SetNodeValue(child.Data);
             Asset.Data.Nodes.Add(child.Data);
