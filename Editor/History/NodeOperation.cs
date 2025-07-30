@@ -25,10 +25,10 @@ namespace TreeNode.Editor
     {
         public override OperationType Type => OperationType.Create;
         public JsonNode Node { get; set; }
-        public string NodePath;
+        public PAPath NodePath;
         public override string Description => $"在{NodePath}创建节点: {Node?.GetType().Name} ";
 
-        public NodeCreateOperation(JsonNode node, string path, TreeNodeGraphView graphView)
+        public NodeCreateOperation(JsonNode node, PAPath path, TreeNodeGraphView graphView)
         {
             Node = node;
             NodePath = path;
@@ -56,10 +56,10 @@ namespace TreeNode.Editor
     {
         public override OperationType Type => OperationType.Delete;
         public JsonNode Node { get; set; }
-        public string NodePath;
+        public PAPath NodePath;
         public override string Description => $"在{NodePath}删除节点: {Node?.GetType().Name} ";
 
-        public NodeDeleteOperation(JsonNode node, string  path, TreeNodeGraphView graphView)
+        public NodeDeleteOperation(JsonNode node, PAPath path, TreeNodeGraphView graphView)
         {
             Node = node;
             NodePath = path;
