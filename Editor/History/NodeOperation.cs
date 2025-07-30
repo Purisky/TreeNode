@@ -6,120 +6,108 @@ using UnityEngine;
 namespace TreeNode.Editor
 {
 
-    public abstract class NodeOperation : IAtomicOperation
+    public class NodeOperation : IAtomicOperation
     {
+        public OperationType Type
+        {
+            get
+            {
+                if (From.HasValue) { return OperationType.Create; }
+                if (To.HasValue) { return OperationType.Delete; }
+                return OperationType.Move;
+            }
+        }
+        public PAPath? From;
+        public PAPath? To;
+        public JsonNode Node;
         public TreeNodeGraphView GraphView;
-        public abstract OperationType Type { get; }
-        public abstract string Description { get; }
-        public abstract bool Execute();
-        public abstract string GetOperationSummary();
-        public abstract bool Undo();
-    }
-
-
-
-    /// <summary>
-    /// 节点创建操作
-    /// </summary>
-    public class NodeCreateOperation : NodeOperation
-    {
-        public override OperationType Type => OperationType.Create;
-        public JsonNode Node { get; set; }
-        public PAPath NodePath;
-        public override string Description => $"在{NodePath}创建节点: {Node?.GetType().Name} ";
-
-        public NodeCreateOperation(JsonNode node, PAPath path, TreeNodeGraphView graphView)
+        public string Description
         {
-            Node = node;
-            NodePath = path;
-            GraphView = graphView;
+            get
+            {
+                return Type switch
+                {
+                    OperationType.Create => $"在{From}创建节点: {Node?.GetType().Name}",
+                    OperationType.Delete => $"在{To}删除节点: {Node?.GetType().Name}",
+                    OperationType.Move => $"移动节点: {From}->{To}",
+                    _ => "未知操作"
+                };
+            }
         }
-        public override bool Execute()
-        {
-            return true;
-        }
-        public override bool Undo()
-        {
-            return true;
-        }
-        public override string GetOperationSummary()
-        {
-            return $"NodeCreate: {Node?.GetType().Name} at {NodePath}";
-        }
+        public string GetOperationSummary() { return Description; }
 
-    }
 
-    /// <summary>
-    /// 节点删除操作 - 实现具体的Execute/Undo逻辑
-    /// </summary>
-    public class NodeDeleteOperation : NodeOperation
-    {
-        public override OperationType Type => OperationType.Delete;
-        public JsonNode Node { get; set; }
-        public PAPath NodePath;
-        public override string Description => $"在{NodePath}删除节点: {Node?.GetType().Name} ";
 
-        public NodeDeleteOperation(JsonNode node, PAPath path, TreeNodeGraphView graphView)
+
+        public static NodeOperation Create(JsonNode node, PAPath path, TreeNodeGraphView graphView)
         {
-            Node = node;
-            NodePath = path;
-            GraphView = graphView;
+            if (node == null || graphView == null)
+            {
+                return null;
+            }
+            return new NodeOperation
+            {
+                Node = node,
+                To = path,
+                GraphView = graphView
+            };
         }
-
-        /// <summary>
-        /// 执行节点删除操作 - 从指定位置移除节点
-        /// </summary>
-        public override bool Execute()
+        public static NodeOperation Delete(JsonNode node, PAPath path, TreeNodeGraphView graphView)
         {
-            return true;
+            if (node == null || graphView == null)
+            {
+                return null;
+            }
+            return new NodeOperation
+            {
+                Node = node,
+                From = path,
+                GraphView = graphView
+            };
+        }
+        public static NodeOperation Move(JsonNode node, PAPath from, PAPath to, TreeNodeGraphView graphView)
+        {
+            if (from == to|| node==null|| graphView==null)
+            {
+                return null;
+            }
+            return new NodeOperation
+            {
+                Node = node,
+                From = from,
+                To = to,
+                GraphView = graphView
+            };
         }
 
-        /// <summary>
-        /// 撤销节点删除操作 - 将节点恢复到原位置
-        /// </summary>
-        public override bool Undo()
-        {
-            return true;
-        }
-        public override string GetOperationSummary()
-        {
-            return $"NodeDelete: {Node?.GetType().Name} from {NodePath}";
-        }
-    }
+        public bool Execute() {
+            switch (Type)
+            {
+                case OperationType.Create:
+                    GraphView.AddNode(Node, To.Value);
+                    break;
+                case OperationType.Delete:
+                    GraphView.RemoveNode(Node, From.Value);
+                    break;
+                case OperationType.Move:
+                    GraphView.MoveNode(Node, From.Value, To.Value);
+                    break;
+                default:
+                    Debug.LogError($"未知操作类型: {Type}");
+                    return false;
+            }
 
-    /// <summary>
-    /// 节点移动操作
-    /// </summary>
-    public class NodeMoveOperation : NodeOperation
-    {
-        public override OperationType Type => OperationType.Move;
-        public override string Description => $"移动节点: {From}->{To}";
 
-        public JsonNode Node { get; set; }
 
-        public PAPath From;
-        public PAPath To;
 
-        public NodeMoveOperation(JsonNode node, PAPath from, PAPath to, TreeNodeGraphView graphView)
-        {
-            Node = node;
-            From = from;
-            To = to;
-            GraphView = graphView;
+
+
+            return true; 
         }
 
-        public override bool Execute()
-        {
-            return true;
-        }
+        public bool Undo() { 
+            
+            return true; }
 
-        public override bool Undo()
-        {
-            return true;
-        }
-        public override string GetOperationSummary()
-        {
-            return $"NodeMove: {Node?.GetType().Name} from {From} to {To}";
-        }
     }
 }

@@ -1,13 +1,14 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
 using System.Threading;
+using System.Threading.Tasks;
 using TreeNode.Runtime;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine;
 using UnityEngine.UIElements;
-using System.Collections;
+using static UnityEditor.FilePathAttribute;
 
 namespace TreeNode.Editor
 {
@@ -154,7 +155,7 @@ namespace TreeNode.Editor
         public virtual void AddNode(JsonNode node)
         {
             Asset.Data.Nodes.Add(node);
-            var createOperation = new NodeCreateOperation(node,$"[{Asset.Data.Nodes.Count}]" , this);
+            var createOperation =  NodeOperation.Create(node,$"[{Asset.Data.Nodes.Count}]" , this);
             Window.History.RecordOperation(createOperation);
 
             NodeTree.OnNodeAdded(node);
@@ -166,7 +167,7 @@ namespace TreeNode.Editor
             if (string.IsNullOrEmpty(path))
             {
                 Asset.Data.Nodes.Add(node);
-                var createOperation = new NodeCreateOperation(node, $"[{Asset.Data.Nodes.Count}]", this);
+                var createOperation = NodeOperation.Create(node, $"[{Asset.Data.Nodes.Count}]", this);
                 Window.History.RecordOperation(createOperation);
 
                 NodeTree.OnNodeAdded(node);
@@ -174,6 +175,7 @@ namespace TreeNode.Editor
             }
             try
             {
+                string path_ = path;
                 object parent = PropertyAccessor.GetParentObject(Asset.Data.Nodes, path, out string last);
                 object oldValue = PropertyAccessor.GetValue<object>(parent, last);
                 if (oldValue is null)
@@ -184,24 +186,9 @@ namespace TreeNode.Editor
                     {
                         oldValue = Activator.CreateInstance(valueType);
                         PropertyAccessor.SetValue(parent, last, oldValue);
+                        path_ = $"{path_}[0]";
                     }
                 }
-                
-                // 记录节点移动操作
-                JsonNode parentNode = parent as JsonNode;
-                if (parentNode != null)
-                {
-                    var fromLocation = NodeLocation.Root(-1); // 从根移动
-                    int listIndex = 0;
-                    if (oldValue is IList targetList)
-                    {
-                        listIndex = targetList.Count;
-                    }
-                    var toLocation = NodeLocation.Child(parentNode, last, oldValue is IList, listIndex);
-                    var moveOperation = new NodeMoveOperation(node, fromLocation, toLocation, this);
-                    Window.History.RecordOperation(moveOperation);
-                }
-                
                 if (oldValue is IList nodeList)
                 {
                     nodeList.Add(node);
@@ -210,6 +197,8 @@ namespace TreeNode.Editor
                 {
                     PropertyAccessor.SetValue(parent, last, node);
                 }
+                var moveOperation = NodeOperation.Create(node, path, this);
+                Window.History.RecordOperation(moveOperation);
                 NodeTree.OnNodeAdded(node, path);
                 return true;
             }
@@ -224,7 +213,7 @@ namespace TreeNode.Editor
         {
             // 记录节点删除操作
             int index = Asset.Data.Nodes.IndexOf(node);
-            var deleteOperation = new NodeDeleteOperation(node,$"[{index}]", this);
+            var deleteOperation = NodeOperation.Delete(node,$"[{index}]", this);
             Window.History.RecordOperation(deleteOperation);
             
             Asset.Data.Nodes.Remove(node);

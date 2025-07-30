@@ -522,16 +522,6 @@ namespace TreeNode.Runtime
         {
             PathCache.Clear();
             SegmentCache.Clear();
-            ValidationCache.Clear();
-        }
-
-        /// <summary>
-        /// 获取缓存统计信息
-        /// </summary>
-        /// <returns>缓存统计信息</returns>
-        public static (int pathCache, int segmentCache, int validationCache) GetCacheStats()
-        {
-            return (PathCache.Count, SegmentCache.Count, ValidationCache.Count);
         }
 
         #endregion
