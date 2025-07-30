@@ -64,7 +64,12 @@ namespace TreeNode.Runtime
             _originalPath = PartsToString(Parts);
             _hashCode = ComputeHashCode(_originalPath);
         }
-
+        public PAPath(PAPart part)
+        {
+            Parts =  new PAPart[] { part };
+            _originalPath = PartsToString(Parts);
+            _hashCode = ComputeHashCode(_originalPath);
+        }
         #endregion
 
         #region 公共属性

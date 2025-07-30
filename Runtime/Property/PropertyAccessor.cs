@@ -13,7 +13,7 @@ namespace TreeNode.Runtime
 {
     /// <summary>
     /// 高性能属性访问器 - 支持通过字符串路径访问对象属性
-    /// 重构后采用模块化设计提升可维护性和性能
+    /// 重构后采用PAPath作为内部逻辑路径，提升性能和可维护性
     /// 增强了对Array类型的直接支持
     /// </summary>
     public static class PropertyAccessor
@@ -21,27 +21,27 @@ namespace TreeNode.Runtime
         #region 内部数据结构
 
         /// <summary>
-        /// 优化的缓存键结构
+        /// 优化的缓存键结构 - 使用PAPath替代字符串路径
         /// </summary>
         private readonly struct CacheKey : IEquatable<CacheKey>
         {
             public readonly Type ObjectType;
-            public readonly string MemberPath;
+            public readonly PAPath MemberPath;
             public readonly Type ValueType;
             private readonly int _hashCode;
 
-            public CacheKey(Type objectType, string memberPath, Type valueType)
+            public CacheKey(Type objectType, PAPath memberPath, Type valueType)
             {
                 ObjectType = objectType;
                 MemberPath = memberPath;
                 ValueType = valueType;
-                _hashCode = HashCode.Combine(objectType, memberPath, valueType);
+                _hashCode = HashCode.Combine(objectType, memberPath.GetHashCode(), valueType);
             }
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             public bool Equals(CacheKey other) =>
                 ObjectType == other.ObjectType &&
-                MemberPath == other.MemberPath &&
+                MemberPath.Equals(other.MemberPath) &&
                 ValueType == other.ValueType;
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -82,27 +82,24 @@ namespace TreeNode.Runtime
 
         #region 缓存字段
 
-        // 获取器缓存
+        // 获取器缓存 - 使用PAPath作为键
         private static readonly ConcurrentDictionary<CacheKey, object> GetterCache = new();
         
-        // 设置器缓存  
+        // 设置器缓存 - 使用PAPath作为键
         private static readonly ConcurrentDictionary<CacheKey, object> SetterCache = new();
-        
-        // 路径分割缓存
-        private static readonly ConcurrentDictionary<string, string[]> PathCache = new();
         
         // 无参构造函数检查缓存
         private static readonly ConcurrentDictionary<Type, bool> ConstructorCache = new();
         
-        // 成员信息缓存
+        // 成员信息缓存 - 使用PAPath作为键
         private static readonly ConcurrentDictionary<CacheKey, MemberMetadata> MemberCache = new();
         
-        // 值类型setter缓存
+        // 值类型setter缓存 - 使用PAPath作为键
         private static readonly ConcurrentDictionary<CacheKey, object> StructSetterCache = new();
 
         #endregion
 
-        #region 公共API
+        #region 公共API - 保持向后兼容
 
         /// <summary>
         /// 获取属性值
@@ -113,9 +110,32 @@ namespace TreeNode.Runtime
         /// <returns>属性值</returns>
         public static T GetValue<T>(object obj, string path)
         {
-            var parent = GetParentObject(obj, path, out var lastMember);
-            var getter = GetOrCreateGetter<T>(parent.GetType(), lastMember);
-            return getter(parent);
+            return GetValue<T>(obj, PAPath.Create(path));
+        }
+
+        /// <summary>
+        /// 获取属性值 - 使用PAPath
+        /// </summary>
+        /// <typeparam name="T">返回值类型</typeparam>
+        /// <param name="obj">目标对象</param>
+        /// <param name="path">PAPath路径</param>
+        /// <returns>属性值</returns>
+        public static T GetValue<T>(object obj, PAPath path)
+        {
+            if (path.IsEmpty)
+                return (T)obj;
+
+            if (path.Depth == 1)
+            {
+                // 单层路径直接访问，性能优化
+                var singleGetter = GetOrCreateGetter<T>(obj.GetType(), path.FirstPart);
+                return singleGetter(obj);
+            }
+
+            // 多层路径访问
+            var parent = GetParentObject(obj, path, out var lastPart);
+            var multiGetter = GetOrCreateGetter<T>(parent.GetType(), lastPart);
+            return multiGetter(parent);
         }
 
         /// <summary>
@@ -127,16 +147,45 @@ namespace TreeNode.Runtime
         /// <param name="value">要设置的值</param>
         public static void SetValue<T>(object obj, string path, T value)
         {
-            var parent = GetParentObject(obj, path, out var lastMember);
+            SetValue(obj, PAPath.Create(path), value);
+        }
+
+        /// <summary>
+        /// 设置属性值 - 使用PAPath
+        /// </summary>
+        /// <typeparam name="T">值类型</typeparam>
+        /// <param name="obj">目标对象</param>
+        /// <param name="path">PAPath路径</param>
+        /// <param name="value">要设置的值</param>
+        public static void SetValue<T>(object obj, PAPath path, T value)
+        {
+            if (path.IsEmpty)
+                throw new ArgumentException("路径不能为空");
+
+            if (path.Depth == 1)
+            {
+                // 单层路径直接设置，性能优化
+                if (obj.GetType().IsValueType)
+                {
+                    throw new InvalidOperationException("无法修改值类型的根对象");
+                }
+                
+                var setter = GetOrCreateSetter<T>(obj.GetType(), path.FirstPart);
+                setter(obj, value);
+                return;
+            }
+
+            // 多层路径设置
+            var parent = GetParentObject(obj, path, out var lastPart);
             
             // 处理值类型的特殊情况
             if (parent.GetType().IsValueType)
             {
-                HandleValueTypeSet(obj, path, lastMember, value);
+                HandleValueTypeSet(obj, path, lastPart, value);
             }
             else
             {
-                var setter = GetOrCreateSetter<T>(parent.GetType(), lastMember);
+                var setter = GetOrCreateSetter<T>(parent.GetType(), lastPart);
                 setter(parent, value);
             }
         }
@@ -151,10 +200,22 @@ namespace TreeNode.Runtime
         /// <returns>是否成功获取</returns>
         public static bool TryGetValue<T>(object obj, string path, out T result)
         {
+            return TryGetValue(obj, PAPath.Create(path), out result);
+        }
+
+        /// <summary>
+        /// 尝试获取属性值 - 使用PAPath
+        /// </summary>
+        /// <typeparam name="T">返回值类型</typeparam>
+        /// <param name="obj">目标对象</param>
+        /// <param name="path">PAPath路径</param>
+        /// <param name="result">输出结果</param>
+        /// <returns>是否成功获取</returns>
+        public static bool TryGetValue<T>(object obj, PAPath path, out T result)
+        {
             try
             {
-                var getter = GetOrCreateGetter<T>(obj.GetType(), path);
-                result = getter(obj);
+                result = GetValue<T>(obj, path);
                 return result != null;
             }
             catch
@@ -171,25 +232,33 @@ namespace TreeNode.Runtime
         /// <param name="path">属性路径</param>
         public static void SetValueNull(object obj, string path)
         {
-            var parent = GetParentObject(obj, path, out var lastMember);
+            SetValueNull(obj, PAPath.Create(path));
+        }
+
+        /// <summary>
+        /// 设置属性值为null或移除列表项 - 使用PAPath
+        /// </summary>
+        /// <param name="obj">目标对象</param>
+        /// <param name="path">PAPath路径</param>
+        public static void SetValueNull(object obj, PAPath path)
+        {
+            var parent = GetParentObject(obj, path, out var lastPart);
             
-            if (parent is IList list && IsIndexerAccess(lastMember))
+            if (parent is IList list && lastPart.IsIndex)
             {
-                var index = ExtractIndexFromPath(lastMember);
-                list.RemoveAt(index);
+                list.RemoveAt(lastPart.Index);
             }
             // Array类型不支持RemoveAt操作，只能设置为null/default
-            else if (parent.GetType().IsArray && IsIndexerAccess(lastMember))
+            else if (parent.GetType().IsArray && lastPart.IsIndex)
             {
-                var index = ExtractIndexFromPath(lastMember);
                 var array = (Array)parent;
                 var elementType = array.GetType().GetElementType();
                 var defaultValue = elementType.IsValueType ? Activator.CreateInstance(elementType) : null;
-                array.SetValue(defaultValue, index);
+                array.SetValue(defaultValue, lastPart.Index);
             }
             else
             {
-                var setter = GetOrCreateSetter<object>(parent.GetType(), lastMember);
+                var setter = GetOrCreateSetter<object>(parent.GetType(), lastPart);
                 setter(parent, null);
             }
         }
@@ -206,64 +275,75 @@ namespace TreeNode.Runtime
             obj.ThrowIfNull(nameof(obj));
             path.ThrowIfNullOrEmpty(nameof(path));
             
-            var currentObj = obj;
-            var segments = SplitPath(path);
-            validLength = 0;
+            var paPath = PAPath.Create(path);
+            bool isValid = GetValidPath(obj, paPath, out int validDepth);
             
-            if (segments.Length == 0)
+            // 将深度转换为字符串长度
+            validLength = ConvertDepthToStringLength(paPath, validDepth);
+            
+            return isValid;
+        }
+
+        /// <summary>
+        /// 验证路径有效性 - 使用PAPath
+        /// </summary>
+        /// <param name="obj">目标对象</param>
+        /// <param name="path">PAPath路径</param>
+        /// <param name="validDepth">有效路径深度</param>
+        /// <returns>路径是否完全有效</returns>
+        public static bool GetValidPath(object obj, PAPath path, out int validDepth)
+        {
+            obj.ThrowIfNull(nameof(obj));
+            
+            var currentObj = obj;
+            validDepth = 0;
+            
+            if (path.IsEmpty)
             {
-                validLength = path.Length;
+                validDepth = 0;
                 return true;
             }
 
-            int currentPos = 0;
-            
-            for (int i = 0; i < segments.Length; i++)
+            for (int i = 0; i < path.Depth; i++)
             {
-                string segment = segments[i];
-                int segmentStart = (i == 0) ? 0 : path.IndexOf(segment, currentPos);
-                currentPos = segmentStart + segment.Length;
-
+                var part = path.Parts[i];
+                
                 try
                 {
-                    if (i == segments.Length - 1)
+                    if (i == path.Depth - 1)
                     {
-                        // 最后一个段，验证成员存在性
-                        if (ValidateMemberExists(currentObj, segment))
+                        // 最后一个部分，验证成员存在性
+                        if (ValidateMemberExists(currentObj, part))
                         {
-                            validLength = path.Length;
+                            validDepth = path.Depth;
                             return true;
                         }
                         else
                         {
-                            validLength = HandleInvalidFinalSegment(currentObj, segment, segmentStart);
+                            validDepth = i;
                             return false;
                         }
                     }
                     else
                     {
-                        // 中间段，尝试获取下一个对象
-                        currentObj = NavigateToNextObject(obj, currentObj, path, segment, currentPos);
+                        // 中间部分，尝试获取下一个对象
+                        currentObj = NavigateToNextObject(obj, currentObj, path, i);
                         if (currentObj == null)
                         {
-                            validLength = currentPos;
+                            validDepth = i;
                             return false;
                         }
+                        validDepth = i + 1;
                     }
                 }
                 catch
                 {
-                    validLength = HandleNavigationError(currentObj, segment, segmentStart);
+                    validDepth = i;
                     return false;
-                }
-                
-                if (i < segments.Length - 1)
-                {
-                    currentPos++;
                 }
             }
             
-            validLength = path.Length;
+            validDepth = path.Depth;
             return true;
         }
 
@@ -278,27 +358,37 @@ namespace TreeNode.Runtime
         /// <returns>找到的对象</returns>
         public static T GetLast<T>(object obj, string path, bool includeEnd, out int index)
         {
+            return GetLast<T>(obj, PAPath.Create(path), includeEnd, out index);
+        }
+
+        /// <summary>
+        /// 查找路径中最后出现指定类型的对象 - 使用PAPath
+        /// </summary>
+        /// <typeparam name="T">目标类型</typeparam>
+        /// <param name="obj">根对象</param>
+        /// <param name="path">PAPath路径</param>
+        /// <param name="includeEnd">是否包含路径末尾</param>
+        /// <param name="index">找到对象时的路径深度</param>
+        /// <returns>找到的对象</returns>
+        public static T GetLast<T>(object obj, PAPath path, bool includeEnd, out int index)
+        {
             obj.ThrowIfNull(nameof(obj));
-            path.ThrowIfNullOrEmpty(nameof(path));
             
             var currentObj = obj;
-            var segments = SplitPath(path);
             T result = default;
             index = 0;
-            int currentPos = 0;
             
-            int endIndex = includeEnd ? segments.Length : segments.Length - 1;
+            int endIndex = includeEnd ? path.Depth : path.Depth - 1;
             
             for (int i = 0; i < endIndex; i++)
             {
-                var getter = GetOrCreateGetter<object>(currentObj.GetType(), segments[i]);
+                var getter = GetOrCreateGetter<object>(currentObj.GetType(), path.Parts[i]);
                 currentObj = getter(currentObj);
-                currentPos += segments[i].Length + 1;
                 
                 if (currentObj is T typedObj)
                 {
                     result = typedObj;
-                    index = currentPos;
+                    index = i + 1;
                 }
             }
             
@@ -310,27 +400,29 @@ namespace TreeNode.Runtime
         /// </summary>
         public static object GetParentObject(object obj, string path, out string lastMember)
         {
-            obj.ThrowIfNull(nameof(obj));
-            path.ThrowIfNullOrEmpty(nameof(path));
+            var paPath = PAPath.Create(path);
+            var parent = GetParentObject(obj, paPath, out var lastPart);
+            lastMember = ConvertPartToString(lastPart);
+            return parent;
+        }
 
-            string parentPath = ExtractParentPath(path);
-            if (parentPath == null)
+        /// <summary>
+        /// 获取父对象 - 使用PAPath
+        /// </summary>
+        public static object GetParentObject(object obj, PAPath path, out PAPart lastPart)
+        {
+            obj.ThrowIfNull(nameof(obj));
+
+            if (path.Depth <= 1)
             {
-                lastMember = path;
+                lastPart = path.FirstPart;
                 return obj;
             }
 
-            lastMember = path[parentPath.Length..].TrimStart('.');
-            var currentObj = obj;
-            var segments = SplitPath(parentPath);
-
-            for (int i = 0; i < segments.Length; i++)
-            {
-                TryGetValue(currentObj, segments[i], out currentObj);
-                currentObj.ThrowIfNull(string.Join('.', segments[..i]));
-            }
-
-            return currentObj;
+            lastPart = path.LastPart;
+            var parentPath = path.GetParent();
+            
+            return GetValue<object>(obj, parentPath);
         }
 
         /// <summary>
@@ -340,6 +432,17 @@ namespace TreeNode.Runtime
         /// <param name="arrayPath">数组路径</param>
         /// <returns>数组长度，如果不是数组则返回-1</returns>
         public static int GetArrayLength(object obj, string arrayPath)
+        {
+            return GetArrayLength(obj, PAPath.Create(arrayPath));
+        }
+
+        /// <summary>
+        /// 获取数组长度 - 使用PAPath
+        /// </summary>
+        /// <param name="obj">目标对象</param>
+        /// <param name="arrayPath">PAPath数组路径</param>
+        /// <returns>数组长度，如果不是数组则返回-1</returns>
+        public static int GetArrayLength(object obj, PAPath arrayPath)
         {
             try
             {
@@ -365,6 +468,17 @@ namespace TreeNode.Runtime
         /// <returns>是否为数组类型</returns>
         public static bool IsArrayPath(object obj, string path)
         {
+            return IsArrayPath(obj, PAPath.Create(path));
+        }
+
+        /// <summary>
+        /// 检查指定路径是否为数组类型 - 使用PAPath
+        /// </summary>
+        /// <param name="obj">目标对象</param>
+        /// <param name="path">PAPath路径</param>
+        /// <returns>是否为数组类型</returns>
+        public static bool IsArrayPath(object obj, PAPath path)
+        {
             try
             {
                 var targetObj = GetValue<object>(obj, path);
@@ -376,6 +490,22 @@ namespace TreeNode.Runtime
             }
         }
 
+        /// <summary>
+        /// 提取父路径
+        /// </summary>
+        public static string ExtractParentPath(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return path;
+            
+            int lastDot = path.LastIndexOf('.');
+            int lastBracket = path.LastIndexOf('[');
+
+            if (lastDot == -1 && lastBracket == -1)
+                return null;
+                
+            return path[..Math.Max(lastDot, lastBracket)];
+        }
+
         #endregion
 
         #region 私有核心方法
@@ -383,12 +513,14 @@ namespace TreeNode.Runtime
         /// <summary>
         /// 处理值类型的设置操作
         /// </summary>
-        private static void HandleValueTypeSet<T>(object rootObj, string fullPath, string memberName, T value)
+        private static void HandleValueTypeSet<T>(object rootObj, PAPath fullPath, PAPart lastPart, T value)
         {
-            var parentCopy = SetValueOnStructOptimized(GetParentFromFullPath(rootObj, fullPath, memberName), memberName, value);
+            var parentPath = fullPath.GetParent();
+            var parentObj = GetValue<object>(rootObj, parentPath);
             
-            string parentPath = fullPath[..^(memberName.Length + 1)];
-            if (!string.IsNullOrEmpty(parentPath))
+            var parentCopy = SetValueOnStructOptimized(parentObj, lastPart, value);
+            
+            if (!parentPath.IsEmpty)
             {
                 SetValue<object>(rootObj, parentPath, parentCopy);
             }
@@ -398,60 +530,48 @@ namespace TreeNode.Runtime
             }
         }
 
-        /// <summary>
-        /// 从完整路径获取父对象
-        /// </summary>
-        private static object GetParentFromFullPath(object rootObj, string fullPath, string memberName)
-        {
-            string parentPath = fullPath[..^(memberName.Length + 1)];
-            return string.IsNullOrEmpty(parentPath) ? rootObj : GetValue<object>(rootObj, parentPath);
-        }
-
         #endregion
 
         #region 缓存和创建方法
 
         /// <summary>
-        /// 获取或创建Getter
+        /// 获取或创建Getter - 使用PAPart
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static Func<object, T> GetOrCreateGetter<T>(Type type, string memberName)
+        private static Func<object, T> GetOrCreateGetter<T>(Type type, PAPart part)
         {
-            var key = new CacheKey(type, memberName, typeof(T));
+            var key = new CacheKey(type, new PAPath(part), typeof(T));
             if (GetterCache.TryGetValue(key, out var cached))
                 return (Func<object, T>)cached;
             
-            var getter = CreateGetter<T>(type, memberName);
+            var getter = CreateGetter<T>(type, part);
             GetterCache[key] = getter;
             return getter;
         }
 
         /// <summary>
-        /// 获取或创建Setter
+        /// 获取或创建Setter - 使用PAPart
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static Action<object, T> GetOrCreateSetter<T>(Type type, string memberName)
+        private static Action<object, T> GetOrCreateSetter<T>(Type type, PAPart part)
         {
-            var key = new CacheKey(type, memberName, typeof(T));
+            var key = new CacheKey(type, new PAPath(part), typeof(T));
             if (SetterCache.TryGetValue(key, out var cached))
                 return (Action<object, T>)cached;
             
-            var setter = CreateSetter<T>(type, memberName);
+            var setter = CreateSetter<T>(type, part);
             SetterCache[key] = setter;
             return setter;
         }
 
         /// <summary>
-        /// 创建Getter表达式
+        /// 创建Getter表达式 - 使用PAPart
         /// </summary>
-        private static Func<object, T> CreateGetter<T>(Type type, string memberName)
+        private static Func<object, T> CreateGetter<T>(Type type, PAPart part)
         {
-            if (string.IsNullOrEmpty(memberName))
-                return obj => (T)obj;
-
             var param = Expression.Parameter(typeof(object), "obj");
             var current = Expression.Convert(param, type);
-            var target = BuildMemberAccess(current, memberName, ref type);
+            var target = BuildMemberAccess(current, part, ref type);
 
             if (!typeof(T).IsAssignableFrom(type))
                 throw new InvalidCastException($"类型不匹配: 期望 {typeof(T).Name}, 实际 {type.Name}");
@@ -461,9 +581,9 @@ namespace TreeNode.Runtime
         }
 
         /// <summary>
-        /// 创建Setter表达式
+        /// 创建Setter表达式 - 使用PAPart
         /// </summary>
-        private static Action<object, T> CreateSetter<T>(Type type, string memberName)
+        private static Action<object, T> CreateSetter<T>(Type type, PAPart part)
         {
             var param = Expression.Parameter(typeof(object), "obj");
             var valueParam = Expression.Parameter(typeof(T), "value");
@@ -474,17 +594,17 @@ namespace TreeNode.Runtime
             try
             {
                 targetType = type;
-                target = BuildMemberAccess(current, memberName, ref targetType);
+                target = BuildMemberAccess(current, part, ref targetType);
             }
             catch (Exception ex)
             {
-                throw new InvalidOperationException($"无法构建成员访问表达式: 类型={type.Name}, 成员={memberName}, 错误={ex.Message}", ex);
+                throw new InvalidOperationException($"无法构建成员访问表达式: 类型={type.Name}, 成员={part}, 错误={ex.Message}", ex);
             }
 
             // 检查是否可以写入
-            if (!CanWriteToMember(type, memberName))
+            if (!CanWriteToMember(type, part))
             {
-                throw new InvalidOperationException($"成员 {memberName} 在类型 {type.Name} 中为只读或不可写");
+                throw new InvalidOperationException($"成员 {part} 在类型 {type.Name} 中为只读或不可写");
             }
 
             try
@@ -531,7 +651,7 @@ namespace TreeNode.Runtime
             }
             catch (Exception ex)
             {
-                throw new InvalidOperationException($"创建Setter失败: 类型={type.Name}, 成员={memberName}, 值类型={typeof(T).Name}, 目标类型={targetType.Name}, 错误={ex.Message}", ex);
+                throw new InvalidOperationException($"创建Setter失败: 类型={type.Name}, 成员={part}, 值类型={typeof(T).Name}, 目标类型={targetType.Name}, 错误={ex.Message}", ex);
             }
         }
 
@@ -556,48 +676,25 @@ namespace TreeNode.Runtime
         }
 
         /// <summary>
-        /// 检查成员是否可写
+        /// 检查成员是否可写 - 使用PAPart
         /// </summary>
-        private static bool CanWriteToMember(Type type, string memberName)
+        private static bool CanWriteToMember(Type type, PAPart part)
         {
-            if (IsIndexerAccess(memberName))
+            if (part.IsIndex)
             {
-                var (collectionName, _) = ParseIndexerAccess(memberName);
-                
-                if (!string.IsNullOrEmpty(collectionName))
-                {
-                    // 检查集合属性/字段
-                    var property = type.GetProperty(collectionName);
-                    if (property != null)
-                    {
-                        // 集合本身存在且索引器可写（数组或IList）
-                        return property.PropertyType.IsArray || typeof(IList).IsAssignableFrom(property.PropertyType);
-                    }
-                    
-                    var field = type.GetField(collectionName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                    if (field != null && !field.IsInitOnly)
-                    {
-                        return field.FieldType.IsArray || typeof(IList).IsAssignableFrom(field.FieldType);
-                    }
-                    
-                    return false;
-                }
-                else
-                {
-                    // 直接对类型进行索引访问
-                    return type.IsArray || typeof(IList).IsAssignableFrom(type);
-                }
+                // 直接对类型进行索引访问
+                return type.IsArray || typeof(IList).IsAssignableFrom(type);
             }
             else
             {
                 // 普通属性/字段访问
-                var property = type.GetProperty(memberName);
+                var property = type.GetProperty(part.Name);
                 if (property != null)
                 {
                     return property.CanWrite;
                 }
                 
-                var field = type.GetField(memberName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                var field = type.GetField(part.Name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
                 return field != null && !field.IsInitOnly;
             }
         }
@@ -633,33 +730,25 @@ namespace TreeNode.Runtime
         #region 表达式构建
 
         /// <summary>
-        /// 构建成员访问表达式
+        /// 构建成员访问表达式 - 使用PAPart
         /// </summary>
-        private static Expression BuildMemberAccess(Expression current, string memberName, ref Type type)
+        private static Expression BuildMemberAccess(Expression current, PAPart part, ref Type type)
         {
-            if (IsIndexerAccess(memberName))
+            if (part.IsIndex)
             {
-                return BuildIndexerAccess(current, memberName, ref type);
+                return BuildIndexerAccess(current, part.Index, ref type);
             }
             else
             {
-                return BuildPropertyOrFieldAccess(current, memberName, ref type);
+                return BuildPropertyOrFieldAccess(current, part.Name, ref type);
             }
         }
 
         /// <summary>
         /// 构建索引器访问表达式（增强Array支持）
         /// </summary>
-        private static Expression BuildIndexerAccess(Expression current, string memberName, ref Type type)
+        private static Expression BuildIndexerAccess(Expression current, int index, ref Type type)
         {
-            var (collectionName, index) = ParseIndexerAccess(memberName);
-
-            if (!string.IsNullOrEmpty(collectionName))
-            {
-                // 先访问集合属性/字段
-                current = BuildPropertyOrFieldAccess(current, collectionName, ref type);
-            }
-
             // 优化：区分Array和普通索引器处理
             if (type.IsArray)
             {
@@ -704,121 +793,44 @@ namespace TreeNode.Runtime
 
         #endregion
 
-        #region 路径处理工具
-
-        /// <summary>
-        /// 分割路径
-        /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static string[] SplitPath(string path) =>
-            PathCache.GetOrAdd(path, p => p.Split('.'));
-
-        /// <summary>
-        /// 提取父路径
-        /// </summary>
-        public static string ExtractParentPath(string path)
-        {
-            if (string.IsNullOrEmpty(path)) return path;
-            
-            int lastDot = path.LastIndexOf('.');
-            int lastBracket = path.LastIndexOf('[');
-
-            if (lastDot == -1 && lastBracket == -1)
-                return null;
-                
-            return path[..Math.Max(lastDot, lastBracket)];
-        }
-
-        /// <summary>
-        /// 检查是否为索引器访问
-        /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static bool IsIndexerAccess(string memberName) =>
-            memberName.EndsWith("]");
-
-        /// <summary>
-        /// 从路径中提取索引
-        /// </summary>
-        private static int ExtractIndexFromPath(string memberName)
-        {
-            int start = memberName.IndexOf('[') + 1;
-            int end = memberName.IndexOf(']');
-            return int.Parse(memberName.Substring(start, end - start));
-        }
-
-        /// <summary>
-        /// 解析索引器访问
-        /// </summary>
-        private static (string collectionName, int index) ParseIndexerAccess(string memberName)
-        {
-            int bracketStart = memberName.IndexOf('[');
-            int bracketEnd = memberName.IndexOf(']');
-            
-            string collectionName = memberName[..bracketStart];
-            int index = int.Parse(memberName.Substring(bracketStart + 1, bracketEnd - bracketStart - 1));
-            
-            return (collectionName, index);
-        }
-
-        #endregion
-
         #region 成员信息管理
 
         /// <summary>
-        /// 获取或创建成员信息
+        /// 获取或创建成员信息 - 使用PAPart
         /// </summary>
-        private static MemberMetadata GetOrCreateMemberInfo(Type type, string memberName)
+        private static MemberMetadata GetOrCreateMemberInfo(Type type, PAPart part)
         {
-            var key = new CacheKey(type, memberName, typeof(object));
+            var key = new CacheKey(type, new PAPath(part), typeof(object));
             if (MemberCache.TryGetValue(key, out var cached))
                 return cached;
 
-            var metadata = CreateMemberMetadata(type, memberName);
+            var metadata = CreateMemberMetadata(type, part);
             MemberCache[key] = metadata;
             return metadata;
         }
 
         /// <summary>
-        /// 创建成员元数据（增强Array检测）
+        /// 创建成员元数据（增强Array检测）- 使用PAPart
         /// </summary>
-        private static MemberMetadata CreateMemberMetadata(Type type, string memberName)
+        private static MemberMetadata CreateMemberMetadata(Type type, PAPart part)
         {
             PropertyInfo property = null;
             FieldInfo field = null;
-            bool isIndexer = false;
+            bool isIndexer = part.IsIndex;
             bool isArray = false;
             string collectionName = null;
 
-            if (IsIndexerAccess(memberName))
+            if (part.IsIndex)
             {
-                var (name, _) = ParseIndexerAccess(memberName);
-                collectionName = name;
-                isIndexer = true;
-
-                if (!string.IsNullOrEmpty(collectionName))
-                {
-                    property = type.GetProperty(collectionName);
-                    if (property == null)
-                    {
-                        field = type.GetField(collectionName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                    }
-                    
-                    // 检查是否为数组类型
-                    var memberType = property?.PropertyType ?? field?.FieldType;
-                    isArray = memberType?.IsArray == true;
-                }
-                else
-                {
-                    // 直接对当前对象进行索引访问
-                    isArray = type.IsArray;
-                }
+                // 直接对当前对象进行索引访问
+                isArray = type.IsArray;
             }
             else
             {
-                property = type.GetProperty(memberName);
+                property = type.GetProperty(part.Name);
                 if (property == null)
                 {
-                    field = type.GetField(memberName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    field = type.GetField(part.Name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
                 }
             }
 
@@ -830,17 +842,17 @@ namespace TreeNode.Runtime
         #region 验证方法
 
         /// <summary>
-        /// 验证成员是否存在
+        /// 验证成员是否存在 - 使用PAPart
         /// </summary>
-        private static bool ValidateMemberExists(object obj, string memberName)
+        private static bool ValidateMemberExists(object obj, PAPart part)
         {
             if (obj == null) return false;
 
-            var metadata = GetOrCreateMemberInfo(obj.GetType(), memberName);
+            var metadata = GetOrCreateMemberInfo(obj.GetType(), part);
             
             if (metadata.IsIndexer)
             {
-                return ValidateIndexerAccess(obj, memberName, metadata);
+                return ValidateIndexerAccess(obj, part.Index, metadata);
             }
             else
             {
@@ -852,37 +864,10 @@ namespace TreeNode.Runtime
         /// <summary>
         /// 验证索引器访问（增强Array验证）
         /// </summary>
-        private static bool ValidateIndexerAccess(object obj, string memberName, MemberMetadata metadata)
+        private static bool ValidateIndexerAccess(object obj, int index, MemberMetadata metadata)
         {
-            var (_, index) = ParseIndexerAccess(memberName);
-            
             object collection = obj;
             Type collectionType = obj.GetType();
-
-            if (metadata.HasCollectionName)
-            {
-                try
-                {
-                    if (metadata.IsProperty && metadata.Property != null)
-                    {
-                        collection = metadata.Property.GetValue(obj);
-                        collectionType = metadata.Property.PropertyType;
-                    }
-                    else if (metadata.Field != null)
-                    {
-                        collection = metadata.Field.GetValue(obj);
-                        collectionType = metadata.Field.FieldType;
-                    }
-                    else
-                    {
-                        return false;
-                    }
-                }
-                catch
-                {
-                    return false;
-                }
-            }
 
             if (collection == null) return false;
 
@@ -908,35 +893,38 @@ namespace TreeNode.Runtime
         #region 导航和错误处理
 
         /// <summary>
-        /// 导航到下一个对象
+        /// 导航到下一个对象 - 使用PAPath和索引
         /// </summary>
-        private static object NavigateToNextObject(object rootObj, object currentObj, string fullPath, string segment, int currentPos)
+        private static object NavigateToNextObject(object rootObj, object currentObj, PAPath fullPath, int partIndex)
         {
-            var getter = GetOrCreateGetter<object>(currentObj.GetType(), segment);
+            var part = fullPath.Parts[partIndex];
+            var getter = GetOrCreateGetter<object>(currentObj.GetType(), part);
             object nextObj = getter(currentObj);
             
             // 如果对象为null，尝试自动创建
             if (nextObj == null)
             {
-                nextObj = TryCreateMissingObject(rootObj, fullPath, segment, currentPos, currentObj.GetType());
+                nextObj = TryCreateMissingObject(rootObj, fullPath, partIndex, currentObj.GetType());
             }
             
             return nextObj;
         }
 
         /// <summary>
-        /// 尝试创建缺失的对象
+        /// 尝试创建缺失的对象 - 使用PAPath
         /// </summary>
-        private static object TryCreateMissingObject(object rootObj, string fullPath, string memberName, int currentPos, Type parentType)
+        private static object TryCreateMissingObject(object rootObj, PAPath fullPath, int partIndex, Type parentType)
         {
-            var memberType = GetMemberType(parentType, memberName);
+            var part = fullPath.Parts[partIndex];
+            var memberType = GetMemberType(parentType, part);
             
             if (memberType != null && 
                 !IsJsonNodeType(memberType) && 
                 HasValidParameterlessConstructor(memberType))
             {
                 var newObj = Activator.CreateInstance(memberType);
-                SetValue(rootObj, fullPath[..currentPos], newObj);
+                var parentPath = fullPath.GetSubPath(0, partIndex + 1);
+                SetValue(rootObj, parentPath, newObj);
                 return newObj;
             }
             
@@ -944,79 +932,14 @@ namespace TreeNode.Runtime
         }
 
         /// <summary>
-        /// 获取成员类型
+        /// 获取成员类型 - 使用PAPart
         /// </summary>
-        private static Type GetMemberType(Type type, string memberName)
+        private static Type GetMemberType(Type type, PAPart part)
         {
-            var metadata = GetOrCreateMemberInfo(type, memberName);
+            var metadata = GetOrCreateMemberInfo(type, part);
             return metadata.IsProperty && metadata.Property != null 
                 ? metadata.Property.PropertyType 
                 : metadata.Field?.FieldType;
-        }
-
-        /// <summary>
-        /// 处理无效的最终段
-        /// </summary>
-        private static int HandleInvalidFinalSegment(object currentObj, string segment, int segmentStart)
-        {
-            if (!IsIndexerAccess(segment)) 
-                return segmentStart;
-
-            var (collectionName, _) = ParseIndexerAccess(segment);
-            if (!string.IsNullOrEmpty(collectionName))
-            {
-                var type = currentObj.GetType();
-                var property = type.GetProperty(collectionName);
-                var field = type.GetField(collectionName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                
-                if (property != null || field != null)
-                {
-                    return segmentStart + segment.IndexOf('[');
-                }
-            }
-            
-            return segmentStart;
-        }
-
-        /// <summary>
-        /// 处理导航错误
-        /// </summary>
-        private static int HandleNavigationError(object currentObj, string segment, int segmentStart)
-        {
-            if (!IsIndexerAccess(segment))
-                return segmentStart;
-
-            var (collectionName, _) = ParseIndexerAccess(segment);
-            if (string.IsNullOrEmpty(collectionName))
-                return segmentStart;
-
-            try
-            {
-                var type = currentObj.GetType();
-                var property = type.GetProperty(collectionName);
-                var field = type.GetField(collectionName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                
-                if ((property != null || field != null))
-                {
-                    var collection = property?.GetValue(currentObj) ?? field?.GetValue(currentObj);
-                    if (collection != null)
-                    {
-                        var memberType = property?.PropertyType ?? field?.FieldType;
-                        bool isCollection = typeof(IList).IsAssignableFrom(memberType) || memberType.IsArray;
-                        
-                        if (isCollection)
-                        {
-                            return segmentStart + segment.IndexOf('[');
-                        }
-                    }
-                }
-            }
-            catch
-            {
-                // 忽略异常
-            }
-            
-            return segmentStart;
         }
 
         #endregion
@@ -1049,12 +972,12 @@ namespace TreeNode.Runtime
         #region 值类型处理
 
         /// <summary>
-        /// 优化的值类型setter
+        /// 优化的值类型setter - 使用PAPart
         /// </summary>
-        private static object SetValueOnStructOptimized<T>(object structObj, string memberName, T value)
+        private static object SetValueOnStructOptimized<T>(object structObj, PAPart part, T value)
         {
             var structType = structObj.GetType();
-            var key = new CacheKey(structType, memberName, typeof(T));
+            var key = new CacheKey(structType, new PAPath( part ), typeof(T));
             
             if (StructSetterCache.TryGetValue(key, out var cached))
             {
@@ -1062,16 +985,16 @@ namespace TreeNode.Runtime
                 return structSetter(structObj, value);
             }
 
-            var setter = CreateStructSetter<T>(structType, memberName);
+            var setter = CreateStructSetter<T>(structType, part);
             StructSetterCache[key] = setter;
             
             return setter(structObj, value);
         }
 
         /// <summary>
-        /// 创建值类型setter委托
+        /// 创建值类型setter委托 - 使用PAPart
         /// </summary>
-        private static StructSetter<T> CreateStructSetter<T>(Type structType, string memberName)
+        private static StructSetter<T> CreateStructSetter<T>(Type structType, PAPart part)
         {
             var structParam = Expression.Parameter(typeof(object), "structObj");
             var valueParam = Expression.Parameter(typeof(T), "value");
@@ -1081,13 +1004,13 @@ namespace TreeNode.Runtime
             
             Expression setValueExpression;
             
-            if (IsIndexerAccess(memberName))
+            if (part.IsIndex)
             {
-                setValueExpression = CreateIndexerSetExpression<T>(structType, memberName, structVariable, valueParam);
+                setValueExpression = CreateIndexerSetExpression<T>(structType, part.Index, structVariable, valueParam);
             }
             else
             {
-                setValueExpression = CreatePropertyFieldSetExpression<T>(structType, memberName, structVariable, valueParam);
+                setValueExpression = CreatePropertyFieldSetExpression<T>(structType, part.Name, structVariable, valueParam);
             }
             
             var returnExpression = Expression.Convert(structVariable, typeof(object));
@@ -1105,51 +1028,24 @@ namespace TreeNode.Runtime
         /// <summary>
         /// 创建索引器设置表达式（增强Array支持）
         /// </summary>
-        private static Expression CreateIndexerSetExpression<T>(Type structType, string memberName, 
+        private static Expression CreateIndexerSetExpression<T>(Type structType, int index, 
             ParameterExpression structVariable, ParameterExpression valueParam)
         {
-            var (collectionName, index) = ParseIndexerAccess(memberName);
-            
-            if (string.IsNullOrEmpty(collectionName))
-                throw new ArgumentException("值类型不支持直接索引访问");
-            
-            var property = structType.GetProperty(collectionName);
-            if (property != null)
-            {
-                var arrayAccess = Expression.Property(structVariable, property);
-                return CreateIndexAccessExpression<T>(arrayAccess, index, valueParam);
-            }
-            
-            var field = structType.GetField(collectionName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            if (field != null)
-            {
-                var arrayAccess = Expression.Field(structVariable, field);
-                return CreateIndexAccessExpression<T>(arrayAccess, index, valueParam);
-            }
-            
-            throw new ArgumentException($"集合成员 {collectionName} 在类型 {structType.Name} 中未找到");
-        }
-
-        /// <summary>
-        /// 创建索引访问表达式（区分Array和索引器）
-        /// </summary>
-        private static Expression CreateIndexAccessExpression<T>(Expression arrayAccess, int index, ParameterExpression valueParam)
-        {
-            if (arrayAccess.Type.IsArray)
+            if (structType.IsArray)
             {
                 // 对数组使用ArrayIndex优化
-                var indexAccess = Expression.ArrayAccess(arrayAccess, Expression.Constant(index));
+                var indexAccess = Expression.ArrayAccess(structVariable, Expression.Constant(index));
                 return Expression.Assign(indexAccess, Expression.Convert(valueParam, indexAccess.Type));
             }
             else
             {
                 // 对其他集合使用索引器
-                var indexer = arrayAccess.Type.GetProperty("Item");
+                var indexer = structType.GetProperty("Item");
                 if (indexer == null)
                 {
-                    throw new ArgumentException($"类型 {arrayAccess.Type.Name} 不支持索引器");
+                    throw new ArgumentException($"类型 {structType.Name} 不支持索引器");
                 }
-                var indexAccess = Expression.MakeIndex(arrayAccess, indexer, new[] { Expression.Constant(index) });
+                var indexAccess = Expression.MakeIndex(structVariable, indexer, new[] { Expression.Constant(index) });
                 return Expression.Assign(indexAccess, Expression.Convert(valueParam, indexAccess.Type));
             }
         }
@@ -1179,21 +1075,29 @@ namespace TreeNode.Runtime
 
         #endregion
 
-        //#region 兼容性方法
+        #region 工具方法
 
-        ///// <summary>
-        ///// 兼容原有的PopPath方法
-        ///// </summary>
-        //[Obsolete("使用 ExtractParentPath 替代")]
-        //public static string PopPath(string path) => ExtractParentPath(path);
+        /// <summary>
+        /// 将深度转换为字符串长度
+        /// </summary>
+        private static int ConvertDepthToStringLength(PAPath path, int validDepth)
+        {
+            if (validDepth <= 0) return 0;
+            if (validDepth >= path.Depth) return path.OriginalPath.Length;
+            
+            // 构建有效部分的字符串长度
+            var subPath = path.GetSubPath(0, validDepth);
+            return subPath.OriginalPath.Length;
+        }
 
-        ///// <summary>
-        ///// 兼容原有的TryGetParent方法
-        ///// </summary>
-        //[Obsolete("使用 GetParentObject 替代")]
-        //public static object TryGetParent(object obj, string path, out string last) =>
-        //    GetParentObject(obj, path, out last);
+        /// <summary>
+        /// 将PAPart转换为字符串
+        /// </summary>
+        private static string ConvertPartToString(PAPart part)
+        {
+            return part.IsIndex ? $"[{part.Index}]" : part.Name;
+        }
 
-        //#endregion
+        #endregion
     }
 }
