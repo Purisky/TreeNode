@@ -4,16 +4,11 @@ using System.Linq;
 using TreeNode.Runtime;
 using TreeNode.Utility;
 using UnityEngine;
-using UnityEngine.UIElements;
-using System.Collections.Concurrent;
-using System.Threading.Tasks;
-using System.IO;
 
 namespace TreeNode.Editor
 {
     /// <summary>
-    /// 基于原子操作的高性能Undo/Redo历史系统
-    /// 将所有编辑操作抽象为原子操作，支持精确的撤销重做和批量操作
+    /// 简化的历史系统 - 只保留核心撤销重做功能
     /// </summary>
     public partial class History
     {
@@ -24,17 +19,6 @@ namespace TreeNode.Editor
         // 批量操作管理
         private HistoryStep _currentBatch;
         private bool _isBatchMode = false;
-        
-        // 防重复记录机制
-        private HashSet<string> _recordedOperationIds = new HashSet<string>();
-
-        // 操作合并和缓存 - 简化为同步机制
-        private List<IAtomicOperation> _pendingOperations = new List<IAtomicOperation>();
-        private DateTime _lastMergeTime = DateTime.MinValue;
-        
-        // 增量渲染
-        private HashSet<ViewNode> _dirtyNodes = new HashSet<ViewNode>();
-        private bool _needsFullRedraw = false;
 
         public History(TreeNodeGraphWindow window)
         {
@@ -51,14 +35,6 @@ namespace TreeNode.Editor
             
             _currentBatch = null;
             _isBatchMode = false;
-            
-            _recordedOperationIds.Clear();
-
-            // 清理缓存和统计
-            _performanceStats.Reset();
-            
-            ClearNodeCache();
-            ClearRenderingState();
         }
 
         /// <summary>
@@ -78,87 +54,48 @@ namespace TreeNode.Editor
             }
 
             Steps.Add(new HistoryStep(Window.JsonAsset));
-            if (Steps.Count > MaxStep)
+            if (Steps.Count > 20) // 简化的最大步骤数
             {
                 Steps.RemoveAt(0);
-                TriggerMemoryOptimization();
             }
             RedoSteps.Clear();
-            
-            // 清理操作ID缓存
-            _recordedOperationIds.Clear();
-
-            UpdatePerformanceStats();
         }
 
         /// <summary>
-        /// 记录原子操作（带防重复机制和性能优化）- 优化用于位置变化处理
+        /// 记录原子操作（简化版本）
         /// </summary>
         public void RecordOperation(IAtomicOperation operation)
         {
-            Debug.Log($"RecordOperation:{operation.Description}");
             if (operation == null) return;
 
-            var startTime = DateTime.Now;
+            Debug.Log($"RecordOperation: {operation.Description}");
 
-            // 优化防重复机制 - 对于字段修改操作，允许连续记录以便合并，但要避免真正的重复
-            string operationId = operation.GetOperationId();
-            
-            // 特殊处理FieldModifyOperation：检查是否是真正的重复操作（相同的新旧值）
-            if (operation.Type == OperationType.FieldModify)
+            // 如果在批量模式中，添加到当前批次
+            if (_isBatchMode && _currentBatch != null)
             {
-                // 获取新旧值字符串表示
-                var oldValue = operation.GetOldValueString();
-                var newValue = operation.GetNewValueString();
-                
-                // 如果新旧值相同，跳过这个无意义的操作
-                if (oldValue == newValue)
-                {
-                    return;
-                }
-                
-                // 对于字段修改，我们不使用防重复机制，让合并逻辑处理连续的修改
-                // 这样连续的Position变化可以被正确合并
+                _currentBatch.AddOperation(operation);
+                Debug.Log($"[批量模式] 添加操作到当前批次: {operation.Description}");
             }
             else
             {
-                // 对于非字段修改操作，继续使用防重复机制
-                if (_recordedOperationIds.Contains(operationId))
+                // 简化版本：直接创建新步骤包含此操作
+                var step = new HistoryStep();
+                step.AddOperation(operation);
+                step.Commit(operation.Description);
+                step.EnsureSnapshot(Window.JsonAsset);
+                
+                Steps.Add(step);
+                
+                if (Steps.Count > 20)
                 {
-                    //Debug.LogWarning($"重复操作被忽略: {operationId}");
-                    return;
+                    Steps.RemoveAt(0);
                 }
-                _recordedOperationIds.Add(operationId);
+                
+                RedoSteps.Clear();
+                Debug.Log($"[新建步骤] 创建新步骤: {operation.Description}");
             }
-
-            // 智能操作合并：将操作加入待处理队列
-            if (ShouldMergeOperation(operation))
-            {
-                _pendingOperations.Add(operation);
-                TryProcessPendingOperations();
-                return;
-            }
-
-            // 直接处理的操作
-            ProcessOperationImmediate(operation);
-
-            // 更新性能统计
-            var elapsed = (DateTime.Now - startTime).TotalMilliseconds;
-            _performanceStats.RecordOperationTime(elapsed);
 
             Window.MakeDirty();
-        }
-
-        /// <summary>
-        /// 基于时间窗口尝试处理待合并操作
-        /// </summary>
-        private void TryProcessPendingOperations()
-        {
-            var timeSinceLastMerge = DateTime.Now - _lastMergeTime;
-            if (timeSinceLastMerge.TotalMilliseconds >= OperationMergeWindowMs || _pendingOperations.Count >= 10)
-            {
-                ProcessPendingOperations();
-            }
         }
 
         /// <summary>
@@ -173,14 +110,8 @@ namespace TreeNode.Editor
 
             _currentBatch = new HistoryStep();
             _currentBatch.Description = description;
-            // 确保批量操作开始时记录当前状态
             _currentBatch.EnsureSnapshot(Window.JsonAsset);
             _isBatchMode = true;
-            
-            // 清理操作ID缓存，为批量操作准备
-            _recordedOperationIds.Clear();
-
-            _performanceStats.IsBatchMode = true;
         }
 
         /// <summary>
@@ -193,14 +124,12 @@ namespace TreeNode.Editor
             if (_currentBatch.Operations.Count > 0)
             {
                 _currentBatch.Commit();
-                // 确保批量操作结束时包含正确的状态快照
                 _currentBatch.EnsureSnapshot(Window.JsonAsset);
                 Steps.Add(_currentBatch);
                 
-                if (Steps.Count > MaxStep)
+                if (Steps.Count > 20)
                 {
                     Steps.RemoveAt(0);
-                    TriggerMemoryOptimization();
                 }
                 
                 RedoSteps.Clear();
@@ -209,8 +138,6 @@ namespace TreeNode.Editor
             _currentBatch = null;
             _isBatchMode = false;
 
-            _performanceStats.IsBatchMode = false;
-
             Window.MakeDirty();
         }
 
@@ -218,21 +145,24 @@ namespace TreeNode.Editor
         {
             if (Steps.Count <= 1) { return false; }
             
-            var startTime = DateTime.Now;
-            Debug.Log($"执行撤销操作 - 当前步骤数:[{Steps.Count}]");
-            Debug.Log(GetHistorySummary());
+            Debug.Log($"执行撤销操作 - 当前步骤数: {Steps.Count}");
             HistoryStep step = Steps[^1];
             Steps.RemoveAt(Steps.Count - 1);
             RedoSteps.Push(step);
             
-            // 使用修复版的提交方法，确保GraphView同步
-            CommitWithIncrementalRender(step, true);
+            // 简化版本：直接恢复到前一个状态
+            if (Steps.Any())
+            {
+                var prevStep = Steps[^1];
+                var targetAsset = prevStep.GetAsset();
+                if (targetAsset != null)
+                {
+                    Window.JsonAsset = targetAsset;
+                    Window.GraphView.Redraw();
+                }
+            }
             
-            // 更新性能统计
-            var elapsed = (DateTime.Now - startTime).TotalMilliseconds;
-            _performanceStats.RecordUndoTime(elapsed);
-            
-            Debug.Log($"撤销操作完成 - 耗时:{elapsed:F2}ms");
+            Debug.Log("撤销操作完成");
             return true;
         }
 
@@ -240,26 +170,25 @@ namespace TreeNode.Editor
         {
             if (!RedoSteps.Any()) { return false; }
             
-            var startTime = DateTime.Now;
-            Debug.Log($"执行重做操作 - 可重做步骤数:[{RedoSteps.Count}]");
+            Debug.Log($"执行重做操作 - 可重做步骤数: {RedoSteps.Count}");
             
             HistoryStep step = RedoSteps.Pop();
             Steps.Add(step);
             
-            // 使用修复版的提交方法，确保GraphView同步
-            CommitWithIncrementalRender(step, false);
+            // 简化版本：直接恢复到指定状态
+            var targetAsset = step.GetAsset();
+            if (targetAsset != null)
+            {
+                Window.JsonAsset = targetAsset;
+                Window.GraphView.Redraw();
+            }
             
-            // 更新性能统计
-            var elapsed = (DateTime.Now - startTime).TotalMilliseconds;
-            _performanceStats.RecordRedoTime(elapsed);
-            _performanceStats.RedoSteps++;
-            
-            Debug.Log($"重做操作完成 - 耗时:{elapsed:F2}ms");
+            Debug.Log("重做操作完成");
             return true;
         }
 
         /// <summary>
-        /// 获取历史记录摘要
+        /// 获取历史记录摘要（简化版本）
         /// </summary>
         public string GetHistorySummary()
         {
@@ -268,58 +197,25 @@ namespace TreeNode.Editor
             summary.AppendLine($"可重做步骤: {RedoSteps.Count}");
             summary.AppendLine($"批量模式: {(_isBatchMode ? "开启" : "关闭")}");
 
-            var stats = GetPerformanceStats();
-            summary.AppendLine($"内存使用: {stats.MemoryUsageMB:F2}MB");
-            summary.AppendLine($"缓存节点: {stats.CachedOperations}");
-            summary.AppendLine($"合并操作: {stats.MergedOperations}");
-
-            // 显示最近的步骤详情，最多5个
-            summary.AppendLine();
-            summary.AppendLine("=== 最近的步骤详情 ===");
-            
             if (Steps.Count <= 1)
             {
                 summary.AppendLine("无历史步骤");
             }
             else
             {
-                // 获取最近的步骤（跳过第一个初始步骤）
-                var recentSteps = Steps.Skip(Math.Max(1, Steps.Count - 5)).ToList();
+                summary.AppendLine("=== 最近的步骤 ===");
+                var recentSteps = Steps.Skip(Math.Max(1, Steps.Count - 3)).ToList();
                 
                 for (int i = 0; i < recentSteps.Count; i++)
                 {
                     var step = recentSteps[i];
                     var stepIndex = Steps.Count - recentSteps.Count + i;
                     
-                    summary.AppendLine($"步骤 {stepIndex}:");
-                    summary.AppendLine($"  时间: {step.Timestamp:HH:mm:ss.fff}");
-                    summary.AppendLine($"  描述: {step.Description}");
-                    summary.AppendLine($"  状态: {(step.IsCommitted ? "已提交" : "未提交")}");
+                    summary.AppendLine($"步骤 {stepIndex}: {step.Description} ({step.Timestamp:HH:mm:ss})");
                     
                     if (step.Operations.Count > 0)
                     {
                         summary.AppendLine($"  原子操作数: {step.Operations.Count}");
-                        
-                        // 显示操作摘要（最多显示3个操作）
-                        var operationsToShow = step.Operations.Take(3);
-                        foreach (var operation in operationsToShow)
-                        {
-                            summary.AppendLine($"    - {operation.GetOperationSummary()}");
-                        }
-                        
-                        if (step.Operations.Count > 3)
-                        {
-                            summary.AppendLine($"    ... 还有 {step.Operations.Count - 3} 个操作");
-                        }
-                    }
-                    else
-                    {
-                        summary.AppendLine($"  操作类型: 传统操作（状态快照）");
-                    }
-                    
-                    if (i < recentSteps.Count - 1)
-                    {
-                        summary.AppendLine();
                     }
                 }
             }
@@ -332,8 +228,8 @@ namespace TreeNode.Editor
         /// </summary>
         public void Dispose()
         {
-            ClearNodeCache();
-            ClearRenderingState();
+            Steps.Clear();
+            RedoSteps.Clear();
         }
     }
 }
