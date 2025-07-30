@@ -1,7 +1,8 @@
+﻿using System;
 using System.Reflection;
-using System;
 using UnityEngine;
 using UnityEngine.UIElements;
+using static UnityEditor.Profiling.HierarchyFrameDataView;
 
 namespace TreeNode.Utility
 {
@@ -59,5 +60,6 @@ namespace TreeNode.Utility
             int result = element.GetPsuedoState();
             return (result & flag) == flag;
         }
+
     }
 }

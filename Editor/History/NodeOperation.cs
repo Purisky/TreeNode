@@ -81,21 +81,6 @@ namespace TreeNode.Editor
         }
 
         public bool Execute() {
-            switch (Type)
-            {
-                case OperationType.Create:
-                    GraphView.AddNode(Node, To.Value);
-                    break;
-                case OperationType.Delete:
-                    GraphView.RemoveNode(Node, From.Value);
-                    break;
-                case OperationType.Move:
-                    GraphView.MoveNode(Node, From.Value, To.Value);
-                    break;
-                default:
-                    Debug.LogError($"未知操作类型: {Type}");
-                    return false;
-            }
 
 
 

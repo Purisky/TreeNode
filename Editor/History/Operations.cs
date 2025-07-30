@@ -16,5 +16,10 @@ namespace TreeNode.Editor
         bool Undo();
         string GetOperationSummary();
     }
-
+    public enum OperationType
+    {
+        Create,
+        Delete,
+        Move,
+    }
 }
