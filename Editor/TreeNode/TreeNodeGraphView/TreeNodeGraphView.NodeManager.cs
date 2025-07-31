@@ -854,39 +854,23 @@ namespace TreeNode.Editor
 
         private GraphViewChange OnGraphViewChanged(GraphViewChange graphViewChange)
         {
-            // 智能批量操作检测
-            bool isBatchOperation = false;
-            int totalOperations = 0;
-            string batchDescription = "";
-            
-            // 分析操作复杂性
             var nodesToRemove = graphViewChange.elementsToRemove?.OfType<ViewNode>().ToList() ?? new List<ViewNode>();
             var edgesToRemove = graphViewChange.elementsToRemove?.OfType<Edge>().ToList() ?? new List<Edge>();
             var edgesToCreate = graphViewChange.edgesToCreate?.ToList() ?? new List<Edge>();
-            
-            totalOperations = nodesToRemove.Count + edgesToRemove.Count + edgesToCreate.Count;
-            Debug.Log($"GraphView变更检测 - 删除节点:{nodesToRemove.Count}, 删除边:{edgesToRemove.Count}, 创建边:{edgesToCreate.Count} {graphViewChange.movedElements.Count} {graphViewChange.moveDelta}");
-            
-            // 智能批量检测策略
-            if (ShouldStartBatch(nodesToRemove, edgesToRemove, edgesToCreate, out batchDescription))
-            {
-                isBatchOperation = true;
-                Debug.Log($"启动批量操作: {batchDescription}");
-                Window.History.BeginBatch(batchDescription);
-            }
-            
+            Debug.Log($"启动批量操作:GraphView变更检测 - 删除节点:{nodesToRemove.Count}, 删除边:{edgesToRemove.Count}, 创建边:{edgesToCreate.Count} {graphViewChange.movedElements.Count} {graphViewChange.moveDelta}");
+            Window.History.BeginBatch();
             // 处理删除操作
             if (graphViewChange.elementsToRemove != null && graphViewChange.elementsToRemove.Count > 0)
             {
                 ProcessRemoveOperations(nodesToRemove, edgesToRemove, graphViewChange);
             }
-            
+
             // 处理创建操作
             if (edgesToCreate.Count > 0)
             {
-                ProcessCreateOperations(edgesToCreate, ref isBatchOperation);
+                ProcessCreateOperations(edgesToCreate);
             }
-            
+
             if (graphViewChange.movedElements != null && graphViewChange.movedElements.Count > 0)
             {
                 // 处理节点移动操作
@@ -899,72 +883,10 @@ namespace TreeNode.Editor
                     }
                 }
             }
-
-            // 结束批量操作或添加单步记录
-            if (isBatchOperation)
-            {
-                Debug.Log($"结束批量操作: {batchDescription}");
-                Window.History.EndBatch();
-            }
-            else if (totalOperations > 0)
-            {
-                Debug.Log($"单步操作完成，操作数量: {totalOperations}");
-            }
-            
+            Debug.Log($"结束批量操作");
+            Window.History.EndBatch();
             return graphViewChange;
         }
-
-        /// <summary>
-        /// 智能判断是否应该开启批量模式
-        /// </summary>
-        private bool ShouldStartBatch(List<ViewNode> nodesToRemove, List<Edge> edgesToRemove, 
-            List<Edge> edgesToCreate, out string description)
-        {
-            description = "";
-            
-            // 关键修改：任何节点删除操作都应该是批量操作
-            // 这确保了删除节点时，断开边和移除节点都在同一个批量操作中，Undo时能一起恢复
-            if (nodesToRemove.Count > 0)
-            {
-                if (nodesToRemove.Count == 1)
-                {
-                    // 单个节点删除：统计其关联的边数量
-                    var nodeEdges = nodesToRemove[0].GetAllEdges();
-                    int totalEdges = nodeEdges.Count + edgesToRemove.Count;
-                    description = $"删除节点 '{nodesToRemove[0].Data.GetType().Name}' 及其 {totalEdges} 个连接";
-                }
-                else
-                {
-                    // 多选删除节点
-                    description = $"批量删除 {nodesToRemove.Count} 个节点";
-                }
-                return true;
-            }
-            
-            // 纯边删除操作：多个边删除时使用批量模式
-            if (edgesToRemove.Count > 1)
-            {
-                description = $"批量断开 {edgesToRemove.Count} 个连接";
-                return true;
-            }
-            
-            // 批量创建边连接
-            if (edgesToCreate.Count > 1)
-            {
-                description = $"批量创建 {edgesToCreate.Count} 个边连接";
-                return true;
-            }
-            
-            // 复杂的混合操作
-            if (edgesToRemove.Count > 0 && edgesToCreate.Count > 0)
-            {
-                description = "复杂的节点重组操作";
-                return true;
-            }
-            
-            return false;
-        }
-
         /// <summary>
         /// 优化的删除操作处理
         /// </summary>
@@ -1046,15 +968,8 @@ namespace TreeNode.Editor
         /// <summary>
         /// 优化的创建操作处理
         /// </summary>
-        private void ProcessCreateOperations(List<Edge> edgesToCreate, ref bool isBatchOperation)
+        private void ProcessCreateOperations(List<Edge> edgesToCreate)
         {
-            // 如果是单个边创建且不在批量模式中，检查是否需要启动批量模式
-            if (edgesToCreate.Count > 1 && !isBatchOperation)
-            {
-                isBatchOperation = true;
-                Window.History.BeginBatch($"批量创建 {edgesToCreate.Count} 个边连接");
-            }
-            
             // 按源节点深度排序，确保创建顺序正确
             var sortedEdges = edgesToCreate
                 .Where(e => e?.ChildPort()?.node != null)
