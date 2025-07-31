@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -35,17 +35,20 @@ namespace TreeNode.Editor
         }
 
 
-        public override void SetNodeValue(JsonNode child, bool remove = true)
+        public override PAPath SetNodeValue(JsonNode child, bool remove = true)
         {
+            PAPath nodePath = new PAPath(node.GetNodePath());
             JsonNode parent = node.Data;
             IList list = node.Data.GetValue<IList>( Meta.Path);
             if (remove)
             {
-                if (list == null)
+                int index = -1;
+                if (list == null&& (index = list.IndexOf(child))==-1)
                 {
-                    return;
+                    return PAPath.Empty;
                 }
-                list.Remove(child);
+                list.RemoveAt(index);
+                return new PAPath(Meta.Path).AppendIndex(index);
             }
             else
             {
@@ -55,6 +58,7 @@ namespace TreeNode.Editor
                     node.Data.SetValue(Meta.Path, list);
                 }
                 list.Add(child);
+                return new PAPath(Meta.Path).AppendIndex(list.Count-1);
             }
         }
 

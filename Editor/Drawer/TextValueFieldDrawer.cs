@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using TreeNode.Runtime;
 using TreeNode.Utility;
 using Unity.Properties;
@@ -9,7 +9,7 @@ namespace TreeNode.Editor
     public abstract class TextValueFieldDrawer<T, Tv> : BaseDrawer where T : TextInputBaseField<Tv>, new()
     {
         public override Type DrawType => typeof(Tv);
-        public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, string path, Action action)
+        public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, PAPath path, Action action)
         {
             ShowInNodeAttribute showInNode = memberMeta.ShowInNode;
             LabelInfoAttribute labelInfo = memberMeta.LabelInfo;
@@ -45,7 +45,7 @@ namespace TreeNode.Editor
     public class BoolDrawer : BaseDrawer
     {
         public override Type DrawType => typeof(bool);
-        public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, string path, Action action)
+        public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, PAPath path, Action action)
         {
             ShowInNodeAttribute showInNode = memberMeta.ShowInNode;
             LabelInfoAttribute labelInfo = memberMeta.LabelInfo;

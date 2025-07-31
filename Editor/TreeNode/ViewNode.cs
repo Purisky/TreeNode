@@ -61,7 +61,7 @@ namespace TreeNode.Editor
                 );
 
                 // 记录到历史系统 - History系统会自动合并连续的同节点操作
-                View.Window.History.RecordOperation(positionChangeOperation);
+                View.Window.History.Record(positionChangeOperation);
             }
             catch (Exception e)
             {

@@ -156,7 +156,7 @@ namespace TreeNode.Editor
         {
             Asset.Data.Nodes.Add(node);
             var createOperation =  NodeOperation.Create(node,$"[{Asset.Data.Nodes.Count}]" , this);
-            Window.History.RecordOperation(createOperation);
+            Window.History.Record(createOperation);
 
             NodeTree.OnNodeAdded(node);
             AddViewNode(node);
@@ -168,7 +168,7 @@ namespace TreeNode.Editor
             {
                 Asset.Data.Nodes.Add(node);
                 var createOperation = NodeOperation.Create(node, $"[{Asset.Data.Nodes.Count}]", this);
-                Window.History.RecordOperation(createOperation);
+                Window.History.Record(createOperation);
 
                 NodeTree.OnNodeAdded(node);
                 return true;
@@ -198,7 +198,7 @@ namespace TreeNode.Editor
                     PropertyAccessor.SetValue(parent, last, node);
                 }
                 var moveOperation = NodeOperation.Create(node, path, this);
-                Window.History.RecordOperation(moveOperation);
+                Window.History.Record(moveOperation);
                 NodeTree.OnNodeAdded(node, path);
                 return true;
             }
@@ -214,7 +214,7 @@ namespace TreeNode.Editor
             // 记录节点删除操作
             int index = Asset.Data.Nodes.IndexOf(node);
             var deleteOperation = NodeOperation.Delete(node,$"[{index}]", this);
-            Window.History.RecordOperation(deleteOperation);
+            Window.History.Record(deleteOperation);
             
             Asset.Data.Nodes.Remove(node);
             NodeTree.OnNodeRemoved(node);
@@ -604,11 +604,6 @@ namespace TreeNode.Editor
                     {
                         childViewNode.ParentPort.SetIndex(childMetadata.ListIndex);
                     }
-                    
-                    // Debug信息只在开发模式下输出
-                    #if UNITY_EDITOR && TREE_NODE_DEBUG
-                    Debug.Log($"创建边连接: {parentViewNode.Data.GetType().Name}.{childMetadata.PortName} -> {childViewNode.Data.GetType().Name}");
-                    #endif
                 }
                 else
                 {
@@ -634,7 +629,7 @@ namespace TreeNode.Editor
                     var propertyElement = childPort.GetFirstAncestorOfType<PropertyElement>();
                     if (propertyElement != null)
                     {
-                        var memberName = propertyElement.MemberMeta.Path.Split('.').LastOrDefault();
+                        var memberName = propertyElement.MemberMeta.Path.LastPart.Name;
                         if (memberName == portName)
                         {
                             // 精确匹配端口类型
@@ -646,21 +641,6 @@ namespace TreeNode.Editor
                             {
                                 return childPort;
                             }
-                        }
-                    }
-                }
-                
-                // 如果精确匹配失败，尝试模糊匹配
-                foreach (var childPort in parentViewNode.ChildPorts)
-                {
-                    var propertyElement = childPort.GetFirstAncestorOfType<PropertyElement>();
-                    if (propertyElement != null)
-                    {
-                        var path = propertyElement.MemberMeta.Path;
-                        if (path.Contains(portName))
-                        {
-                            Debug.LogWarning($"使用模糊匹配找到端口: {path} 匹配 {portName}");
-                            return childPort;
                         }
                     }
                 }
@@ -684,10 +664,15 @@ namespace TreeNode.Editor
             {
                 ChildPort childPortOfParent = edge.ChildPort();
             }
-            
+
+            PAPath from = PAPath.Index(Asset.Data.Nodes.IndexOf(childNode.Data));
             Asset.Data.Nodes.Remove(childNode.Data);
             ChildPort childPortOfParentNode = edge.ChildPort();
             childPortOfParentNode.SetNodeValue(childNode.Data, false);
+
+
+
+            PAPath to = childPortOfParentNode.Meta.Path;
             edge.ParentPort().Connect(edge);
             childPortOfParentNode.Connect(edge);
             childPortOfParentNode.OnAddEdge(edge);
@@ -698,29 +683,15 @@ namespace TreeNode.Editor
             ViewNode parent = edge.ChildPort()?.node;
             ViewNode child = edge.ParentPort()?.node;
             if (parent == null || child == null) { return; }
-            
+            PAPath from = child.GetNodePath();
             // 记录边断开操作
             ChildPort childPortOfParent = edge.ChildPort();
-            
             childPortOfParent.SetNodeValue(child.Data);
             Asset.Data.Nodes.Add(child.Data);
+            Window.History.Record(NodeOperation.Move(child.Data, from, PAPath.Index(Asset.Data.Nodes.Count), this));
             edge.ParentPort().DisconnectAll();
             childPortOfParent.OnRemoveEdge(edge);
         }
-
-        /// <summary>
-        /// 获取端口名称
-        /// </summary>
-        private string GetPortName(ChildPort childPort)
-        {
-            var propertyElement = childPort.GetFirstAncestorOfType<PropertyElement>();
-            if (propertyElement != null)
-            {
-                return propertyElement.MemberMeta.Path.Split('.').LastOrDefault() ?? "";
-            }
-            return "";
-        }
-
         #endregion
         #region 端口兼容性检查
 
@@ -854,42 +825,28 @@ namespace TreeNode.Editor
 
         private GraphViewChange OnGraphViewChanged(GraphViewChange graphViewChange)
         {
-            var nodesToRemove = graphViewChange.elementsToRemove?.OfType<ViewNode>().ToList() ?? new List<ViewNode>();
-            var edgesToRemove = graphViewChange.elementsToRemove?.OfType<Edge>().ToList() ?? new List<Edge>();
-            var edgesToCreate = graphViewChange.edgesToCreate?.ToList() ?? new List<Edge>();
-            Debug.Log($"启动批量操作:GraphView变更检测 - 删除节点:{nodesToRemove.Count}, 删除边:{edgesToRemove.Count}, 创建边:{edgesToCreate.Count} {graphViewChange.movedElements.Count} {graphViewChange.moveDelta}");
+            Debug.Log($"启动批量操作");
             Window.History.BeginBatch();
             // 处理删除操作
             if (graphViewChange.elementsToRemove != null && graphViewChange.elementsToRemove.Count > 0)
             {
-                ProcessRemoveOperations(nodesToRemove, edgesToRemove, graphViewChange);
+                ProcessRemoveOperations(graphViewChange.elementsToRemove.OfType<ViewNode>().ToList(),
+                    graphViewChange.elementsToRemove.OfType<Edge>().ToList(),
+                    graphViewChange);
             }
-
             // 处理创建操作
-            if (edgesToCreate.Count > 0)
+            if (graphViewChange.edgesToCreate != null&& graphViewChange.edgesToCreate.Count > 0)
             {
-                ProcessCreateOperations(edgesToCreate);
+                ProcessCreateOperations(graphViewChange.edgesToCreate.ToList());
             }
-
-            if (graphViewChange.movedElements != null && graphViewChange.movedElements.Count > 0)
+            if (graphViewChange.movedElements != null && graphViewChange.movedElements.Count > 0&& !graphViewChange.moveDelta.Equals(Vector2.zero))
             {
-                // 处理节点移动操作
-                foreach (var element in graphViewChange.movedElements.OfType<ViewNode>())
-                {
-                    if (NodeDic.TryGetValue(element.Data, out var viewNode))
-                    {
-                        viewNode.SetPosition(element.GetPosition());
-                        Debug.Log($"节点移动: {viewNode.Data.GetType().Name} 到新位置 {element.GetPosition()}");
-                    }
-                }
+                ProcessNodeMoveOperations(graphViewChange.movedElements.OfType<ViewNode>().ToList(), graphViewChange.moveDelta);
             }
             Debug.Log($"结束批量操作");
             Window.History.EndBatch();
             return graphViewChange;
         }
-        /// <summary>
-        /// 优化的删除操作处理
-        /// </summary>
         private void ProcessRemoveOperations(List<ViewNode> nodesToRemove, List<Edge> edgesToRemove, 
             GraphViewChange graphViewChange)
         {
@@ -934,10 +891,6 @@ namespace TreeNode.Editor
             
             Debug.Log($"删除操作完成 - 实际删除边:{allEdgesToRemove.Count}个, 节点:{nodesToRemove.Count}个");
         }
-
-        /// <summary>
-        /// 按正确顺序处理边删除，避免引用错误
-        /// </summary>
         private void ProcessEdgeRemovalInOrder(List<Edge> edges)
         {
             // 按连接深度排序，先删除深层的边，再删除浅层的边
@@ -952,7 +905,6 @@ namespace TreeNode.Editor
             {
                 try
                 {
-                    Debug.Log(edge.GetHashCode());
                     var parentNode = edge.ChildPort()?.node?.Data?.GetType().Name ?? "Unknown";
                     var childNode = edge.ParentPort()?.node?.Data?.GetType().Name ?? "Unknown";
                     Debug.Log($"删除边: {parentNode} -> {childNode}");
@@ -964,10 +916,6 @@ namespace TreeNode.Editor
                 }
             }
         }
-
-        /// <summary>
-        /// 优化的创建操作处理
-        /// </summary>
         private void ProcessCreateOperations(List<Edge> edgesToCreate)
         {
             // 按源节点深度排序，确保创建顺序正确
@@ -988,6 +936,28 @@ namespace TreeNode.Editor
                 }
             }
         }
+        private void ProcessNodeMoveOperations(List<ViewNode> viewNodes, Vector2 delta)
+        {
+            for (int i = 0; i < viewNodes.Count; i++)
+            {
+                ViewNode viewNode = viewNodes[i];
+                try
+                {
+                    Vec2 from = viewNode.Data.Position;
+                    // 更新逻辑层数据
+                    viewNode.Data.Position += delta;
+                    Vec2 to = viewNode.Data.Position;
+                    // 记录节点移动操作
+                    var moveOperation = new FieldModifyOperation<Vec2>(viewNode.Data, PAPath.Position, from, to, this);
+                    Window.History.Record(moveOperation);
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning($"移动节点时出错: {e.Message}");
+                }
+            }
+        }
+
 
         #endregion
         #region ListView初始化公共接口

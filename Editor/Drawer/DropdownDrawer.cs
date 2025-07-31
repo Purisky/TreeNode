@@ -18,7 +18,7 @@ namespace TreeNode.Editor
     public class DropdownDrawer<T> : BaseDrawer
     {
         public override Type DrawType => typeof(DropdownList<T>);
-        public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, string path, Action action)
+        public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, PAPath path, Action action)
         {
             DropdownElement<T> dropdownElement;
             if (memberMeta.Dropdown.Flat)
@@ -920,7 +920,7 @@ namespace TreeNode.Editor
     public class EnumDrawer<T> : BaseDrawer where T : Enum
     {
         public override Type DrawType => typeof(T);
-        public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, string path, Action action)
+        public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, PAPath path, Action action)
         {
             DropdownElement<T> dropdownElement;
             if (memberMeta.Type.GetCustomAttribute<FlagsAttribute>() != null)

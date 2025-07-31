@@ -62,9 +62,9 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 记录原子操作（简化版本）
+        /// 记录原子操作
         /// </summary>
-        public void RecordOperation(IAtomicOperation operation)
+        public void Record(IAtomicOperation operation)
         {
             if (operation == null) return;
 

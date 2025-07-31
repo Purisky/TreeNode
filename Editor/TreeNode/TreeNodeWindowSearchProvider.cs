@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -88,6 +88,7 @@ namespace TreeNode.Editor
                 }
             }
             return tree;
+#pragma warning disable CS0162 // 检测到无法访问的代码
             if (Graph is not NodePrefabGraphView)//todo not ready
             {
                 tree.Add(new SearchTreeGroupEntry(new GUIContent("NodePrefab"), 1));
@@ -101,6 +102,7 @@ namespace TreeNode.Editor
                     });
                 }
             }
+#pragma warning restore CS0162 // 检测到无法访问的代码
             return tree;
         }
 

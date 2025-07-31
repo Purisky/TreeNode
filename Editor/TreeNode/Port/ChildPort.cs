@@ -21,9 +21,8 @@ namespace TreeNode.Editor
                 UpdateRequire();
             }
         }
-
         public abstract List<JsonNode> GetChildValues();
-        public abstract void SetNodeValue(JsonNode child, bool remove = true);
+        public abstract PAPath SetNodeValue(JsonNode child, bool remove = true);
         public object GetPortValue()
         {
            return node.Data.GetValue<object>(Meta.Path);
@@ -38,13 +37,11 @@ namespace TreeNode.Editor
         }
         public virtual void OnRemoveEdge(Edge edge)
         {
-            //Debug.Log("OnRemoveEdge");
             ParentPort parentport_of_child = edge.ParentPort();
             parentport_of_child.OnChange?.Invoke();
             OnChange?.Invoke();
             UpdateRequire();
         }
-
         public void UpdateRequire()
         {
             if (!Require) { return; }
@@ -61,7 +58,6 @@ namespace TreeNode.Editor
             }).StartingIn(200);
 
         }
-
         public bool Validate(out string msg)
         {
             msg = $"{Meta.Path}:{portType.Name} is null but required";
@@ -71,5 +67,6 @@ namespace TreeNode.Editor
             }
             return true;
         }
+
     }
 }

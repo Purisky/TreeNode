@@ -221,7 +221,7 @@ namespace TreeNode.Editor
 
     public struct MemberMeta
     {
-        public string Path;
+        public PAPath Path;
         public Type DeclaringType;
         public Type Type;
         public LabelInfoAttribute LabelInfo;
@@ -231,7 +231,7 @@ namespace TreeNode.Editor
         public MethodInfo OnChangeMethod;
         public string DropdownKey;
 
-        public MemberMeta(MemberInfo member, string path)
+        public MemberMeta(MemberInfo member, PAPath path)
         {
             Type = member.GetValueType();
             DeclaringType = member.DeclaringType;

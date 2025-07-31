@@ -20,7 +20,7 @@ namespace TreeNode.Runtime
 
         #endregion
 
-        public readonly bool ItemOfCollection => Parts != null && Parts.Length > 0 && Parts[^1].IsIndex;
+
 
         #region 静态缓存
 
@@ -77,12 +77,13 @@ namespace TreeNode.Runtime
         #endregion
 
         #region 公共属性
-
+        public readonly bool ItemOfCollection => Valid && Parts[^1].IsIndex;
+        public readonly bool Valid => Parts != null && Parts.Length > 0;
+        public readonly bool ExistParent => Parts != null && Parts.Length > 1;
         /// <summary>
         /// 路径是否为空
         /// </summary>
         public readonly bool IsEmpty => Parts == null || Parts.Length == 0;
-
         /// <summary>
         /// 路径深度
         /// </summary>
@@ -128,12 +129,12 @@ namespace TreeNode.Runtime
         /// <summary>
         /// 最后一个路径部分
         /// </summary>
-        public readonly PAPart LastPart => Parts != null && Parts.Length > 0 ? Parts[Parts.Length - 1] : default;
+        public readonly PAPart LastPart => Valid ? Parts[^1] : PAPart._;
 
         /// <summary>
         /// 第一个路径部分
         /// </summary>
-        public readonly PAPart FirstPart => Parts != null && Parts.Length > 0 ? Parts[0] : default;
+        public readonly PAPart FirstPart => Valid ? Parts[0] : PAPart._;
 
         #endregion
 
@@ -524,12 +525,16 @@ namespace TreeNode.Runtime
         }
 
         #endregion
+
+        public readonly static PAPath Empty = new ();
+        public readonly static PAPath Position =  new("Position");
+
     }
 
     /// <summary>
     /// 路径部分结构 - 表示路径中的单个部分（字段名或索引）
     /// </summary>
-    public struct PAPart : IEquatable<PAPart>
+    public readonly struct PAPart : IEquatable<PAPart>
     {
         #region 字段
 
@@ -544,12 +549,9 @@ namespace TreeNode.Runtime
         /// 是否为索引访问
         /// </summary>
         public readonly bool IsIndex => Name == null;
-
-        /// <summary>
-        /// 是否为字段访问
-        /// </summary>
-        public readonly bool IsField => Name != null;
-
+        public readonly bool Valid => !IsIndex|| Index >= 0;
+        
+        public static PAPart _ => new (-1);
         #endregion
 
         #region 构造函数

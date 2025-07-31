@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -100,7 +100,7 @@ namespace TreeNode.Editor
 
 
         }
-        public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, string path, Action action)
+        public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, PAPath path, Action action)
         {
             PropertyElement propertyElement = new(memberMeta, node, path, this);
 

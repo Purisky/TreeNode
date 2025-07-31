@@ -16,7 +16,7 @@ namespace TreeNode.Editor
     public class ListDrawer : BaseDrawer
     {
         public override Type DrawType => typeof(List<>);
-        public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, string path, Action action)
+        public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, PAPath path, Action action)
         {
             ShowInNodeAttribute showInNode = memberMeta.ShowInNode;
             LabelInfoAttribute labelInfo = memberMeta.LabelInfo;

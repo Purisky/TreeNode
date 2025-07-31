@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using TreeNode.Runtime;
@@ -100,7 +100,6 @@ namespace TreeNode.Editor
 
 
         }
-
         public void SetNumState(bool connected)
         {
             Text.style.display = connected ? DisplayStyle.Flex : DisplayStyle.None;
@@ -129,7 +128,7 @@ namespace TreeNode.Editor
         }
 
 
-        public override void SetNodeValue(JsonNode child, bool remove = true)
+        public override PAPath SetNodeValue(JsonNode child, bool remove = true)
         {
             if (remove)
             {
@@ -141,6 +140,7 @@ namespace TreeNode.Editor
             }
             TryPopUpText();
             OnChange?.Invoke();
+            return Meta.Path;
         }
 
         public void TryPopUpText()

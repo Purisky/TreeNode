@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -12,7 +12,7 @@ namespace TreeNode.Editor
     public abstract class BaseDrawer
     {
         public abstract Type DrawType { get; }
-        public abstract PropertyElement Create(MemberMeta  memberMeta, ViewNode node, string path, Action action);
+        public abstract PropertyElement Create(MemberMeta  memberMeta, ViewNode node, PAPath path, Action action);
 
         public static Label CreateLabel(LabelInfoAttribute info = null)
         {

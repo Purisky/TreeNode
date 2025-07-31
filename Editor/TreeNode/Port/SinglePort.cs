@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using TreeNode.Runtime;
 
@@ -26,9 +26,10 @@ namespace TreeNode.Editor
             return new() { portValue as JsonNode };
         }
 
-        public override void SetNodeValue(JsonNode child, bool remove = true)
+        public override PAPath SetNodeValue(JsonNode child, bool remove = true)
         {
             node.Data.SetValue(Meta.Path, remove ? null : child);
+            return Meta.Path;
         }
     }
 }
