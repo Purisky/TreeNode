@@ -8,13 +8,11 @@ namespace TreeNode.Editor
     {
         public PAPath FieldPath;
         public JsonNode Node;
-        public DateTime Timestamp { get; protected set; }
         public string Description=> $"修改字段: {FieldPath}";
         public TreeNodeGraphView GraphView;
         public abstract bool Execute();
         public abstract bool Undo();
         public abstract string GetOperationSummary();
-
     }
 
     /// <summary>
@@ -31,7 +29,6 @@ namespace TreeNode.Editor
             OldValue = oldValue;
             NewValue = newValue;
             GraphView = graphView;
-            Timestamp = DateTime.Now;
         }
         /// <summary>
         /// 执行字段修改操作 - 将字段设置为新值

@@ -45,27 +45,6 @@ namespace TreeNode.Editor
             OnChange();
             base.SetPosition(new Rect(data.Position, new Vector2()));
         }
-
-        public override void SetPosition(Rect newPos)
-        {
-            // 🔥 简化位置设置逻辑 - 统一在这里处理所有位置变化
-            var oldPosition = Data.Position;
-            
-            base.SetPosition(newPos);
-            Data.Position = newPos.position;
-            
-            // 检查位置是否真正发生了变化
-            if (!oldPosition.Equals(newPos.position))
-            {
-                // 🔥 统一记录位置变化 - 利用History系统的智能合并功能
-                RecordPositionChange(oldPosition, newPos.position);
-                
-                // 标记文件为已修改
-                MakeDirty();
-            }
-        }
-
-
         /// <summary>
         /// 简化的位置变化记录 - 统一通过SetPosition处理
         /// </summary>
@@ -73,8 +52,6 @@ namespace TreeNode.Editor
         {
             try
             {
-                // 创建位置变化的字段修改操作 - 使用Vec2版本避免字符串转换
-                // History系统会自动处理同一节点连续位置变化的合并
                 var positionChangeOperation = new FieldModifyOperation<Vec2>(
                     Data,
                     "Position",

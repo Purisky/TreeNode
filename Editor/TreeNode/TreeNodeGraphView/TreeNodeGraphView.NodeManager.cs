@@ -865,8 +865,7 @@ namespace TreeNode.Editor
             var edgesToCreate = graphViewChange.edgesToCreate?.ToList() ?? new List<Edge>();
             
             totalOperations = nodesToRemove.Count + edgesToRemove.Count + edgesToCreate.Count;
-            
-            Debug.Log($"GraphView变更检测 - 删除节点:{nodesToRemove.Count}, 删除边:{edgesToRemove.Count}, 创建边:{edgesToCreate.Count}");
+            Debug.Log($"GraphView变更检测 - 删除节点:{nodesToRemove.Count}, 删除边:{edgesToRemove.Count}, 创建边:{edgesToCreate.Count} {graphViewChange.movedElements.Count} {graphViewChange.moveDelta}");
             
             // 智能批量检测策略
             if (ShouldStartBatch(nodesToRemove, edgesToRemove, edgesToCreate, out batchDescription))
@@ -888,20 +887,28 @@ namespace TreeNode.Editor
                 ProcessCreateOperations(edgesToCreate, ref isBatchOperation);
             }
             
+            if (graphViewChange.movedElements != null && graphViewChange.movedElements.Count > 0)
+            {
+                // 处理节点移动操作
+                foreach (var element in graphViewChange.movedElements.OfType<ViewNode>())
+                {
+                    if (NodeDic.TryGetValue(element.Data, out var viewNode))
+                    {
+                        viewNode.SetPosition(element.GetPosition());
+                        Debug.Log($"节点移动: {viewNode.Data.GetType().Name} 到新位置 {element.GetPosition()}");
+                    }
+                }
+            }
+
             // 结束批量操作或添加单步记录
             if (isBatchOperation)
             {
                 Debug.Log($"结束批量操作: {batchDescription}");
                 Window.History.EndBatch();
             }
-            // 🔥 重要修复：移除这里的AddStep调用
-            // 如果操作都是通过RecordOperation记录的原子操作，让智能合并机制自动处理
-            // 只有在使用传统非原子操作时才需要手动AddStep
             else if (totalOperations > 0)
             {
                 Debug.Log($"单步操作完成，操作数量: {totalOperations}");
-                // 不再调用 Window.History.AddStep()，因为原子操作已经通过RecordOperation处理了
-                // Window.History.AddStep();
             }
             
             return graphViewChange;

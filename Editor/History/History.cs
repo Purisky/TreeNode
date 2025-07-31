@@ -78,19 +78,18 @@ namespace TreeNode.Editor
             }
             else
             {
+
                 // 简化版本：直接创建新步骤包含此操作
                 var step = new HistoryStep();
                 step.AddOperation(operation);
                 step.Commit(operation.Description);
                 step.EnsureSnapshot(Window.JsonAsset);
-                
                 Steps.Add(step);
-                
+
                 if (Steps.Count > 20)
                 {
                     Steps.RemoveAt(0);
                 }
-                
                 RedoSteps.Clear();
                 Debug.Log($"[新建步骤] 创建新步骤: {operation.Description}");
             }

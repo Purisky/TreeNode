@@ -20,6 +20,8 @@ namespace TreeNode.Runtime
 
         #endregion
 
+        public readonly bool ItemOfCollection => Parts != null && Parts.Length > 0 && Parts[^1].IsIndex;
+
         #region 静态缓存
 
         // 路径解析缓存
@@ -67,6 +69,11 @@ namespace TreeNode.Runtime
             _originalPath = PartsToString(Parts);
             _hashCode = ComputeHashCode(_originalPath);
         }
+
+
+
+
+
         #endregion
 
         #region 公共属性
@@ -291,7 +298,7 @@ namespace TreeNode.Runtime
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public readonly T GetValue<T>(object obj)
         {
-            return PropertyAccessor.GetValue<T>(obj, OriginalPath);
+            return PropertyAccessor.GetValue<T>(obj, this);
         }
 
         /// <summary>
@@ -303,7 +310,7 @@ namespace TreeNode.Runtime
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public readonly void SetValue<T>(object obj, T value)
         {
-            PropertyAccessor.SetValue(obj, OriginalPath, value);
+            PropertyAccessor.SetValue(obj, this, value);
         }
 
         /// <summary>
@@ -445,23 +452,6 @@ namespace TreeNode.Runtime
         {
             return path?.GetHashCode() ?? 0;
         }
-
-        /// <summary>
-        /// 内部路径验证逻辑
-        /// </summary>
-        private static bool ValidatePathInternal(Type type, string path)
-        {
-            try
-            {
-                return PropertyAccessor.GetValidPath(new object(), path, out var validLength) && 
-                       validLength == path.Length;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
         #endregion
 
         #region 相等性和哈希
@@ -595,70 +585,6 @@ namespace TreeNode.Runtime
         /// 从索引创建路径部分
         /// </summary>
         public static PAPart FromIndex(int index) => new PAPart(index);
-
-        #endregion
-
-        #region 验证方法
-
-        /// <summary>
-        /// 验证此部分在指定类型上是否有效
-        /// </summary>
-        /// <param name="type">目标类型</param>
-        /// <returns>是否有效</returns>
-        public readonly bool IsValidFor(Type type)
-        {
-            if (type == null) return false;
-
-            if (IsIndex)
-            {
-                // 检查是否支持索引访问
-                return type.IsArray || 
-                       typeof(System.Collections.IList).IsAssignableFrom(type) ||
-                       type.GetProperty("Item") != null;
-            }
-            else if (IsField)
-            {
-                // 检查字段或属性是否存在
-                return type.GetProperty(Name) != null ||
-                       type.GetField(Name, System.Reflection.BindingFlags.Instance | 
-                                          System.Reflection.BindingFlags.Public | 
-                                          System.Reflection.BindingFlags.NonPublic) != null;
-            }
-
-            return false;
-        }
-
-        /// <summary>
-        /// 获取此部分访问后的目标类型
-        /// </summary>
-        /// <param name="sourceType">源类型</param>
-        /// <returns>目标类型</returns>
-        public readonly Type GetTargetType(Type sourceType)
-        {
-            if (sourceType == null) return null;
-
-            if (IsIndex)
-            {
-                if (sourceType.IsArray)
-                    return sourceType.GetElementType();
-                
-                var itemProperty = sourceType.GetProperty("Item");
-                return itemProperty?.PropertyType;
-            }
-            else if (IsField)
-            {
-                var property = sourceType.GetProperty(Name);
-                if (property != null)
-                    return property.PropertyType;
-
-                var field = sourceType.GetField(Name, System.Reflection.BindingFlags.Instance | 
-                                                      System.Reflection.BindingFlags.Public | 
-                                                      System.Reflection.BindingFlags.NonPublic);
-                return field?.FieldType;
-            }
-
-            return null;
-        }
 
         #endregion
 

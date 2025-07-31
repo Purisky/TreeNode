@@ -21,6 +21,8 @@ namespace TreeNode.Editor
         public PAPath? To;
         public JsonNode Node;
         public TreeNodeGraphView GraphView;
+        public List<JsonNode> Nodes => GraphView.Asset.Data.Nodes;
+
         public string Description
         {
             get
@@ -82,17 +84,60 @@ namespace TreeNode.Editor
 
         public bool Execute() {
 
-
-
-
-
-
+            switch (Type)
+            {
+                case OperationType.Create:
+                    Insert(To.Value);
+                    break;
+                case OperationType.Delete:
+                    Remove(From.Value);
+                    break;
+                case OperationType.Move:
+                    Remove(From.Value);
+                    Insert(To.Value);
+                    break;
+            }
             return true; 
         }
-
         public bool Undo() { 
-            
-            return true; }
-
+            switch (Type)
+            {
+                case OperationType.Create:
+                    Remove(To.Value);
+                    break;
+                case OperationType.Delete:
+                    Insert(From.Value);
+                    break;
+                case OperationType.Move:
+                    Remove(To.Value);
+                    Insert(From.Value);
+                    break;
+            }
+            return true;
+        }
+        public void Insert(PAPath path)
+        {
+            if (path.ItemOfCollection)
+            {
+                IList<JsonNode> collection = PropertyAccessor.GetParentObject(Nodes, path, out PAPart last) as IList<JsonNode>;
+                collection.Insert(last.Index, Node);
+            }
+            else
+            {
+                PropertyAccessor.SetValue(Nodes, path, Node);
+            }
+        }
+        public void Remove(PAPath path)
+        {
+            if (path.ItemOfCollection)
+            {
+                IList<JsonNode> collection = PropertyAccessor.GetParentObject(Nodes, path, out PAPart last) as IList<JsonNode>;
+                collection.RemoveAt(last.Index);
+            }
+            else
+            {
+                PropertyAccessor.SetValueNull(Nodes, path);
+            }
+        }
     }
 }
