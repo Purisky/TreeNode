@@ -28,25 +28,22 @@ namespace TreeNode.Editor
         NodeCreate,
         NodeDelete,
         NodeField,
+        ListItem,
         EdgeCreate,
         EdgeDelete,
     }
-    public struct ViewChange : IEquatable<ViewChange>
+    public struct ViewChange 
     {
         public ViewChangeType ChangeType;
         public JsonNode Node;
         public PAPath Path;
-        public readonly bool Equals(ViewChange other)
-        {
-            return ChangeType == other.ChangeType &&
-                    Node == other.Node &&
-                   Path.Equals(other.Path);
-        }
+        public int[] ExtraInfo;
         public ViewChange(ViewChangeType type, JsonNode node, PAPath path)
         {
             ChangeType = type;
             Node = node;
             Path = path;
+            ExtraInfo = null;
         }
     }
 }

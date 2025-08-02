@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using TreeNode.Runtime;
 using UnityEngine;
@@ -27,26 +28,8 @@ namespace TreeNode.Editor
             NewValue = newValue;
             GraphView = graphView;
         }
-        public override List<ViewChange> Execute()
-        {
-            if (Node == null)
-            {
-                Debug.LogError("FieldModifyOperation.Execute: Node为空");
-                return new();
-            }
-
-            return ApplyFieldValue(NewValue);
-        }
-        public override List<ViewChange> Undo()
-        {
-            if (Node == null)
-            {
-                Debug.LogError("FieldModifyOperation.Undo: Node为空");
-                return new();
-            }
-            return ApplyFieldValue(OldValue);
-
-        }
+        public override List<ViewChange> Execute()=> ApplyFieldValue(NewValue);
+        public override List<ViewChange> Undo()=> ApplyFieldValue(OldValue);
         private List<ViewChange> ApplyFieldValue(T value)
         {
             try
@@ -54,12 +37,7 @@ namespace TreeNode.Editor
                 Node.SetValue(FieldPath, value);
                 return new List<ViewChange>
                 {
-                    new ViewChange
-                    {
-                        ChangeType = ViewChangeType.NodeField,
-                        Node = Node,
-                        Path = FieldPath
-                    }
+                    new (ViewChangeType.NodeField,Node,FieldPath)
                 };
             }
             catch (Exception e)
@@ -74,34 +52,97 @@ namespace TreeNode.Editor
         }
     }
 
-    public class ListItemModifyOperation<T> : FieldModifyOperation
+    public class ListItemModifyOperation : FieldModifyOperation
     {
-        public int OldIndex;
-        public int NewIndex;
-        public T Value;
-        public ListItemModifyOperation(JsonNode node, PAPath listFieldPath, int oldIndex,int newIndex, T value, TreeNodeGraphView graphView)
+        public int FromIndex;
+        public int ToIndex;
+        public object Value;
+
+        public enum ItemModifyType
+        {
+            Add,
+            Remove,
+            Move
+        }
+        public ItemModifyType Type
+        {
+            get {
+                if (FromIndex < 0) { return ItemModifyType.Add; }
+                if (ToIndex < 0) { return ItemModifyType.Remove; }
+                return ItemModifyType.Move;
+            }
+        }
+        public ListItemModifyOperation(JsonNode node, PAPath listFieldPath, int fromIndex,int toIndex, object value, TreeNodeGraphView graphView)
         {
             Node = node;
             FieldPath = listFieldPath;
-            OldIndex = oldIndex;
-            NewIndex = newIndex;
+            FromIndex = fromIndex;
+            ToIndex = toIndex;
             Value = value;
             GraphView = graphView;
         }
         public override List<ViewChange> Execute()
         {
-            return null;
+            IList list = Node.GetValue<IList>(FieldPath);
+            List<ViewChange> changes = new();
+            switch (Type)
+            {
+                case ItemModifyType.Add:
+                    list.Insert(ToIndex, Value);
+                    changes.Add(new (ViewChangeType.ListItem, Node, FieldPath) { ExtraInfo = new[] { -1, ToIndex } });
+                    break;
+                case ItemModifyType.Remove:
+                    list.RemoveAt(FromIndex);
+                    changes.Add(new (ViewChangeType.ListItem, Node, FieldPath) { ExtraInfo = new[] { FromIndex, -1 } });
+                    break;
+                case ItemModifyType.Move:
+                    MoveItemInList(list,FromIndex,ToIndex);
+                    changes.Add(new (ViewChangeType.ListItem, Node, FieldPath) { ExtraInfo = new[] { FromIndex, ToIndex } });
+                    break;
+            }
+            return changes;
         }
+
         public override List<ViewChange> Undo()
         {
-            return null;
+            IList list = Node.GetValue<IList>(FieldPath);
+            List<ViewChange> changes = new();
+
+            switch (Type)
+            {
+                case ItemModifyType.Add:
+                    list.RemoveAt(ToIndex);
+                    changes.Add(new (ViewChangeType.ListItem, Node, FieldPath) { ExtraInfo = new[] { ToIndex, -1 } });
+                    break;
+                case ItemModifyType.Remove:
+                    list.Insert(FromIndex, Value);
+                    changes.Add(new (ViewChangeType.ListItem, Node, FieldPath) { ExtraInfo = new[] { -1, FromIndex } });
+                    break;
+                case ItemModifyType.Move:
+                    MoveItemInList(list, ToIndex, FromIndex);
+                    changes.Add(new (ViewChangeType.ListItem, Node, FieldPath) { ExtraInfo = new[] { ToIndex, FromIndex } });
+                    break;
+            }
+
+            return changes;
         }
+
+        private void MoveItemInList(IList list,int fromIndex,int toIndex)
+        {
+            object item = list[fromIndex];
+            list.RemoveAt(fromIndex);
+            list.Insert(toIndex, item);
+        }
+
         public override string GetOperationSummary()
         {
-            return "";
-
+            return Type switch
+            {
+                ItemModifyType.Add => $"ListAdd: {FieldPath}[{ToIndex}] = '{Value}'",
+                ItemModifyType.Remove => $"ListRemove: {FieldPath}[{FromIndex}] ('{Value}')",
+                ItemModifyType.Move => $"ListMove: {FieldPath}[{FromIndex}] -> [{ToIndex}] ('{Value}')",
+                _ => $"ListModify: {FieldPath} (Unknown operation)"
+            };
         }
     }
-
-
 }

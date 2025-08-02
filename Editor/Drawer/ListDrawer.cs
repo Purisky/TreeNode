@@ -397,6 +397,7 @@ namespace TreeNode.Editor
 
         void Move(ListView listView, int index,int newIndex)
         {
+            //listView.RecordItem
             listView.viewController.Move(index, newIndex);
             listView.Focus();
             OnChange?.Invoke();
