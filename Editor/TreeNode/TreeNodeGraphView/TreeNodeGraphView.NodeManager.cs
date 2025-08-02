@@ -8,7 +8,6 @@ using TreeNode.Runtime;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine;
 using UnityEngine.UIElements;
-using static UnityEditor.FilePathAttribute;
 
 namespace TreeNode.Editor
 {
@@ -22,140 +21,13 @@ namespace TreeNode.Editor
         public Runtime.JsonNodeTree NodeTree => _nodeTree;
 
         // ListView初始化状态管理器
-        private readonly ListViewInitializationTracker _listViewTracker = new();
 
-        #region ListView初始化状态管理
-
-        /// <summary>
-        /// ListView初始化状态管理器 - 智能等待ListView完全初始化
-        /// </summary>
-        private class ListViewInitializationTracker
-        {
-            private readonly HashSet<ListView> _pendingListViews = new();
-            private readonly object _lock = new object();
-            
-            public void RegisterListView(ListView listView)
-            {
-                lock (_lock)
-                {
-                    _pendingListViews.Add(listView);
-                }
-                Debug.Log($"注册ListView到初始化跟踪器, 当前待初始化数量: {_pendingListViews.Count}");
-            }
-            
-            public void MarkListViewReady(ListView listView)
-            {
-                lock (_lock)
-                {
-                    if (_pendingListViews.Remove(listView))
-                    {
-                        Debug.Log($"ListView初始化完成, 剩余待初始化数量: {_pendingListViews.Count}");
-                    }
-                }
-            }
-            
-            public bool AllListViewsReady()
-            {
-                lock (_lock)
-                {
-                    return _pendingListViews.Count == 0;
-                }
-            }
-            
-            public int PendingCount()
-            {
-                lock (_lock)
-                {
-                    return _pendingListViews.Count;
-                }
-            }
-
-            public void Clear()
-            {
-                lock (_lock)
-                {
-                    _pendingListViews.Clear();
-                }
-            }
-        }
-
-        /// <summary>
-        /// 智能检测是否有ListView节点需要等待初始化
-        /// </summary>
-        private async Task<bool> CheckForListViewNodesAsync(List<Runtime.JsonNodeTree.NodeMetadata> edgeMetadataList, CancellationToken cancellationToken)
-        {
-            bool hasListViewNodes = false;
-            
-            await ExecuteOnMainThreadAsync(() =>
-            {
-                // 检查是否有节点的端口处在ListView内部
-                foreach (var metadata in edgeMetadataList)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    
-                    if (NodeDic.TryGetValue(metadata.Parent.Node, out var parentViewNode))
-                    {
-                        // 检查该节点是否包含ListView
-                        var listViews = parentViewNode.Query<ListView>().ToList();
-                        if (listViews.Any())
-                        {
-                            hasListViewNodes = true;
-                            
-                            // 注册所有未初始化的ListView
-                            foreach (var listView in listViews)
-                            {
-                                if (!(listView.userData is bool initialized && initialized))
-                                {
-                                    _listViewTracker.RegisterListView(listView);
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-            
-            return hasListViewNodes;
-        }
-
-        /// <summary>
-        /// 等待ListView初始化完成 - 智能超时机制
-        /// </summary>
-        private async Task WaitForListViewInitializationAsync(CancellationToken cancellationToken)
-        {
-            const int maxWaitTime = 5000; // 5秒超时
-            const int checkInterval = 50; // 每50ms检查一次
-            int elapsedTime = 0;
-            
-            while (!_listViewTracker.AllListViewsReady() && elapsedTime < maxWaitTime)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                
-                await Task.Delay(checkInterval, cancellationToken);
-                elapsedTime += checkInterval;
-                
-                if (elapsedTime % 500 == 0) // 每500ms输出一次进度
-                {
-                    Debug.Log($"等待ListView初始化... 剩余: {_listViewTracker.PendingCount()}个, 已等待: {elapsedTime}ms");
-                }
-            }
-            
-            if (_listViewTracker.AllListViewsReady())
-            {
-                Debug.Log($"所有ListView初始化完成，总耗时: {elapsedTime}ms");
-            }
-            else
-            {
-                Debug.LogWarning($"ListView初始化等待超时 ({maxWaitTime}ms)，强制继续连接创建");
-            }
-        }
-
-        #endregion
         #region 节点管理
 
         public virtual void AddNode(JsonNode node)
         {
             Asset.Data.Nodes.Add(node);
-            var createOperation =  NodeOperation.Create(node,$"[{Asset.Data.Nodes.Count}]" , this);
+            var createOperation =  NodeOperation.Create(node,$"[{Asset.Data.Nodes.Count-1}]" , this);
             Window.History.Record(createOperation);
 
             NodeTree.OnNodeAdded(node);
@@ -167,7 +39,7 @@ namespace TreeNode.Editor
             if (string.IsNullOrEmpty(path))
             {
                 Asset.Data.Nodes.Add(node);
-                var createOperation = NodeOperation.Create(node, $"[{Asset.Data.Nodes.Count}]", this);
+                var createOperation = NodeOperation.Create(node, $"[{Asset.Data.Nodes.Count-1}]", this);
                 Window.History.Record(createOperation);
 
                 NodeTree.OnNodeAdded(node);
@@ -192,6 +64,7 @@ namespace TreeNode.Editor
                 if (oldValue is IList nodeList)
                 {
                     nodeList.Add(node);
+                    path_ = $"{path_}[{nodeList.Count-1}]";
                 }
                 else
                 {
@@ -236,14 +109,11 @@ namespace TreeNode.Editor
             ViewNodes.Add(viewNode);
             NodeDic.Add(node, viewNode);
             AddElement(viewNode);
-
-            // ✅ 移除子节点递归创建逻辑 - 连接将在批量创建阶段统一处理
             return viewNode;
         }
 
         /// <summary>
-        /// 专用于工具添加节点的方法 - 支持立即连接创建 (已优化ListView支持)
-        /// 解决MCPTools等外部工具的连接缺失问题
+        /// 专用于工具添加节点的方法
         /// </summary>
         public ViewNode AddViewNodeWithConnection(JsonNode node, string nodePath)
         {
@@ -306,7 +176,7 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 立即创建连接 - 用于普通端口 (优化索引设置)
+        /// 立即创建连接
         /// </summary>
         private void CreateConnectionImmediately(ChildPort childPort, ViewNode childViewNode)
         {
@@ -326,7 +196,7 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 为ListView端口创建连接 - 等待ListView初始化 (优化重试机制)
+        /// 为ListView端口创建连接
         /// </summary>
         private void CreateConnectionForListViewPort(ChildPort childPort, ViewNode childViewNode, ListView listView)
         {
@@ -354,58 +224,6 @@ namespace TreeNode.Editor
             ScheduleListViewConnection(connectionAttempt);
         }
 
-        /// <summary>
-        /// ListView连接创建尝试信息
-        /// </summary>
-        private class ListViewConnectionAttempt
-        {
-            public ChildPort ChildPort;
-            public ViewNode ChildViewNode;
-            public ListView ListView;
-            public int MaxRetries;
-            public int RetryInterval;
-            public DateTime StartTime;
-            public int CurrentRetry = 0;
-        }
-
-        /// <summary>
-        /// 调度ListView连接创建 - 智能重试机制
-        /// </summary>
-        private void ScheduleListViewConnection(ListViewConnectionAttempt attempt)
-        {
-            void CheckAndCreateConnection()
-            {
-                try
-                {
-                    // 检查ListView是否已初始化
-                    if (attempt.ListView.userData is bool initialized && initialized)
-                    {
-                        CreateConnectionImmediately(attempt.ChildPort, attempt.ChildViewNode);
-                        var elapsed = (DateTime.Now - attempt.StartTime).TotalMilliseconds;
-                        Debug.Log($"ListView延迟连接创建成功 (重试{attempt.CurrentRetry}次, 耗时{elapsed:F0}ms)");
-                        return;
-                    }
-                    
-                    // 检查是否超过最大的重试次数
-                    if (attempt.CurrentRetry >= attempt.MaxRetries)
-                    {
-                        var elapsed = (DateTime.Now - attempt.StartTime).TotalMilliseconds;
-                        Debug.LogWarning($"ListView连接创建超时: 等待{elapsed:F0}ms后放弃 (重试{attempt.CurrentRetry}次)");
-                        return;
-                    }
-                    
-                    // 继续重试
-                    attempt.CurrentRetry++;
-                    schedule.Execute(CheckAndCreateConnection).ExecuteLater(attempt.RetryInterval);
-                }
-                catch (Exception e)
-                {
-                    Debug.LogError($"ListView连接创建过程中发生异常: {e.Message}");
-                }
-            }
-            
-            CheckAndCreateConnection();
-        }
 
         public virtual void RemoveViewNode(ViewNode node)
         {
@@ -418,7 +236,7 @@ namespace TreeNode.Editor
         #region Edge连接管理
 
         /// <summary>
-        /// 批量创建Edge连接 - 智能ListView初始化等待版本 (完善版本)
+        /// 批量创建Edge连接
         /// </summary>
         private async Task CreateEdgesAsync(CancellationToken cancellationToken)
         {
@@ -445,12 +263,12 @@ namespace TreeNode.Editor
             
             if (hasListViewNodes)
             {
-                Debug.Log("检测到ListView节点，等待ListView完全初始化...");
+                //Debug.Log("检测到ListView节点，等待ListView完全初始化...");
                 await WaitForListViewInitializationAsync(cancellationToken);
             }
             else
             {
-                Debug.Log("未检测到ListView节点，跳过ListView初始化等待");
+                //Debug.Log("未检测到ListView节点，跳过ListView初始化等待");
             }
 
             // 批量创建边连接 - 使用并行Task但在主线程执行UI操作
@@ -497,7 +315,7 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 渲染后处理 - 修复可能缺失的连接 (新增)
+        /// 渲染后处理
         /// </summary>
         private async Task PostRenderProcessAsync(CancellationToken cancellationToken)
         {
@@ -568,7 +386,7 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 为指定节点创建边连接 (优化异常处理)
+        /// 为指定节点创建边连接
         /// </summary>
         private async Task CreateEdgeForNodeAsync(Runtime.JsonNodeTree.NodeMetadata childMetadata, CancellationToken cancellationToken)
         {
@@ -657,22 +475,12 @@ namespace TreeNode.Editor
         {
             //Debug.Log("CreateEdge");
             ViewNode childNode = edge.ParentPort().node;
-            ViewNode parentNode = edge.ChildPort()?.node;
-            
-            // 记录边创建操作
-            if (parentNode != null && childNode != null)
-            {
-                ChildPort childPortOfParent = edge.ChildPort();
-            }
-
+            ViewNode parentNode = edge.ChildPort().node;
             PAPath from = PAPath.Index(Asset.Data.Nodes.IndexOf(childNode.Data));
             Asset.Data.Nodes.Remove(childNode.Data);
             ChildPort childPortOfParentNode = edge.ChildPort();
-            childPortOfParentNode.SetNodeValue(childNode.Data, false);
-
-
-
-            PAPath to = childPortOfParentNode.Meta.Path;
+            PAPath to = parentNode.GetNodePath().Combine(childPortOfParentNode.SetNodeValue(childNode.Data, false));
+            Window.History.Record(NodeOperation.Move(childNode.Data, from, to, this));
             edge.ParentPort().Connect(edge);
             childPortOfParentNode.Connect(edge);
             childPortOfParentNode.OnAddEdge(edge);
@@ -680,17 +488,26 @@ namespace TreeNode.Editor
 
         public virtual void RemoveEdge(Edge edge)
         {
-            ViewNode parent = edge.ChildPort()?.node;
-            ViewNode child = edge.ParentPort()?.node;
-            if (parent == null || child == null) { return; }
-            PAPath from = child.GetNodePath();
-            // 记录边断开操作
-            ChildPort childPortOfParent = edge.ChildPort();
-            childPortOfParent.SetNodeValue(child.Data);
-            Asset.Data.Nodes.Add(child.Data);
-            Window.History.Record(NodeOperation.Move(child.Data, from, PAPath.Index(Asset.Data.Nodes.Count), this));
-            edge.ParentPort().DisconnectAll();
-            childPortOfParent.OnRemoveEdge(edge);
+            try
+            {
+                ViewNode parent = edge.ChildPort()?.node;
+                ViewNode child = edge.ParentPort()?.node;
+                if (parent == null || child == null) { return; }
+                PAPath from = child.GetNodePath();
+                //Debug.Log($"RemoveEdge: {from}");
+                ChildPort childPortOfParent = edge.ChildPort();
+                childPortOfParent.SetNodeValue(child.Data);
+                Asset.Data.Nodes.Add(child.Data);
+                Window.History.Record(NodeOperation.Move(child.Data, from, PAPath.Index(Asset.Data.Nodes.Count-1), this));
+                edge.ParentPort().DisconnectAll();
+                childPortOfParent.OnRemoveEdge(edge);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError(e);
+                throw e;
+            }
+
         }
         #endregion
         #region 端口兼容性检查
@@ -822,7 +639,6 @@ namespace TreeNode.Editor
 
         #endregion
         #region 图表视图管理
-
         private GraphViewChange OnGraphViewChanged(GraphViewChange graphViewChange)
         {
             Debug.Log($"启动批量操作");
@@ -957,27 +773,7 @@ namespace TreeNode.Editor
                 }
             }
         }
-
-
         #endregion
-        #region ListView初始化公共接口
 
-        /// <summary>
-        /// 注册ListView到初始化跟踪器 - 供ListDrawer调用
-        /// </summary>
-        public void RegisterListViewForTracking(ListView listView)
-        {
-            _listViewTracker.RegisterListView(listView);
-        }
-
-        /// <summary>
-        /// 标记ListView为就绪状态 - 供ListDrawer调用
-        /// </summary>
-        public void MarkListViewAsReady(ListView listView)
-        {
-            _listViewTracker.MarkListViewReady(listView);
-        }
-        
-        #endregion
     }
 }

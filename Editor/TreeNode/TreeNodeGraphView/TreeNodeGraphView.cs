@@ -343,6 +343,39 @@ namespace TreeNode.Editor
             }
         }
 
+        public virtual void ApplyChanges(List<ViewChange> changes)
+        {
+            if (changes == null || changes.Count == 0) { return; }
+            for (int i = 0; i < changes.Count; i++)
+            {
+                switch (changes[i].ChangeType)
+                {
+                    case ViewChangeType.NodeCreate:
+                        CreateViewNodeSafe(changes[i].Node);
+                        break;
+                    case ViewChangeType.NodeDelete:
+                        if (NodeDic.TryGetValue(changes[i].Node, out var viewNode))
+                        {
+                            RemoveElement(viewNode);
+                            ViewNodes.Remove(viewNode);
+                            NodeDic.Remove(changes[i].Node);
+                        }
+                        break;
+                    case ViewChangeType.NodeField:
+                        if (NodeDic.TryGetValue(changes[i].Node, out var fieldNode))
+                        {
+                            //fieldNode.RefreshPropertyElements(changes[i].Path);
+                        }
+                        break;
+                    case ViewChangeType.EdgeCreate:
+                        break;
+                    case ViewChangeType.EdgeDelete:
+                        break;
+                }
+            }
+        }
+
+
         /// <summary>
         /// 安全创建ViewNode - 避免重复创建
         /// </summary>

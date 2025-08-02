@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using TreeNode.Runtime;
 using UnityEngine;
 
@@ -10,14 +11,10 @@ namespace TreeNode.Editor
         public JsonNode Node;
         public string Description=> $"修改字段: {FieldPath}";
         public TreeNodeGraphView GraphView;
-        public abstract bool Execute();
-        public abstract bool Undo();
+        public abstract List<ViewChange> Execute();
+        public abstract List<ViewChange> Undo();
         public abstract string GetOperationSummary();
     }
-
-    /// <summary>
-    /// 泛型字段修改操作 - 减少装箱操作的优化版本
-    /// </summary>
     public class FieldModifyOperation<T> : FieldModifyOperation
     {
         public T OldValue;
@@ -30,50 +27,47 @@ namespace TreeNode.Editor
             NewValue = newValue;
             GraphView = graphView;
         }
-        /// <summary>
-        /// 执行字段修改操作 - 将字段设置为新值
-        /// </summary>
-        public override bool Execute()
+        public override List<ViewChange> Execute()
         {
             if (Node == null)
             {
                 Debug.LogError("FieldModifyOperation.Execute: Node为空");
-                return false;
+                return new();
             }
 
             return ApplyFieldValue(NewValue);
         }
-
-        /// <summary>
-        /// 撤销字段修改操作 - 将字段恢复为旧值
-        /// </summary>
-        public override bool Undo()
+        public override List<ViewChange> Undo()
         {
             if (Node == null)
             {
                 Debug.LogError("FieldModifyOperation.Undo: Node为空");
-                return false;
+                return new();
             }
             return ApplyFieldValue(OldValue);
 
         }
-        /// <summary>
-        /// 通过JsonNode的本地路径应用字段值 - 更准确的实现
-        /// </summary>
-        private bool ApplyFieldValue(T value)
+        private List<ViewChange> ApplyFieldValue(T value)
         {
             try
             {
                 Node.SetValue(FieldPath, value);
-                return true; // SetValue方法返回void，成功执行即返回true
+                return new List<ViewChange>
+                {
+                    new ViewChange
+                    {
+                        ChangeType = ViewChangeType.NodeField,
+                        Node = Node,
+                        Path = FieldPath
+                    }
+                };
             }
             catch (Exception e)
             {
                 Debug.LogError($"通过JsonNode设置字段值失败: {e.Message}");
-                return false;
+                return new();
             }
         }
-
         public override string GetOperationSummary()
         {
             return $"FieldModify<{typeof(T).Name}>: {FieldPath} from '{OldValue}' to '{NewValue}'";

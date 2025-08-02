@@ -10,61 +10,12 @@ namespace TreeNode.Editor
     {
         public class HistoryStep
         {
-            string json;
             public List<IAtomicOperation> Operations { get; private set; } = new();
-            public string Description { get; set; } = "";
             public DateTime Timestamp { get; set; }
-            public bool IsCommitted { get; set; } = false;
-
             public HistoryStep()
             {
                 Timestamp = DateTime.Now;
             }
-
-            public HistoryStep(JsonAsset asset) : this()
-            {
-                if (asset != null)
-                {
-                    json = Json.ToJson(asset);
-                }
-                else
-                {
-                    json = null;
-                }
-                Description = "传统操作";
-                IsCommitted = true;
-            }
-
-            /// <summary>
-            /// 确保步骤包含状态快照
-            /// </summary>
-            public void EnsureSnapshot(JsonAsset asset)
-            {
-                if (string.IsNullOrEmpty(json) && asset != null)
-                {
-                    json = Json.ToJson(asset);
-                }
-            }
-
-            public JsonAsset GetAsset()
-            {
-                if (string.IsNullOrEmpty(json))
-                {
-                    Debug.LogError("HistoryStep的json数据为空，无法恢复状态");
-                    return null;
-                }
-
-                try
-                {
-                    return Json.Get<JsonAsset>(json);
-                }
-                catch (Exception e)
-                {
-                    Debug.LogError($"反序列化HistoryStep失败: {e.Message}");
-                    return null;
-                }
-            }
-
             public void AddOperation(IAtomicOperation operation)
             {
                 if (operation != null)
@@ -72,15 +23,25 @@ namespace TreeNode.Editor
                     Operations.Add(operation);
                 }
             }
-
-            public void Commit(string description = "")
+            public List<ViewChange> Undo()
             {
-                if (!string.IsNullOrEmpty(description))
+                List<ViewChange> changes = new List<ViewChange>();
+                for (int i = 1; i <= Operations.Count; i++)
                 {
-                    Description = description;
+                    changes.AddRange( Operations[^i].Undo());
                 }
-                IsCommitted = true;
+                return changes;
             }
+            public List<ViewChange> Redo()
+            {
+                List<ViewChange> changes = new List<ViewChange>();
+                for (int i = 0; i < Operations.Count; i++)
+                {
+                    changes.AddRange(Operations[i].Execute());
+                }
+                return changes;
+            }
+
         }
     }
 }

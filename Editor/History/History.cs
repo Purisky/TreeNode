@@ -53,7 +53,7 @@ namespace TreeNode.Editor
                 return;
             }
 
-            Steps.Add(new HistoryStep(Window.JsonAsset));
+            Steps.Add(new HistoryStep());
             if (Steps.Count > 20) // 简化的最大步骤数
             {
                 Steps.RemoveAt(0);
@@ -82,10 +82,7 @@ namespace TreeNode.Editor
                 // 简化版本：直接创建新步骤包含此操作
                 var step = new HistoryStep();
                 step.AddOperation(operation);
-                step.Commit(operation.Description);
-                step.EnsureSnapshot(Window.JsonAsset);
                 Steps.Add(step);
-
                 if (Steps.Count > 20)
                 {
                     Steps.RemoveAt(0);
@@ -100,7 +97,7 @@ namespace TreeNode.Editor
         /// <summary>
         /// 开始批量操作
         /// </summary>
-        public void BeginBatch(string description = "批量操作")
+        public void BeginBatch()
         {
             if (_isBatchMode)
             {
@@ -108,8 +105,6 @@ namespace TreeNode.Editor
             }
 
             _currentBatch = new HistoryStep();
-            _currentBatch.Description = description;
-            _currentBatch.EnsureSnapshot(Window.JsonAsset);
             _isBatchMode = true;
         }
 
@@ -122,8 +117,6 @@ namespace TreeNode.Editor
 
             if (_currentBatch.Operations.Count > 0)
             {
-                _currentBatch.Commit();
-                _currentBatch.EnsureSnapshot(Window.JsonAsset);
                 Steps.Add(_currentBatch);
                 
                 if (Steps.Count > 20)
@@ -140,50 +133,25 @@ namespace TreeNode.Editor
             Window.MakeDirty();
         }
 
-        public bool Undo()
+        public List<ViewChange> Undo()
         {
-            if (Steps.Count <= 1) { return false; }
-            
+            if (Steps.Count <= 1) { return new(); }
             Debug.Log($"执行撤销操作 - 当前步骤数: {Steps.Count}");
             HistoryStep step = Steps[^1];
             Steps.RemoveAt(Steps.Count - 1);
             RedoSteps.Push(step);
-            
-            // 简化版本：直接恢复到前一个状态
-            if (Steps.Any())
-            {
-                var prevStep = Steps[^1];
-                var targetAsset = prevStep.GetAsset();
-                if (targetAsset != null)
-                {
-                    Window.JsonAsset = targetAsset;
-                    Window.GraphView.Redraw();
-                }
-            }
-            
-            Debug.Log("撤销操作完成");
-            return true;
+            List<ViewChange> changes = step.Undo();
+            return changes;
         }
 
-        public bool Redo()
+        public List<ViewChange> Redo()
         {
-            if (!RedoSteps.Any()) { return false; }
-            
+            if (!RedoSteps.Any()) { return new(); }
             Debug.Log($"执行重做操作 - 可重做步骤数: {RedoSteps.Count}");
-            
             HistoryStep step = RedoSteps.Pop();
             Steps.Add(step);
-            
-            // 简化版本：直接恢复到指定状态
-            var targetAsset = step.GetAsset();
-            if (targetAsset != null)
-            {
-                Window.JsonAsset = targetAsset;
-                Window.GraphView.Redraw();
-            }
-            
-            Debug.Log("重做操作完成");
-            return true;
+            List<ViewChange> changes = step.Redo();
+            return changes;
         }
 
         /// <summary>
@@ -210,7 +178,7 @@ namespace TreeNode.Editor
                     var step = recentSteps[i];
                     var stepIndex = Steps.Count - recentSteps.Count + i;
                     
-                    summary.AppendLine($"步骤 {stepIndex}: {step.Description} ({step.Timestamp:HH:mm:ss})");
+                    summary.AppendLine($"步骤 {stepIndex}: ({step.Timestamp:HH:mm:ss})");
                     
                     if (step.Operations.Count > 0)
                     {

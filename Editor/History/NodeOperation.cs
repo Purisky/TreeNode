@@ -1,5 +1,7 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using TreeNode.Runtime;
 using UnityEngine;
 
@@ -12,8 +14,8 @@ namespace TreeNode.Editor
         {
             get
             {
-                if (From.HasValue) { return OperationType.Create; }
-                if (To.HasValue) { return OperationType.Delete; }
+                if (!From.HasValue) { return OperationType.Create; }
+                if (!To.HasValue) { return OperationType.Delete; }
                 return OperationType.Move;
             }
         }
@@ -47,6 +49,7 @@ namespace TreeNode.Editor
             {
                 return null;
             }
+            Debug.Log($"Create Node: {node.GetType().Name} at {path}");
             return new NodeOperation
             {
                 Node = node,
@@ -60,6 +63,7 @@ namespace TreeNode.Editor
             {
                 return null;
             }
+            Debug.Log($"Delete Node: {node.GetType().Name} at {path}");
             return new NodeOperation
             {
                 Node = node,
@@ -82,28 +86,52 @@ namespace TreeNode.Editor
             };
         }
 
-        public bool Execute() {
+        public List<ViewChange> Execute() {
 
+            List < ViewChange > changes = new();
             switch (Type)
             {
                 case OperationType.Create:
                     Insert(To.Value);
+                    changes.Add(new(ViewChangeType.NodeCreate, Node, To.Value));
+                    if (!To.Value.Root)
+                    {
+                        changes.Add(new(ViewChangeType.EdgeCreate, Node, To.Value));
+                    }
                     break;
                 case OperationType.Delete:
                     Remove(From.Value);
+                    if (!From.Value.Root)
+                    {
+                        changes.Add(new(ViewChangeType.EdgeDelete, Node, From.Value));
+                    }
+                    changes.Add(new(ViewChangeType.NodeDelete, Node, From.Value));
                     break;
                 case OperationType.Move:
                     Remove(From.Value);
                     Insert(To.Value);
+                    if (!From.Value.Root)
+                    {
+                        changes.Add(new(ViewChangeType.EdgeDelete, Node, From.Value));
+                    }
+                    if (!To.Value.Root)
+                    {
+                        changes.Add(new(ViewChangeType.EdgeCreate, Node, To.Value));
+                    }
                     break;
             }
-            return true; 
+            return changes; 
         }
-        public bool Undo() { 
+        public List<ViewChange> Undo() {
+            List<ViewChange> changes = new();
             switch (Type)
             {
                 case OperationType.Create:
                     Remove(To.Value);
+
+
+
+
                     break;
                 case OperationType.Delete:
                     Insert(From.Value);
@@ -113,13 +141,13 @@ namespace TreeNode.Editor
                     Insert(From.Value);
                     break;
             }
-            return true;
+            return changes;
         }
         public void Insert(PAPath path)
         {
             if (path.ItemOfCollection)
             {
-                IList<JsonNode> collection = PropertyAccessor.GetParentObject(Nodes, path, out PAPart last) as IList<JsonNode>;
+                IList collection = PropertyAccessor.GetParentObject(Nodes, path, out PAPart last) as IList;
                 collection.Insert(last.Index, Node);
             }
             else
@@ -131,7 +159,7 @@ namespace TreeNode.Editor
         {
             if (path.ItemOfCollection)
             {
-                IList<JsonNode> collection = PropertyAccessor.GetParentObject(Nodes, path, out PAPart last) as IList<JsonNode>;
+                IList collection = PropertyAccessor.GetParentObject(Nodes, path, out PAPart last) as IList;
                 collection.RemoveAt(last.Index);
             }
             else

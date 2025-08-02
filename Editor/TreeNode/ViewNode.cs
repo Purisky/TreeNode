@@ -46,32 +46,6 @@ namespace TreeNode.Editor
             base.SetPosition(new Rect(data.Position, new Vector2()));
         }
         /// <summary>
-        /// 简化的位置变化记录 - 统一通过SetPosition处理
-        /// </summary>
-        private void RecordPositionChange(Vec2 oldPosition, Vec2 newPosition)
-        {
-            try
-            {
-                var positionChangeOperation = new FieldModifyOperation<Vec2>(
-                    Data,
-                    "Position",
-                    oldPosition,
-                    newPosition,
-                    View
-                );
-
-                // 记录到历史系统 - History系统会自动合并连续的同节点操作
-                View.Window.History.Record(positionChangeOperation);
-            }
-            catch (Exception e)
-            {
-                Debug.LogWarning($"记录位置变化失败: {e.Message}");
-                // 即使历史记录失败，也要确保文件被标记为已修改
-                MakeDirty();
-            }
-        }
-
-        /// <summary>
         /// 快速初始化UI结构 - 同步执行关键UI操作
         /// </summary>
         private void InitializeUIStructure()
@@ -393,29 +367,28 @@ namespace TreeNode.Editor
             }
         }
 
-        public string GetNodePath()
+        public PAPath GetNodePath()
         {
             ViewNode parentNode = GetParent();
             if (parentNode == null)
             {
                 int index = View.Asset.Data.Nodes.IndexOf(Data);
-                return $"[{index}]";
+                return PAPath.Index(index);
             }
-            
             ChildPort childPort = ParentPort.connections.First().ChildPort();
             PropertyElement element = childPort.GetFirstAncestorOfType<PropertyElement>();
-            string path = element.LocalPath;
+            PAPath path = element.LocalPath;
             
             if (childPort is NumPort)
             {
-                path = $"{path}.Node";
+                path = path.AppendField(nameof(NumValue.Node));
             }
             else if (childPort is MultiPort)
             {
-                path = $"{path}[{ParentPort.Index}]";
+                path = path.AppendIndex(ParentPort.Index);
             }
-            
-            return $"{parentNode.GetNodePath()}.{path}";
+
+            return parentNode.GetNodePath().Combine(path);
         }
 
         public int GetIndex()

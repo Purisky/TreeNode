@@ -1,9 +1,11 @@
 ﻿using System;
-using System.IO;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using TreeNode.Runtime;
 using TreeNode.Utility;
 using UnityEditor;
+using UnityEditor.VersionControl;
 using UnityEngine;
 using UnityEngine.UIElements;
 namespace TreeNode.Editor
@@ -158,20 +160,30 @@ namespace TreeNode.Editor
                         SaveChanges();
                         break;
                     case KeyCode.Z:
+                        List<ViewChange> changes;
                         if (evt.shiftKey)
                         {
-                            dirty = History.Redo();
+                             changes = History.Redo();
+                            dirty = changes.Any();
                         }
                         else
                         {
-                            dirty = History.Undo();
+                             changes = History.Undo();
+                            dirty = changes.Any();
                         }
+                        GraphView.ApplyChanges(changes);
                         break;
                 }
             }
             if (dirty) { MakeDirty(); }
         }
         
+
+
+
+
+
+
         public virtual void OnKeyUp(KeyUpEvent evt)
         {
         }

@@ -77,6 +77,7 @@ namespace TreeNode.Runtime
         #endregion
 
         #region 公共属性
+        public readonly bool Root=> Parts != null && Parts.Length == 1 && Parts[0].IsIndex;
         public readonly bool ItemOfCollection => Valid && Parts[^1].IsIndex;
         public readonly bool Valid => Parts != null && Parts.Length > 0;
         public readonly bool ExistParent => Parts != null && Parts.Length > 1;
@@ -428,7 +429,6 @@ namespace TreeNode.Runtime
 
             var result = new System.Text.StringBuilder();
             bool needsDot = false;
-
             foreach (var part in parts)
             {
                 if (part.IsIndex)
@@ -439,8 +439,9 @@ namespace TreeNode.Runtime
                 {
                     if (needsDot) result.Append('.');
                     result.Append(part.Name);
-                    needsDot = true;
+                    
                 }
+                needsDot = true;
             }
 
             return result.ToString();

@@ -43,7 +43,7 @@ namespace TreeNode.Editor
             if (remove)
             {
                 int index = -1;
-                if (list == null&& (index = list.IndexOf(child))==-1)
+                if (list == null|| (index = list.IndexOf(child))==-1)
                 {
                     return PAPath.Empty;
                 }

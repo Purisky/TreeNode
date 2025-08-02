@@ -15,7 +15,7 @@ namespace TreeNode.Editor
     public class PropertyElement : ShowIfElement
     {
         public ViewNode ViewNode;
-        public string LocalPath;
+        public PAPath LocalPath;
         public MemberMeta MemberMeta;
 
         public BaseDrawer Drawer;
