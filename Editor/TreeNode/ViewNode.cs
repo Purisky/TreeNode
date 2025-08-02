@@ -25,17 +25,13 @@ namespace TreeNode.Editor
 
         public JsonNode Data;
 
-        // 增量渲染优化
-        private Dictionary<string, PropertyElement> _propertyElementCache = new Dictionary<string, PropertyElement>();
+        private Dictionary<PAPath, PropertyElement> _propertyElementCache = new ();
         private bool _needsFullRefresh = false;
-        private readonly object _refreshLock = new object();
-
 
         public ViewNode(JsonNode data, TreeNodeGraphView view)
         {
             Data = data;
             View = view;
-            
             
             // 快速初始化基础UI结构
             InitializeUIStructure();
@@ -45,6 +41,7 @@ namespace TreeNode.Editor
             OnChange();
             base.SetPosition(new Rect(data.Position, new Vector2()));
         }
+
         /// <summary>
         /// 快速初始化UI结构 - 同步执行关键UI操作
         /// </summary>
@@ -84,21 +81,63 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 增量刷新属性元素 - 只更新变化的部分
+        /// 增量刷新属性元素 - 简化版本，移除不必要的锁保护
         /// </summary>
         public void RefreshPropertyElements()
         {
-            lock (_refreshLock)
+            // 检查是否需要完整刷新
+            if (_needsFullRefresh)
             {
-                if (_needsFullRefresh)
-                {
-                    FullRefreshProperties();
-                    _needsFullRefresh = false;
-                    return;
-                }
+                FullRefreshProperties();
+                _needsFullRefresh = false;
+                return;
+            }
 
-                // 增量更新：只刷新值发生变化的PropertyElement
-                IncrementalRefreshProperties();
+            // 增量更新：只刷新值发生变化的PropertyElement
+            IncrementalRefreshProperties();
+        }
+
+        /// <summary>
+        /// 重载方法：刷新指定路径的属性元素
+        /// </summary>
+        /// <param name="path">属性路径，如果为null则执行常规刷新</param>
+        public void RefreshPropertyElements(PAPath path)
+        {
+            // 如果指定了路径，尝试精确刷新单个属性
+            if (path.Valid)
+            {
+                RefreshSingleProperty(path);
+                return;
+            }
+
+            // 否则执行常规的增量刷新
+            RefreshPropertyElements();
+        }
+
+        /// <summary>
+        /// 精确刷新单个属性 - 新增方法，用于精确更新
+        /// </summary>
+        private void RefreshSingleProperty(PAPath path)
+        {
+            if (_propertyElementCache.TryGetValue(path, out var propertyElement) && 
+                propertyElement?.parent != null)
+            {
+                try
+                {
+                    var currentValue = Data.GetValue<object>(path);
+                    RefreshPropertyElementValue(propertyElement, currentValue);
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning($"刷新单个属性元素失败 {path}: {e.Message}");
+                    // 单个属性刷新失败时，标记需要完整刷新
+                    _needsFullRefresh = true;
+                }
+            }
+            else
+            {
+                // 缓存中没有找到，可能需要重建
+                _needsFullRefresh = true;
             }
         }
 
@@ -116,26 +155,29 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 增量刷新属性
+        /// 增量刷新属性 - 优化异常处理
         /// </summary>
         private void IncrementalRefreshProperties()
         {
             try
             {
+                // 收集需要清理的无效缓存项
+                var itemsToRemove = new List<string>();
+                
                 // 遍历所有缓存的PropertyElement，检查是否需要更新
-                foreach (var kvp in _propertyElementCache.ToList())
+                foreach (var kvp in _propertyElementCache)
                 {
                     var path = kvp.Key;
                     var propertyElement = kvp.Value;
                     
                     if (propertyElement?.parent == null)
                     {
-                        // PropertyElement已被移除，从缓存中删除
-                        _propertyElementCache.Remove(path);
+                        // PropertyElement已被移除，标记为待删除
+                        itemsToRemove.Add(path);
                         continue;
                     }
 
-                    // 获取最新值
+                    // 获取最新值并更新
                     try
                     {
                         var currentValue = Data.GetValue<object>(path);
@@ -144,13 +186,20 @@ namespace TreeNode.Editor
                     catch (Exception e)
                     {
                         Debug.LogWarning($"刷新属性元素失败 {path}: {e.Message}");
+                        // 单个属性失败时不影响其他属性的更新
                     }
+                }
+
+                // 清理无效的缓存项
+                foreach (var key in itemsToRemove)
+                {
+                    _propertyElementCache.Remove(key);
                 }
             }
             catch (Exception e)
             {
-                Debug.LogWarning($"增量刷新失败，回退到完整刷新: {e.Message}");
-                FullRefreshProperties();
+                Debug.LogWarning($"增量刷新失败，标记为需要完整刷新: {e.Message}");
+                _needsFullRefresh = true;
             }
         }
 
@@ -245,14 +294,11 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 标记需要完整刷新
+        /// 标记需要完整刷新 - 简化版本，移除锁保护
         /// </summary>
         public void MarkForFullRefresh()
         {
-            lock (_refreshLock)
-            {
-                _needsFullRefresh = true;
-            }
+            _needsFullRefresh = true;
         }
 
         /// <summary>
@@ -466,10 +512,20 @@ namespace TreeNode.Editor
             }
             return success;
         }
-
-        /// <summary>
-        /// 清理资源 - 🔥 大幅简化，移除复杂的事件监听器
-        /// </summary>
+        public void PopupText()
+        {
+            JsonNode jsonNode = Data;
+            ViewNode parent = GetParent();
+            if (jsonNode is IText && parent!=null)
+            {
+                Edge edge = ParentPort.connections.First();
+                if (edge.output is IPopupTextPort port)
+                {
+                    port.DisplayPopupText();
+                }
+                parent.PopupText();
+            }
+        }
         public void Dispose()
         {
             _propertyElementCache?.Clear();

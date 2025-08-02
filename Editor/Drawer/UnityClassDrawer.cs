@@ -33,12 +33,14 @@ namespace TreeNode.Editor
             bool dirty = memberMeta.Json;
             field.RegisterValueChangedCallback(evt =>
             {
-                node.Data.SetValue( path, evt.newValue);
                 if (dirty)
                 {
-                    field.SetDirty();
+                    Tv oldValue = node.Data.GetValue<Tv>(path);
+                    node.RecordField(path, oldValue, evt.newValue);
                 }
+                node.Data.SetValue( path, evt.newValue);
                 action?.Invoke();
+                node.PopupText();
             });
             field.SetEnabled(!showInNode.ReadOnly);
             return new PropertyElement(memberMeta, node, path, this, field);

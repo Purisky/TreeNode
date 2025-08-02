@@ -10,7 +10,7 @@ using UnityEngine.UIElements;
 
 namespace TreeNode.Editor
 {
-    public class NumPort : ChildPort
+    public class NumPort : ChildPort, IPopupTextPort
     {
         protected NumPort(MemberMeta meta, Type type) : base(meta, Capacity.Single, type)
         {
@@ -83,7 +83,7 @@ namespace TreeNode.Editor
                 node.Data.SetValue(path, NumValue);
             }
             FloatField.SetValueWithoutNotify(NumValue.Value);
-            TryPopUpText();
+            DisplayPopupText();
         }
         public void SetOnChange(string path, Action action)
         {
@@ -91,14 +91,12 @@ namespace TreeNode.Editor
             OnChange = Meta.OnChangeMethod.GetOnChangeAction(parent) + action;
             FloatField.RegisterValueChangedCallback(evt =>
             {
+                float oldValue = NumValue.Value;
+                node.RecordField(path, oldValue, evt.newValue);
                 NumValue.Value = evt.newValue;
-                TryPopUpText();
-                this.SetDirty();
                 OnChange?.Invoke();
-
+                node.PopupText();
             });
-
-
         }
         public void SetNumState(bool connected)
         {
@@ -138,25 +136,15 @@ namespace TreeNode.Editor
             {
                 NumValue.Node = child as NumNode;
             }
-            TryPopUpText();
+            DisplayPopupText();
             OnChange?.Invoke();
             return Meta.Path;
         }
 
-        public void TryPopUpText()
+        public void DisplayPopupText()
         {
             Text.text = NumValue.GetText();
             Text.tooltip = Text.text;
-            ViewNode viewNode = node;
-            JsonNode jsonNode = viewNode.Data;
-            if (jsonNode is NumNode && viewNode.ParentPort != null && viewNode.ParentPort.connected)
-            {
-                Edge edge = viewNode.ParentPort.connections.First();
-                if (edge.output is NumPort numPort)
-                {
-                    numPort.TryPopUpText();
-                }
-            }
         }
 
     }

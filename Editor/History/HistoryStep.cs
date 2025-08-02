@@ -25,7 +25,7 @@ namespace TreeNode.Editor
             }
             public List<ViewChange> Undo()
             {
-                List<ViewChange> changes = new List<ViewChange>();
+                List<ViewChange> changes = new ();
                 for (int i = 1; i <= Operations.Count; i++)
                 {
                     changes.AddRange( Operations[^i].Undo());
@@ -34,7 +34,7 @@ namespace TreeNode.Editor
             }
             public List<ViewChange> Redo()
             {
-                List<ViewChange> changes = new List<ViewChange>();
+                List<ViewChange> changes = new ();
                 for (int i = 0; i < Operations.Count; i++)
                 {
                     changes.AddRange(Operations[i].Execute());

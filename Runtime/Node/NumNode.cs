@@ -1,4 +1,4 @@
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 using System;
 using TreeNode.Utility;
 using UnityEngine;
@@ -6,9 +6,9 @@ using UnityEngine;
 namespace TreeNode.Runtime
 {
     [PortColor("#7CFC00")]
-    public abstract class NumNode : JsonNode
+    public abstract class NumNode : JsonNode, IText
     {
-        public abstract string GetText(); 
+        public abstract string GetText();
     }
     public class NumValue<T> : NumValue where T : NumNode
     {
@@ -16,7 +16,7 @@ namespace TreeNode.Runtime
 
 
 
-    public abstract class NumValue
+    public abstract class NumValue : IText
     {
         public float Value;
         public NumNode Node;

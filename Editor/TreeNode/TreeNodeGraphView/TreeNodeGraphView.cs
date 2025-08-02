@@ -170,9 +170,8 @@ namespace TreeNode.Editor
 
         private void FormatAllNodes(DropdownMenuAction a)
         {
-            // 调用实际的格式化方法
             FormatNodes();
-            Window.History.AddStep();
+            //Window.History.AddStep();
         }
 
         private void ShowTreeView(DropdownMenuAction a)
@@ -364,7 +363,7 @@ namespace TreeNode.Editor
                     case ViewChangeType.NodeField:
                         if (NodeDic.TryGetValue(changes[i].Node, out var fieldNode))
                         {
-                            //fieldNode.RefreshPropertyElements(changes[i].Path);
+                            fieldNode.RefreshPropertyElements(changes[i].Path);
                         }
                         break;
                     case ViewChangeType.EdgeCreate:

@@ -23,14 +23,14 @@ namespace TreeNode.Editor
         public History(TreeNodeGraphWindow window)
         {
             Window = window;
-            AddStep(false);
+            //AddStep(false);
         }
 
         public void Clear()
         {
-            HistoryStep historyStep = Steps[0];
+            //HistoryStep historyStep = Steps[0];
             Steps.Clear();
-            Steps.Add(historyStep);
+            //Steps.Add(historyStep);
             RedoSteps.Clear();
             
             _currentBatch = null;

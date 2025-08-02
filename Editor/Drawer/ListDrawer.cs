@@ -182,6 +182,7 @@ namespace TreeNode.Editor
                     this.SetDirty();
                 }
                 Action?.Invoke();
+                ViewNode.PopupText();
             };
             if (Drawer is ComplexDrawer complex)
             {
@@ -332,8 +333,6 @@ namespace TreeNode.Editor
                 for (int i = 0; i < ChildPorts.Count; i++)
                 {
                     ChildPort childPort = ChildPorts[i];
-                    // ✅ 在新架构中，边连接将在批量渲染阶段统一处理
-                    // 这里只需要将端口注册到ViewNode的ChildPorts列表中
                     if (!ViewNode.ChildPorts.Contains(childPort))
                     {
                         ViewNode.ChildPorts.Add(childPort);

@@ -39,7 +39,7 @@ namespace TreeNode.Editor
             textField.RegisterValueChangedCallback(evt =>
             {
                 GraphView.AssetData.Name = evt.newValue;
-                GraphView.Window.History.AddStep();
+                //GraphView.Window.History.AddStep();
             });
         }
 

@@ -211,14 +211,16 @@ namespace TreeNode.Editor
                 DropdownItem<T> item = items[i];
                 dropMenu.Add(item, () =>
                 {
+                    if (Dirty)
+                    { 
+                        T oldValue = Node.Data.GetValue<T>(Path);
+                        Node.RecordField(Path, oldValue, item.Value);
+                    }
                     Node.Data.SetValue(Path, item.Value);
                     SetValueWithoutNotify(item.Value);
                     TextElement.text = item.FullText;
-                    if (Dirty)
-                    {
-                        this.SetDirty();
-                    }
                     OnChange?.Invoke();
+                    Node.PopupText();
                 });
             }
             dropMenu.BuildMenu();
@@ -613,15 +615,18 @@ namespace TreeNode.Editor
             DropMenu dropMenu = new(this);
             dropMenu.Add(new DropdownItem<T>(I18n.EnumNothing, Nothing), () =>
             {
+                if (Dirty)
+                {
+                    T oldValue = Node.Data.GetValue<T>(Path);
+                    Node.RecordField(Path, oldValue, Nothing);
+                }
+
                 Node.Data.SetValue(Path, Nothing);
                 SetValueWithoutNotify(Nothing);
                 TextElement.text = I18n.EnumNothing;
-                if (Dirty)
-                {
-                    this.SetDirty();
-                }
                 dropMenu.UpdateSelection();
                 OnChange?.Invoke();
+                Node.PopupText();
             });
             for (int i = 0; i < items.Count; i++)
             {
@@ -637,28 +642,32 @@ namespace TreeNode.Editor
                     {
                         value = BitwiseOr(Enum.GetUnderlyingType(typeof(T)), value, item.Value);
                     }
+                    if (Dirty)
+                    {
+                        T oldValue = Node.Data.GetValue<T>(Path);
+                        Node.RecordField(Path, oldValue, value);
+                    }
                     Node.Data.SetValue(Path, value);
                     SetValueWithoutNotify(value);
                     TextElement.text = GetValueText(GetList(), value);
-                    if (Dirty)
-                    {
-                        this.SetDirty();
-                    }
                     dropMenu.UpdateSelection();
                     OnChange?.Invoke();
+                    Node.PopupText();
                 });
             }
             dropMenu.Add(new DropdownItem<T>(I18n.EnumEverything, Everything), () =>
             {
+                if (Dirty)
+                {
+                    T oldValue = Node.Data.GetValue<T>(Path);
+                    Node.RecordField(Path, oldValue, Everything);
+                }
                 Node.Data.SetValue(Path, Everything);
                 SetValueWithoutNotify(Everything);
                 TextElement.text = I18n.EnumEverything;
-                if (Dirty)
-                {
-                    this.SetDirty();
-                }
                 dropMenu.UpdateSelection();
                 OnChange?.Invoke();
+                Node.PopupText();
             });
             dropMenu.BuildMenu();
             menu = dropMenu.DropDown();
@@ -772,14 +781,16 @@ namespace TreeNode.Editor
                 DropdownItem<T> item = items[i];
                 dropMenu.Add(item, () =>
                 {
+                    if (Dirty)
+                    {
+                        T oldValue = Node.Data.GetValue<T>(Path);
+                        Node.RecordField(Path, oldValue, item.Value);
+                    }
                     Node.Data.SetValue(Path, item.Value);
                     SetValueWithoutNotify(item.Value);
                     TextElement.text = item.FullText;
-                    if (Dirty)
-                    {
-                        this.SetDirty();
-                    }
                     OnChange?.Invoke();
+                    Node.PopupText();
                 });
             }
             dropMenu.BuildMenu();
@@ -884,14 +895,16 @@ namespace TreeNode.Editor
                 DropdownItem<T> item = items[i];
                 dropMenu.Add(item, () =>
                 {
+                    if (Dirty)
+                    {
+                        T oldValue = Node.Data.GetValue<T>(Path);
+                        Node.RecordField(Path, oldValue, item.Value);
+                    }
                     Node.Data.SetValue(Path, item.Value);
                     SetValueWithoutNotify(item.Value);
                     TextElement.text = item.FullText;
-                    if (Dirty)
-                    {
-                        this.SetDirty();
-                    }
                     OnChange?.Invoke();
+                    Node.PopupText();
                 });
             }
             dropMenu.BuildMenu();

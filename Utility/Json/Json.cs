@@ -1,4 +1,4 @@
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 using System;
 using UnityEngine;
 
@@ -21,7 +21,6 @@ namespace TreeNode.Utility
                 }
             };
             jsonSettings.Converters.Add(new Newtonsoft.Json.Converters.StringEnumConverter());
-            jsonSettings.Converters.Add(new PathConverter());
         }
         static readonly JsonSerializerSettings jsonSettings;
         public static void Log(object obj)

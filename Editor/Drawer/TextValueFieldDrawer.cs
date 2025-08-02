@@ -28,12 +28,14 @@ namespace TreeNode.Editor
             bool dirty = memberMeta.Json;
             field.RegisterValueChangedCallback(evt =>
             {
-                node.Data.SetValue(path, evt.newValue);
                 if (dirty)
                 {
-                    field.SetDirty();
+                    Tv oldValue = node.Data.GetValue<Tv>(path);
+                    node.RecordField(path, oldValue, evt.newValue);
                 }
+                node.Data.SetValue(path, evt.newValue);
                 action?.Invoke();
+                node.PopupText();
             });
             field.SetEnabled(!showInNode.ReadOnly);
             return new(memberMeta, node, path.ToString(), this, field);
@@ -58,11 +60,13 @@ namespace TreeNode.Editor
             bool dirty = memberMeta.Json;
             Toggle.RegisterValueChangedCallback(evt =>
             {
-                node.Data.SetValue(path, evt.newValue);
                 if (dirty)
                 {
-                    Toggle.SetDirty();
+                    bool oldValue = node.Data.GetValue<bool>(path);
+                    node.RecordField(path, oldValue, evt.newValue);
                 }
+                node.Data.SetValue(path, evt.newValue);
+                node.PopupText();
                 action?.Invoke();
             });
             return new PropertyElement(memberMeta, node, path, this, Toggle);

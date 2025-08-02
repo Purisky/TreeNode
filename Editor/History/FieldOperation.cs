@@ -73,4 +73,35 @@ namespace TreeNode.Editor
             return $"FieldModify<{typeof(T).Name}>: {FieldPath} from '{OldValue}' to '{NewValue}'";
         }
     }
+
+    public class ListItemModifyOperation<T> : FieldModifyOperation
+    {
+        public int OldIndex;
+        public int NewIndex;
+        public T Value;
+        public ListItemModifyOperation(JsonNode node, PAPath listFieldPath, int oldIndex,int newIndex, T value, TreeNodeGraphView graphView)
+        {
+            Node = node;
+            FieldPath = listFieldPath;
+            OldIndex = oldIndex;
+            NewIndex = newIndex;
+            Value = value;
+            GraphView = graphView;
+        }
+        public override List<ViewChange> Execute()
+        {
+            return null;
+        }
+        public override List<ViewChange> Undo()
+        {
+            return null;
+        }
+        public override string GetOperationSummary()
+        {
+            return "";
+
+        }
+    }
+
+
 }
