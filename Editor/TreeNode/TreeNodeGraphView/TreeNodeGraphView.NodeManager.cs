@@ -17,10 +17,8 @@ namespace TreeNode.Editor
         public Dictionary<JsonNode, ViewNode> NodeDic;
 
         // 逻辑层树结构处理器 - 改为立即初始化
-        private Runtime.JsonNodeTree _nodeTree;
-        public Runtime.JsonNodeTree NodeTree => _nodeTree;
-
-        // ListView初始化状态管理器
+        private JsonNodeTree _nodeTree;
+        public JsonNodeTree NodeTree => _nodeTree;
 
         #region 节点管理
 
@@ -130,7 +128,7 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 为工具添加的节点创建连接 - 智能ListView端口查找 (优化版本)
+        /// 为工具添加的节点创建连接 - 优化版本
         /// </summary>
         private void CreateToolNodeConnection(ViewNode childViewNode, string nodePath)
         {
@@ -140,18 +138,8 @@ namespace TreeNode.Editor
                 var childPort = GetPort(nodePath);
                 if (childPort != null && childViewNode.ParentPort != null)
                 {
-                    // 如果端口在ListView中，需要等待ListView初始化
-                    var listView = childPort.GetFirstAncestorOfType<ListView>();
-                    if (listView != null)
-                    {
-                        // ListView节点：延迟创建连接
-                        CreateConnectionForListViewPort(childPort, childViewNode, listView);
-                    }
-                    else
-                    {
-                        // 普通节点：立即创建连接
-                        CreateConnectionImmediately(childPort, childViewNode);
-                    }
+                    // 立即创建连接
+                    CreateConnectionImmediately(childPort, childViewNode);
                 }
                 else
                 {
@@ -195,36 +183,6 @@ namespace TreeNode.Editor
             Debug.Log($"立即创建工具节点连接: {childPort.node.Data.GetType().Name} -> {childViewNode.Data.GetType().Name}");
         }
 
-        /// <summary>
-        /// 为ListView端口创建连接
-        /// </summary>
-        private void CreateConnectionForListViewPort(ChildPort childPort, ViewNode childViewNode, ListView listView)
-        {
-            // 检查ListView是否已经初始化
-            if (listView.userData is bool isInitialized && isInitialized)
-            {
-                // 已初始化，立即创建连接
-                CreateConnectionImmediately(childPort, childViewNode);
-                return;
-            }
-
-            // 未初始化，使用优化的延迟创建机制
-            Debug.Log("ListView未初始化，启动智能延迟连接创建...");
-            
-            var connectionAttempt = new ListViewConnectionAttempt
-            {
-                ChildPort = childPort,
-                ChildViewNode = childViewNode,
-                ListView = listView,
-                MaxRetries = 100, // 最多重试100次 (5秒)
-                RetryInterval = 50, // 每50ms重试一次
-                StartTime = DateTime.Now
-            };
-            
-            ScheduleListViewConnection(connectionAttempt);
-        }
-
-
         public virtual void RemoveViewNode(ViewNode node)
         {
             RemoveNode(node.Data);
@@ -258,19 +216,6 @@ namespace TreeNode.Editor
 
             Debug.Log($"收集到 {edgeMetadataList.Count} 个边连接需要创建");
 
-            // 🔍 智能检测：是否有节点需要ListView初始化
-            bool hasListViewNodes = await CheckForListViewNodesAsync(edgeMetadataList, cancellationToken);
-            
-            if (hasListViewNodes)
-            {
-                //Debug.Log("检测到ListView节点，等待ListView完全初始化...");
-                await WaitForListViewInitializationAsync(cancellationToken);
-            }
-            else
-            {
-                //Debug.Log("未检测到ListView节点，跳过ListView初始化等待");
-            }
-
             // 批量创建边连接 - 使用并行Task但在主线程执行UI操作
             var edgeCreationTasks = new List<Task>();
             var batchSize = Math.Max(5, edgeMetadataList.Count / 10); // 动态批次大小
@@ -293,7 +238,7 @@ namespace TreeNode.Editor
         /// <summary>
         /// 批量创建边连接 - 分批处理避免UI线程阻塞
         /// </summary>
-        private async Task CreateEdgeBatchAsync(List<Runtime.JsonNodeTree.NodeMetadata> batch, CancellationToken cancellationToken)
+        private async Task CreateEdgeBatchAsync(List<JsonNodeTree.NodeMetadata> batch, CancellationToken cancellationToken)
         {
             await ExecuteOnMainThreadAsync(() =>
             {
