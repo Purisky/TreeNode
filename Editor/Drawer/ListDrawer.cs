@@ -63,7 +63,15 @@ namespace TreeNode.Editor
             listElement.AddButton.clicked += () =>
             {
                 EnsureListExists(listElement, node, path, gType);
-                AddNewItem(listElement, gType);
+                
+                // 记录添加操作前的状态，用于 History
+                object newItem = CreateNewItem(gType);
+                int insertIndex = listElement.ItemsSource.Count;
+                
+                AddItemToList(listElement, newItem);
+                
+                // 记录 History
+                listElement.RecordItem(path, newItem, -1, insertIndex);
                 
                 if (dirty)
                 {
@@ -90,19 +98,38 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
+        /// 创建新项目实例
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static object CreateNewItem(Type gType)
+        {
+            if (gType.GetConstructor(Type.EmptyTypes) == null)
+            {
+                return RuntimeHelpers.GetUninitializedObject(gType);
+            }
+            else
+            {
+                return Activator.CreateInstance(gType);
+            }
+        }
+
+        /// <summary>
         /// 添加新项目到列表
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static void AddItemToList(ListElement listElement, object newItem)
+        {
+            listElement.ItemsSource.Add(newItem);
+        }
+
+        /// <summary>
+        /// 添加新项目到列表 - 保持向后兼容
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static void AddNewItem(ListElement listElement, Type gType)
         {
-            if (gType.GetConstructor(Type.EmptyTypes) == null)
-            {
-                listElement.ItemsSource.Add(RuntimeHelpers.GetUninitializedObject(gType));
-            }
-            else
-            {
-                listElement.ItemsSource.Add(Activator.CreateInstance(gType));
-            }
+            var newItem = CreateNewItem(gType);
+            AddItemToList(listElement, newItem);
         }
     }
 
@@ -530,8 +557,14 @@ namespace TreeNode.Editor
         {
             if (!IsValidIndex(index)) return;
             
+            // 记录删除前的状态，用于 History
+            object removedValue = ItemsSource[index];
+            
             // 同步操作数据源
             ItemsSource.RemoveAt(index);
+            
+            // 记录 History
+            this.RecordItem(LocalPath, removedValue, index, -1);
             
             // 高效的UI更新
             RemoveItemFromUI(index);
@@ -562,16 +595,21 @@ namespace TreeNode.Editor
         }
         
         /// <summary>
-        /// 移动项目 - 高性能版本
+        /// 移动项目 - 高性能版本，添加 History 记录
         /// </summary>
         public void MoveItem(int fromIndex, int toIndex)
         {
             if (!IsValidMoveOperation(fromIndex, toIndex)) return;
                 
-            // 同步操作数据源
+            // 记录移动前的状态，用于 History
             var item = ItemsSource[fromIndex];
+            
+            // 同步操作数据源
             ItemsSource.RemoveAt(fromIndex);
             ItemsSource.Insert(toIndex, item);
+            
+            // 记录 History
+            this.RecordItem(LocalPath, item, fromIndex, toIndex);
             
             // 高效的UI更新
             MoveItemInUI(fromIndex, toIndex);
@@ -1060,6 +1098,9 @@ namespace TreeNode.Editor
         {
             int index = parent.IndexOf(this);
             
+            // 记录删除前的状态，用于 History
+            object removedValue = _parentList?.ItemsSource[index];
+            
             // 优化：避免ToList()内存分配
             var listItems = new List<ListItem>();
             foreach (var child in parent.Children())
@@ -1083,6 +1124,12 @@ namespace TreeNode.Editor
                 childValues.AddRange(port.GetChildValues());
             }
             ViewNode.View.Asset.Data.Nodes.AddRange(childValues);
+            
+            // 记录 History - 通过 ListElement 的扩展方法
+            if (removedValue != null)
+            {
+                _parentList?.RecordItem(_parentList.LocalPath, removedValue, index, -1);
+            }
             
             // 使用新的ListElement删除方法
             _parentList?.RemoveItem(index);
