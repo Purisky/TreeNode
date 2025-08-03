@@ -42,6 +42,13 @@ namespace TreeNode.Editor
                 return changes;
             }
 
+            public override string ToString()
+            {
+                //列出所有原子操作
+                string operationsSummary = string.Join("\n", Operations.ConvertAll(op => op.ToString()));
+                return $"HistoryStep: {Timestamp:HH:mm:ss} - 操作数: {Operations.Count}\n{operationsSummary}";
+            }
+
         }
     }
 }

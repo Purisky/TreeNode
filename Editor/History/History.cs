@@ -68,13 +68,13 @@ namespace TreeNode.Editor
         {
             if (operation == null) return;
 
-            Debug.Log($"RecordOperation: {operation.Description}");
+            Debug.Log($"RecordOperation: {operation}");
 
             // 如果在批量模式中，添加到当前批次
             if (_isBatchMode && _currentBatch != null)
             {
                 _currentBatch.AddOperation(operation);
-                Debug.Log($"[批量模式] 添加操作到当前批次: {operation.Description}");
+                Debug.Log($"[批量模式] 添加操作到当前批次");
             }
             else
             {
@@ -88,7 +88,7 @@ namespace TreeNode.Editor
                     Steps.RemoveAt(0);
                 }
                 RedoSteps.Clear();
-                Debug.Log($"[新建步骤] 创建新步骤: {operation.Description}");
+                Debug.Log($"[新建步骤] 创建新步骤");
             }
 
             Window.MakeDirty();
@@ -136,8 +136,9 @@ namespace TreeNode.Editor
         public List<ViewChange> Undo()
         {
             if (Steps.Count <= 1) { return new(); }
-            Debug.Log($"执行撤销操作 - 当前步骤数: {Steps.Count}");
+            
             HistoryStep step = Steps[^1];
+            Debug.Log($"执行撤销操作 - 当前步骤: {step}");
             Steps.RemoveAt(Steps.Count - 1);
             RedoSteps.Push(step);
             List<ViewChange> changes = step.Undo();

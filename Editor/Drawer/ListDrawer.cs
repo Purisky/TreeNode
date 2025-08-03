@@ -670,6 +670,192 @@ namespace TreeNode.Editor
         }
         #endregion
         
+        #region ViewChange应用 - 新增功能
+        /// <summary>
+        /// 应用ViewChange - 用于恢复显示层状态
+        /// 支持处理ListItem类型的变更，实现Undo/Redo操作的UI同步
+        /// </summary>
+        /// <param name="viewChange">视图变更信息</param>
+        public void ApplyViewChange(ViewChange viewChange)
+        {
+            if (viewChange.ChangeType != ViewChangeType.ListItem)
+            {
+                Debug.LogWarning($"ListElement.ApplyViewChange: 不支持的ViewChangeType: {viewChange.ChangeType}");
+                return;
+            }
+
+            if (viewChange.ExtraInfo == null || viewChange.ExtraInfo.Length < 2)
+            {
+                Debug.LogWarning("ListElement.ApplyViewChange: ExtraInfo格式无效，期望[fromIndex, toIndex]");
+                return;
+            }
+
+            int fromIndex = viewChange.ExtraInfo[0];
+            int toIndex = viewChange.ExtraInfo[1];
+            
+            Debug.Log($"ListElement.ApplyViewChange: {LocalPath}, fromIndex={fromIndex}, toIndex={toIndex}");
+
+            // 重新同步数据源 - 确保与数据层一致
+            SyncItemsSourceFromData();
+
+            // 应用UI变更
+            ApplyListItemChange(fromIndex, toIndex);
+        }
+
+        /// <summary>
+        /// 同步数据源 - 确保ItemsSource与底层数据一致
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void SyncItemsSourceFromData()
+        {
+            try
+            {
+                var currentData = ViewNode.Data.GetValue<IList>(LocalPath);
+                if (currentData != ItemsSource)
+                {
+                    ItemsSource = currentData;
+                    Debug.Log($"ListElement.SyncItemsSourceFromData: 已同步数据源，新长度={ItemsSource?.Count ?? 0}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"ListElement.SyncItemsSourceFromData: 同步失败 - {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 应用列表项变更 - 优化版本，避免完全重建
+        /// </summary>
+        /// <param name="fromIndex">原始索引（-1表示新增）</param>
+        /// <param name="toIndex">目标索引（-1表示删除）</param>
+        private void ApplyListItemChange(int fromIndex, int toIndex)
+        {
+            if (fromIndex == -1 && toIndex >= 0)
+            {
+                // 新增项目
+                ApplyItemAddition(toIndex);
+            }
+            else if (fromIndex >= 0 && toIndex == -1)
+            {
+                // 删除项目
+                ApplyItemDeletion(fromIndex);
+            }
+            else if (fromIndex >= 0 && toIndex >= 0)
+            {
+                // 移动项目
+                ApplyItemMove(fromIndex, toIndex);
+            }
+            else
+            {
+                // 无效操作，执行完全刷新
+                Debug.LogWarning($"ListElement.ApplyListItemChange: 无效的索引组合 fromIndex={fromIndex}, toIndex={toIndex}，执行完全刷新");
+                RefreshItems();
+            }
+        }
+
+        /// <summary>
+        /// 应用项目新增 - 高性能版本，避免完全重建
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void ApplyItemAddition(int index)
+        {
+            if (ItemsSource == null || index >= ItemsSource.Count)
+            {
+                // 数据不一致，执行完全刷新
+                RefreshItems();
+                return;
+            }
+
+            // 创建新的ListItem
+            var newItem = MakeItem?.Invoke();
+            if (newItem != null)
+            {
+                BindItem?.Invoke(newItem, index);
+                
+                // 插入到正确位置
+                if (index < ItemContainer.childCount)
+                {
+                    ItemContainer.Insert(index, newItem);
+                }
+                else
+                {
+                    ItemContainer.Add(newItem);
+                }
+
+                // 处理端口
+                ProcessItemPorts(newItem);
+
+                // 更新后续项目的索引
+                UpdateIndicesFrom(index + 1);
+                
+                // 更新UI状态
+                UpdateUIState();
+            }
+        }
+
+        /// <summary>
+        /// 应用项目删除 - 高性能版本，避免完全重建
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void ApplyItemDeletion(int index)
+        {
+            if (index >= 0 && index < ItemContainer.childCount)
+            {
+                var itemToRemove = ItemContainer.ElementAt(index);
+                if (itemToRemove is ListItem listItem)
+                {
+                    listItem.Cleanup();
+                }
+                ItemContainer.RemoveAt(index);
+
+                // 更新后续项目的索引
+                UpdateIndicesFrom(index);
+                
+                // 更新UI状态
+                UpdateUIState();
+            }
+        }
+
+        /// <summary>
+        /// 应用项目移动 - 高性能版本，避免完全重建
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void ApplyItemMove(int fromIndex, int toIndex)
+        {
+            if (fromIndex < 0 || toIndex < 0 || 
+                fromIndex >= ItemContainer.childCount || 
+                toIndex >= ItemContainer.childCount ||
+                fromIndex == toIndex)
+            {
+                // 索引无效，执行完全刷新
+                RefreshItems();
+                return;
+            }
+
+            // 移动视觉元素
+            var visualItem = ItemContainer.ElementAt(fromIndex);
+            ItemContainer.RemoveAt(fromIndex);
+            ItemContainer.Insert(toIndex, visualItem);
+
+            // 批量更新索引范围
+            UpdateIndicesInRange(fromIndex, toIndex);
+            
+            // 延迟更新交替背景
+            schedule.Execute(UpdateAlternatingBackgrounds).ExecuteLater(ListConstants.UI_UPDATE_DELAY_MS);
+        }
+
+        /// <summary>
+        /// 检查是否支持ViewChange应用
+        /// </summary>
+        /// <param name="viewChange">视图变更</param>
+        /// <returns>是否支持</returns>
+        public bool CanApplyViewChange(ViewChange viewChange)
+        {
+            return viewChange.ChangeType == ViewChangeType.ListItem &&
+                   viewChange.Path.Equals(LocalPath);
+        }
+        #endregion
+        
         #region 公共接口
         /// <summary>
         /// 设置启用状态

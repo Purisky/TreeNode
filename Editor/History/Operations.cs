@@ -11,10 +11,8 @@ namespace TreeNode.Editor
     /// </summary>
     public interface IAtomicOperation
     {
-        string Description { get; }
         List<ViewChange> Execute();
         List<ViewChange> Undo();
-        string GetOperationSummary();
     }
     public enum OperationType
     {

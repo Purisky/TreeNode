@@ -10,11 +10,9 @@ namespace TreeNode.Editor
     {
         public PAPath FieldPath;
         public JsonNode Node;
-        public string Description=> $"修改字段: {FieldPath}";
         public TreeNodeGraphView GraphView;
         public abstract List<ViewChange> Execute();
         public abstract List<ViewChange> Undo();
-        public abstract string GetOperationSummary();
     }
     public class FieldModifyOperation<T> : FieldModifyOperation
     {
@@ -46,7 +44,7 @@ namespace TreeNode.Editor
                 return new();
             }
         }
-        public override string GetOperationSummary()
+        public override string ToString()
         {
             return $"FieldModify<{typeof(T).Name}>: {FieldPath} from '{OldValue}' to '{NewValue}'";
         }
@@ -134,7 +132,7 @@ namespace TreeNode.Editor
             list.Insert(toIndex, item);
         }
 
-        public override string GetOperationSummary()
+        public override string ToString()
         {
             return Type switch
             {
