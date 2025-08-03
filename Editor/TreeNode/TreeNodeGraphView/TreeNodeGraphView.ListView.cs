@@ -14,136 +14,77 @@ namespace TreeNode.Editor
 {
     public partial class TreeNodeGraphView//ListView
     {
+        // 注意：由于ListDrawer重构为同步架构，ListView跟踪功能已不再需要
+        // 保留代码结构以确保兼容性，但实际功能已被禁用
         private readonly ListViewInitializationTracker _listViewTracker = new();
 
-        #region ListView初始化状态管理
+        #region ListView初始化状态管理 - 已废弃但保留兼容性
 
         /// <summary>
-        /// ListView初始化状态管理器
+        /// ListView初始化状态管理器 - 废弃版本，保留兼容性
         /// </summary>
         private class ListViewInitializationTracker
         {
+            // 保留数据结构但不再使用
             private readonly HashSet<ListView> _pendingListViews = new();
             private readonly object _lock = new object();
 
             public void RegisterListView(ListView listView)
             {
-                lock (_lock)
-                {
-                    _pendingListViews.Add(listView);
-                }
-                Debug.Log($"注册ListView到初始化跟踪器, 当前待初始化数量: {_pendingListViews.Count}");
+                // 已废弃：新的ListElement架构无需注册跟踪
+                // 保留方法签名以确保调用兼容性
+                Debug.Log($"[已废弃] RegisterListView调用被忽略 - 新架构无需ListView跟踪");
             }
 
             public void MarkListViewReady(ListView listView)
             {
-                lock (_lock)
-                {
-                    if (_pendingListViews.Remove(listView))
-                    {
-                        Debug.Log($"ListView初始化完成, 剩余待初始化数量: {_pendingListViews.Count}");
-                    }
-                }
+                // 已废弃：新的ListElement架构立即就绪
+                // 保留方法签名以确保调用兼容性
+                Debug.Log($"[已废弃] MarkListViewReady调用被忽略 - 新架构立即就绪");
             }
 
             public bool AllListViewsReady()
             {
-                lock (_lock)
-                {
-                    return _pendingListViews.Count == 0;
-                }
+                // 新架构下始终就绪
+                return true;
             }
 
             public int PendingCount()
             {
-                lock (_lock)
-                {
-                    return _pendingListViews.Count;
-                }
+                // 新架构下无待处理项目
+                return 0;
             }
 
             public void Clear()
             {
-                lock (_lock)
-                {
-                    _pendingListViews.Clear();
-                }
+                // 无需操作
             }
         }
 
         /// <summary>
-        /// 智能检测是否有ListView节点需要等待初始化
+        /// 智能检测是否有ListView节点需要等待初始化 - 已废弃
         /// </summary>
         private async Task<bool> CheckForListViewNodesAsync(List<JsonNodeTree.NodeMetadata> edgeMetadataList, CancellationToken cancellationToken)
         {
-            bool hasListViewNodes = false;
-
-            await ExecuteOnMainThreadAsync(() =>
-            {
-                // 检查是否有节点的端口处在ListView内部
-                foreach (var metadata in edgeMetadataList)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    if (NodeDic.TryGetValue(metadata.Parent.Node, out var parentViewNode))
-                    {
-                        // 检查该节点是否包含ListView
-                        var listViews = parentViewNode.Query<ListView>().ToList();
-                        if (listViews.Any())
-                        {
-                            hasListViewNodes = true;
-
-                            // 注册所有未初始化的ListView
-                            foreach (var listView in listViews)
-                            {
-                                if (!(listView.userData is bool initialized && initialized))
-                                {
-                                    _listViewTracker.RegisterListView(listView);
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-
-            return hasListViewNodes;
+            // 新架构下无需检测ListView节点
+            await Task.CompletedTask;
+            return false; // 无ListView节点需要等待
         }
 
         /// <summary>
-        /// 等待ListView初始化完成
+        /// 等待ListView初始化完成 - 已废弃
         /// </summary>
         private async Task WaitForListViewInitializationAsync(CancellationToken cancellationToken)
         {
-            const int maxWaitTime = 5000; // 5秒超时
-            const int checkInterval = 50; // 每50ms检查一次
-            int elapsedTime = 0;
-
-            while (!_listViewTracker.AllListViewsReady() && elapsedTime < maxWaitTime)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                await Task.Delay(checkInterval, cancellationToken);
-                elapsedTime += checkInterval;
-
-                if (elapsedTime % 500 == 0) // 每500ms输出一次进度
-                {
-                    Debug.Log($"等待ListView初始化... 剩余: {_listViewTracker.PendingCount()}个, 已等待: {elapsedTime}ms");
-                }
-            }
-
-            if (_listViewTracker.AllListViewsReady())
-            {
-                Debug.Log($"所有ListView初始化完成，总耗时: {elapsedTime}ms");
-            }
-            else
-            {
-                Debug.LogWarning($"ListView初始化等待超时 ({maxWaitTime}ms)，强制继续连接创建");
-            }
+            // 新架构下无需等待，立即完成
+            await Task.CompletedTask;
+            Debug.Log($"[已优化] ListView等待已跳过 - 新架构立即就绪");
         }
 
         #endregion
+        
         /// <summary>
-        /// ListView连接创建尝试信息
+        /// ListView连接创建尝试信息 - 已废弃
         /// </summary>
         private class ListViewConnectionAttempt
         {
@@ -157,58 +98,41 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 调度ListView连接创建 - 智能重试机制
+        /// 调度ListView连接创建 - 已废弃，保留兼容性
         /// </summary>
         private void ScheduleListViewConnection(ListViewConnectionAttempt attempt)
         {
-            void CheckAndCreateConnection()
+            // 新架构下直接创建连接，无需调度
+            try
             {
-                try
-                {
-                    // 检查ListView是否已初始化
-                    if (attempt.ListView.userData is bool initialized && initialized)
-                    {
-                        CreateConnectionImmediately(attempt.ChildPort, attempt.ChildViewNode);
-                        var elapsed = (DateTime.Now - attempt.StartTime).TotalMilliseconds;
-                        Debug.Log($"ListView延迟连接创建成功 (重试{attempt.CurrentRetry}次, 耗时{elapsed:F0}ms)");
-                        return;
-                    }
-
-                    // 检查是否超过最大的重试次数
-                    if (attempt.CurrentRetry >= attempt.MaxRetries)
-                    {
-                        var elapsed = (DateTime.Now - attempt.StartTime).TotalMilliseconds;
-                        Debug.LogWarning($"ListView连接创建超时: 等待{elapsed:F0}ms后放弃 (重试{attempt.CurrentRetry}次)");
-                        return;
-                    }
-
-                    // 继续重试
-                    attempt.CurrentRetry++;
-                    schedule.Execute(CheckAndCreateConnection).ExecuteLater(attempt.RetryInterval);
-                }
-                catch (Exception e)
-                {
-                    Debug.LogError($"ListView连接创建过程中发生异常: {e.Message}");
-                }
+                CreateConnectionImmediately(attempt.ChildPort, attempt.ChildViewNode);
+                Debug.Log($"[已优化] ListView连接立即创建成功 - 无需重试机制");
             }
-
-            CheckAndCreateConnection();
+            catch (Exception e)
+            {
+                Debug.LogError($"连接创建过程中发生异常: {e.Message}");
+            }
         }
-        #region ListView初始化公共接口
+        
+        #region ListView初始化公共接口 - 兼容性保留
 
         /// <summary>
-        /// 注册ListView到初始化跟踪器 - 供ListDrawer调用
+        /// 注册ListView到初始化跟踪器 - 已废弃，保留兼容性
+        /// 新的ListElement架构无需注册跟踪
         /// </summary>
         public void RegisterListViewForTracking(ListView listView)
         {
+            // 调用被重定向到废弃的跟踪器
             _listViewTracker.RegisterListView(listView);
         }
 
         /// <summary>
-        /// 标记ListView为就绪状态 - 供ListDrawer调用
+        /// 标记ListView为就绪状态 - 已废弃，保留兼容性
+        /// 新的ListElement架构立即就绪
         /// </summary>
         public void MarkListViewAsReady(ListView listView)
         {
+            // 调用被重定向到废弃的跟踪器
             _listViewTracker.MarkListViewReady(listView);
         }
 

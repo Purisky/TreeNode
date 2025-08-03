@@ -1,34 +1,116 @@
+﻿File: Assets\TreeNode\Editor\Resources\Styles\ListItem.uss
+````````
+/* ListItem 高性能样式 - 优化版本 */
+
 ListItem
 {
-    flex-direction:row;
-    height:auto;
-    flex-grow:1;
+    flex-direction: row;
+    height: auto;
+    flex-grow: 1;
+    border-bottom-width: 1px;
+    border-bottom-color: rgba(127, 127, 127, 0.2);
+    background-color: transparent;
 }
 
+/* ListView兼容性样式 */
+ListItem.unity-list-view__item
+{
+    min-height: 22px;
+    padding-left: 0;
+    padding-right: 4px;
+    padding-top: 1px;
+    padding-bottom: 1px;
+}
+
+/* 交替背景样式 */
+ListItem.unity-list-view__item--alternative-background
+{
+    background-color: rgba(127, 127, 127, 0.05);
+}
+
+/* 编辑模式样式优化 */
 .editmode #listitemindexlabel 
 {
-    display:none;
-}
-.editmode #listitemindexfield 
-{
-    display:flex;
+    display: none;
 }
 
+.editmode #listitemindexfield 
+{
+    display: flex;
+}
+
+/* 索引区域样式优化 */
 #listitemindex 
 {
-    width:40px;
-    border-right-width:1px;
-    border-right-color:rgb(127,127,127);
-    flex-direction:row;
+    width: 40px;
+    border-right-width: 1px;
+    border-right-color: rgba(127, 127, 127, 0.3);
+    flex-direction: row;
+    background-color: rgba(127, 127, 127, 0.1);
+    justify-content: center;
+    align-items: center;
 }
+
 #listitemindexlabel 
 {
-    flex-grow:1;
-    -unity-text-align:middle-center;
+    flex-grow: 1;
+    -unity-text-align: middle-center;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.8);
+    margin: 0;
+    padding: 2px;
 }
+
 #listitemindexfield 
 {
-    flex-grow:1;
-    display:none;
-    -unity-text-align:middle-center;
+    flex-grow: 1;
+    display: none;
+    -unity-text-align: middle-center;
+    font-size: 11px;
+    margin: 0;
+    padding: 1px;
+    border-width: 0;
+    background-color: rgba(127, 127, 127, 0.2);
+    border-radius: 2px;
+}
+
+/* 鼠标悬停效果 */
+ListItem:hover
+{
+    background-color: rgba(127, 127, 127, 0.1);
+}
+
+ListItem:hover #listitemindex
+{
+    background-color: rgba(127, 127, 127, 0.2);
+}
+
+/* 选中状态样式 */
+ListItem:focus
+{
+    background-color: rgba(58, 121, 187, 0.2);
+    border-color: rgba(58, 121, 187, 0.5);
+}
+
+/* 性能优化：禁用不必要的动画 */
+ListItem
+{
+    transition-duration: 0s;
+}
+
+#listitemindex
+{
+    transition-duration: 0s;
+}
+
+/* 响应式设计 */
+@media (max-width: 600px) {
+    #listitemindex {
+        width: 30px;
+    }
+    
+    #listitemindexlabel,
+    #listitemindexfield {
+        font-size: 10px;
+    }
 }
