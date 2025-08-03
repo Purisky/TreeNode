@@ -35,7 +35,7 @@ namespace TreeNode.Editor
             object parent = node.Data.GetParent(path);
             action = memberMeta.OnChangeMethod.GetOnChangeAction(parent) + action;
             
-            listElement.MakeItem = () => new ListItem(memberMeta, node, itemDrawer, path, dirty, action);
+            listElement.MakeItem = () => new ListItem(listElement, memberMeta, node, itemDrawer, path, dirty, action);
             listElement.BindItem = (element, index) => ((ListItem)element).InitValue(index);
             
             // 配置添加按钮事件
@@ -382,32 +382,60 @@ namespace TreeNode.Editor
         }
     }
 
+    /// <summary>
+    /// ListItem - 完全重写的高性能列表项组件
+    /// 专为ListElement优化，实现同步初始化和立即可用的ChildPort
+    /// </summary>
     public class ListItem : VisualElement
     {
+        #region 静态资源
         static readonly StyleSheet StyleSheet = ResourcesUtil.LoadStyleSheet("ListItem");
-        public int Index => IndexField.value;
-        public Label IndexLabel;
-        public VisualElement IndexElement;
-        public IntegerField IndexField;
-        public PropertyElement Value;
-        public ViewNode ViewNode;
-        public string Path;
-        public MemberMeta Meta;
+        #endregion
 
-        public BaseDrawer Drawer;
-        Action OnChange;
-        Action Action;
-        public bool HasPort;
-        public List<ChildPort> ChildPorts;
+        #region 私有字段
         private ListElement _parentList;
+        private int _currentIndex;
+        private PropertyElement _contentElement;
+        private bool _isInitialized;
+        #endregion
 
-        public ListItem(MemberMeta meta, ViewNode node, BaseDrawer baseDrawer, string path, bool dirty, Action action)
+        #region 公共属性
+        public int Index => IndexField.value;
+        public Label IndexLabel { get; private set; }
+        public VisualElement IndexElement { get; private set; }
+        public IntegerField IndexField { get; private set; }
+        public PropertyElement Value => _contentElement;
+        public ViewNode ViewNode { get; private set; }
+        public string Path { get; private set; }
+        public MemberMeta Meta { get; private set; }
+        public BaseDrawer Drawer { get; private set; }
+        public bool HasPort { get; private set; }
+        public List<ChildPort> ChildPorts { get; private set; }
+        #endregion
+
+        #region 事件和委托
+        private Action OnChange;
+        private Action Action;
+        #endregion
+
+        #region 构造函数
+        /// <summary>
+        /// 构造函数 - 接收ListElement父级引用，实现直接交互
+        /// </summary>
+        public ListItem(ListElement parentList, MemberMeta meta, ViewNode node, BaseDrawer baseDrawer, string path, bool dirty, Action action)
         {
+            // 保存父级引用
+            _parentList = parentList;
+            
+            // 初始化基本属性
             Action = action;
             Meta = meta;
             ViewNode = node;
             Path = path;
             Drawer = baseDrawer;
+            ChildPorts = new List<ChildPort>();
+            
+            // 初始化OnChange委托
             OnChange = () =>
             {
                 if (dirty)
@@ -417,55 +445,197 @@ namespace TreeNode.Editor
                 Action?.Invoke();
                 ViewNode.PopupText();
             };
+            
+            // 检查是否有Port
             if (Drawer is ComplexDrawer complex)
             {
                 HasPort = complex.HasPort;
             }
+            
+            // 初始化UI
+            InitializeUI();
+        }
+        #endregion
+
+        #region UI初始化
+        private void InitializeUI()
+        {
+            // 应用样式
             styleSheets.Add(StyleSheet);
             style.height = Length.Auto();
-            IndexElement = new() { name = "listitemindex" };
+            
+            // 创建索引显示区域
+            CreateIndexElement();
+            
+            // 注册事件
+            RegisterEvents();
+            
+            _isInitialized = true;
+        }
+        
+        private void CreateIndexElement()
+        {
+            IndexElement = new VisualElement { name = "listitemindex" };
             IndexElement.style.position = Position.Absolute;
             IndexElement.style.left = 0;
             IndexElement.style.height = Length.Percent(100);
             IndexElement.pickingMode = PickingMode.Ignore;
-            IndexField = new() { name = "listitemindexfield" };
-            IndexLabel = new() { name = "listitemindexlabel", pickingMode = PickingMode.Ignore };
+            
+            IndexField = new IntegerField { name = "listitemindexfield" };
+            IndexLabel = new Label { name = "listitemindexlabel", pickingMode = PickingMode.Ignore };
+            
             IndexElement.Add(IndexLabel);
             IndexElement.Add(IndexField);
             Add(IndexElement);
+        }
+        
+        private void RegisterEvents()
+        {
+            // 注册右键菜单
             RegisterCallback<MouseDownEvent>((evt) =>
             {
                 if (evt.button == 1)
                 {
-                    GenericMenu menu = new();
+                    GenericMenu menu = new GenericMenu();
                     AddItemsToMenu(menu);
                     menu.ShowAsContext();
                 }
             });
-            IndexField.RegisterValueChangedCallback((evt) =>
-            {
-                int index = evt.newValue;
-                if (index < 0)
-                {
-                    IndexField.value = 0;
-                    return;
-                }
-                // 尝试获取父级ListElement
-                if (_parentList == null)
-                {
-                    _parentList = this.GetFirstAncestorOfType<ListElement>();
-                }
-                if (_parentList != null && index >= (_parentList.ItemsSource?.Count ?? 0))
-                {
-                    IndexField.value = (_parentList.ItemsSource?.Count ?? 1) - 1;
-                    return;
-                }
-            });
+            
+            // 注册索引变更事件
+            IndexField.RegisterValueChangedCallback(OnIndexChanged);
             IndexField.RegisterCallback<BlurEvent>((evt) => CommitEdit());
-            ChildPorts = new();
+        }
+        #endregion
+
+        #region 核心方法
+        /// <summary>
+        /// 初始化值 - 同步版本，立即可用
+        /// </summary>
+        public void InitValue(int index)
+        {
+            if (!_isInitialized) return;
+            
+            _currentIndex = index;
+            IndexLabel.text = index.ToString();
+            IndexField.value = index;
+
+            string propertyPath = $"{Path}[{index}]";
+
+            // 清理现有内容
+            if (_contentElement != null)
+            {
+                RemoveEdges();
+                Remove(_contentElement);
+                _contentElement = null;
+            }
+
+            // 同步创建新内容
+            _contentElement = Drawer.Create(Meta, ViewNode, propertyPath, Action);
+            _contentElement.style.flexGrow = 1;
+            _contentElement.style.paddingLeft = 40;
+            Insert(0, _contentElement);
+
+            // 立即处理ChildPort连接
+            if (HasPort)
+            {
+                ProcessChildPorts();
+            }
+        }
+        
+        /// <summary>
+        /// 立即处理ChildPort连接 - 同步版本，无延迟
+        /// </summary>
+        public void ProcessChildPorts()
+        {
+            if (!HasPort) return;
+            
+            // 立即查询ChildPort，无需schedule
+            ChildPorts = this.Query<ChildPort>().ToList();
+            
+            // 立即添加边连接
+            AddEdges();
+        }
+        
+        /// <summary>
+        /// 清理资源 - 高效版本
+        /// </summary>
+        public void Cleanup()
+        {
+            RemoveEdges();
+            ChildPorts.Clear();
+            
+            if (_contentElement != null)
+            {
+                Remove(_contentElement);
+                _contentElement = null;
+            }
+        }
+        
+        /// <summary>
+        /// 更新索引显示
+        /// </summary>
+        public void UpdateIndex(int newIndex)
+        {
+            _currentIndex = newIndex;
+            IndexLabel.text = newIndex.ToString();
+            IndexField.value = newIndex;
+        }
+        #endregion
+
+        #region 端口管理
+        private void RemoveEdges()
+        {
+            if (!ChildPorts.Any()) return;
+            
+            foreach (var childPort in ChildPorts)
+            {
+                if (childPort.connected)
+                {
+                    List<Edge> edges = childPort.connections.ToList();
+                    foreach (var edge in edges)
+                    {
+                        edge.ParentPort().DisconnectAll();
+                        ViewNode.View.RemoveElement(edge);
+                    }
+                    childPort.DisconnectAll();
+                }
+                ViewNode.ChildPorts.Remove(childPort);
+            }
         }
 
-        void CommitEdit()
+        private void AddEdges()
+        {
+            if (!ChildPorts.Any()) return;
+            
+            foreach (var childPort in ChildPorts)
+            {
+                if (!ViewNode.ChildPorts.Contains(childPort))
+                {
+                    ViewNode.ChildPorts.Add(childPort);
+                }
+            }
+        }
+        #endregion
+
+        #region 事件处理
+        private void OnIndexChanged(ChangeEvent<int> evt)
+        {
+            int index = evt.newValue;
+            if (index < 0)
+            {
+                IndexField.value = 0;
+                return;
+            }
+            
+            if (_parentList != null && index >= (_parentList.ItemsSource?.Count ?? 0))
+            {
+                IndexField.value = (_parentList.ItemsSource?.Count ?? 1) - 1;
+                return;
+            }
+        }
+        
+        private void CommitEdit()
         {
             int index = IndexField.value;
             int oldIndex = parent.IndexOf(this);
@@ -475,15 +645,10 @@ namespace TreeNode.Editor
                 return;
             }
             
-            // 尝试获取父级ListElement
-            if (_parentList == null)
-            {
-                _parentList = this.GetFirstAncestorOfType<ListElement>();
-            }
             _parentList?.MoveItem(oldIndex, index);
             OnChange?.Invoke();
         }
-
+        
         public void EditMode(bool edit)
         {
             if (edit)
@@ -500,106 +665,17 @@ namespace TreeNode.Editor
                 RemoveFromClassList("editmode");
             }
         }
+        #endregion
 
-        public void InitValue(int index)
-        {
-            IndexLabel.text = index.ToString();
-            IndexField.value = index;
-
-            string propertyPath = $"{Path}[{index}]";
-
-            // 尝试获取父级ListElement
-            if (_parentList == null)
-            {
-                _parentList = this.GetFirstAncestorOfType<ListElement>();
-            }
-
-            if (Value == null)
-            {
-                Value = Drawer.Create(Meta, ViewNode, propertyPath, Action);
-                Value.style.flexGrow = 1;
-                Insert(0, Value);
-                if (HasPort)
-                {
-                    ChildPorts = this.Query<ChildPort>().ToList();
-                }
-            }
-            else
-            {
-                RemoveEdges();
-                Remove(Value);
-                Value = Drawer.Create(Meta, ViewNode, propertyPath, Action);
-                Value.style.flexGrow = 1;
-                Insert(0, Value);
-                if (HasPort)
-                {
-                    ChildPorts = this.Query<ChildPort>().ToList();
-                }
-                // 立即添加边连接，不再使用schedule
-                AddEdges();
-            }
-
-            Value.style.paddingLeft = 40;
-        }
-
-        /// <summary>
-        /// 立即处理ChildPort连接 - 同步版本
-        /// </summary>
-        public void ProcessChildPorts()
-        {
-            if (HasPort)
-            {
-                ChildPorts = this.Query<ChildPort>().ToList();
-                AddEdges();
-            }
-        }
-
-        public void RemoveEdges()
-        {
-            if (ChildPorts.Any())
-            {
-                for (int i = 0; i < ChildPorts.Count; i++)
-                {
-                    ChildPort childPort = ChildPorts[i];
-
-                    if (childPort.connected)
-                    {
-                        List<Edge> edges = childPort.connections.ToList();
-                        for (int j = 0; j < edges.Count; j++)
-                        {
-                            edges[j].ParentPort().DisconnectAll();
-                            ViewNode.View.RemoveElement(edges[j]);
-                        }
-                        childPort.DisconnectAll();
-                    }
-                    ViewNode.ChildPorts.Remove(childPort);
-                }
-            }
-        }
-
-        public void AddEdges()
-        {
-            if (ChildPorts.Any())
-            {
-                for (int i = 0; i < ChildPorts.Count; i++)
-                {
-                    ChildPort childPort = ChildPorts[i];
-                    if (!ViewNode.ChildPorts.Contains(childPort))
-                    {
-                        ViewNode.ChildPorts.Add(childPort);
-                    }
-                }
-            }
-        }
-
+        #region 操作方法
         public void RemoveSelf()
         {
             int index = parent.IndexOf(this);
             
             // 清理所有Edge连接
-            for (int i = 0; i < parent.childCount; i++)
+            foreach (var child in parent.Children())
             {
-                if (parent.ElementAt(i) is ListItem listItem)
+                if (child is ListItem listItem)
                 {
                     listItem.RemoveEdges();
                 }
@@ -607,12 +683,6 @@ namespace TreeNode.Editor
             
             // 将ChildPort的子值添加回节点数据
             ViewNode.View.Asset.Data.Nodes.AddRange(ChildPorts.SelectMany(n => n.GetChildValues()));
-            
-            // 尝试获取父级ListElement
-            if (_parentList == null)
-            {
-                _parentList = this.GetFirstAncestorOfType<ListElement>();
-            }
             
             // 使用新的ListElement删除方法
             _parentList?.RemoveItem(index);
@@ -628,55 +698,28 @@ namespace TreeNode.Editor
 
             if (showMoveUp)
             {
-                menu.AddItem(new($"▲{I18n.MoveUp}"), false, () =>
+                menu.AddItem(new GUIContent($"▲{I18n.MoveUp}"), false, () =>
                 {
-                    // 尝试获取父级ListElement
-                    if (_parentList == null)
-                    {
-                        _parentList = this.GetFirstAncestorOfType<ListElement>();
-                    }
                     _parentList?.MoveItem(index, index - 1);
                     OnChange?.Invoke();
                 });
             }
             if (showMoveDown)
             {
-                menu.AddItem(new($"▼{I18n.MoveDown}"), false, () =>
+                menu.AddItem(new GUIContent($"▼{I18n.MoveDown}"), false, () =>
                 {
-                    // 尝试获取父级ListElement
-                    if (_parentList == null)
-                    {
-                        _parentList = this.GetFirstAncestorOfType<ListElement>();
-                    }
                     _parentList?.MoveItem(index, index + 1);
                     OnChange?.Invoke();
                 });
             }
-            menu.AddItem(new($"✎{I18n.SetIndex}"), false, () =>
+            menu.AddItem(new GUIContent($"✎{I18n.SetIndex}"), false, () =>
             {
                 EditMode(true);
             });
             menu.AddSeparator("");
-            menu.AddItem(new($"✖{I18n.DeleteItem}"), false, RemoveSelf);
+            menu.AddItem(new GUIContent($"✖{I18n.DeleteItem}"), false, RemoveSelf);
             menu.AddSeparator("");
         }
-
-        /// <summary>
-        /// 清理资源
-        /// </summary>
-        public void Cleanup()
-        {
-            RemoveEdges();
-            ChildPorts.Clear();
-        }
-
-        /// <summary>
-        /// 更新索引显示
-        /// </summary>
-        public void UpdateIndex(int newIndex)
-        {
-            IndexLabel.text = newIndex.ToString();
-            IndexField.value = newIndex;
-        }
+        #endregion
     }
 }
