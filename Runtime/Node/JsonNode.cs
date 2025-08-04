@@ -61,7 +61,7 @@ namespace TreeNode.Runtime
 
 
 
-    public struct Vec2
+    public struct Vec2: IEquatable<Vec2>
     {
         public int x;
         public int y;
@@ -78,10 +78,44 @@ namespace TreeNode.Runtime
         public Vec2(float x_,float y_) { x = (int)x_; y = (int)y_; }
         public Vec2(Length x_, Length y_) { x = (int)x_.value; y = (int)y_.value; }
         public Vec2(StyleLength x_, StyleLength y_) { x = (int)x_.value.value; y = (int)y_.value.value; }
-        public override string ToString()
+        public override readonly string ToString()
         {
             return $"({x}, {y})";
         }
+
+        public readonly bool Equals(Vec2 other)
+        {
+            return x == other.x && y == other.y;
+        }
+        public override readonly bool Equals(object obj)
+        {
+            return obj is Vec2 other && Equals(other);
+        }
+        public override readonly int GetHashCode()
+        {
+            unchecked
+            {
+                return (x * 397) ^ y;
+            }
+        }
+        public static bool operator ==(Vec2 left, Vec2 right)
+        {
+            return left.Equals(right);
+        }
+        public static bool operator !=(Vec2 left, Vec2 right)
+        {
+            return !left.Equals(right);
+        }
+        public static Vec2 operator +(Vec2 a, Vec2 b)
+        {
+            return new Vec2(a.x + b.x, a.y + b.y);
+        }
+        public static Vec2 operator -(Vec2 a, Vec2 b)
+        {
+            return new Vec2(a.x - b.x, a.y - b.y);
+        }
+
+
     }
 
     public abstract class PrefabData {

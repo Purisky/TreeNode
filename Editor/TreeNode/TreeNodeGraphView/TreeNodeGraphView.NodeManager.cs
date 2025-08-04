@@ -645,7 +645,7 @@ namespace TreeNode.Editor
                 {
                     Vec2 from = viewNode.Data.Position;
                     // 更新逻辑层数据
-                    viewNode.Data.Position += delta;
+                    viewNode.Data.Position += (Vec2)delta;
                     Vec2 to = viewNode.Data.Position;
                     // 记录节点移动操作
                     var moveOperation = new FieldModifyOperation<Vec2>(viewNode.Data, PAPath.Position, from, to, this);

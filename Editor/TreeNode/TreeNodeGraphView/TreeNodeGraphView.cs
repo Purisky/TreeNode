@@ -368,7 +368,16 @@ namespace TreeNode.Editor
                     case ViewChangeType.NodeField:
                         if (NodeDic.TryGetValue(changes[i].Node, out viewNode))
                         {
-                            viewNode.RefreshPropertyElements(changes[i].Path);
+                            if (changes[i].Path == PAPath.Position)
+                            {
+                                Rect rect = viewNode.GetPosition();
+                                rect.position = viewNode.Data.Position;
+                                viewNode.SetPosition(rect);
+                            }
+                            else
+                            {
+                                viewNode.RefreshPropertyElements(changes[i].Path);
+                            }
                         }
                         break;
                     case ViewChangeType.EdgeCreate:

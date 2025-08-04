@@ -56,13 +56,14 @@ namespace TreeNode.Editor
                     }
                 }
             }
-            
+
+            Window.History.BeginBatch();
             // 第三步：从根节点开始进行深度优先格式化
             foreach (JsonNode rootNode in rootNodes)
             {
                 FormatNode(rootNode, new HashSet<JsonNode>());
             }
-            
+            Window.History.EndBatch();
             // 第四步：强制刷新视图以确保布局更新
             schedule.Execute(() => MarkDirtyRepaint());
         }
@@ -75,7 +76,9 @@ namespace TreeNode.Editor
             visitedNodes.Add(node);
             
             if (!NodeDic.TryGetValue(node, out ViewNode viewNode)) return;
-            
+
+            //Debug.Log($"{node.GetType().Name}");
+
             int maxDepth = viewNode.GetChildMaxDepth();
             int depth = viewNode.GetDepth();
             ViewNode parent = viewNode.GetParent();
@@ -84,6 +87,7 @@ namespace TreeNode.Editor
             int ValidYPos = parent == null ? 0 : parent.Data.Position.y;
             for (int i = depth; i <= maxDepth; i++)
             {
+                //Debug.Log($"[{i}] {ValidYPos}->{validYPosPerDepth[i]}");
                 ValidYPos = Math.Max(ValidYPos, validYPosPerDepth[i]);
             }
             
@@ -94,10 +98,17 @@ namespace TreeNode.Editor
             
             // 更新ViewNode位置
             viewNode.SetPosition(rect);
+            if (newPosition != viewNode.Data.Position)
+            {
+                Window.History.Record(new FieldModifyOperation<Vec2>(viewNode.Data, PAPath.Position, viewNode.Data.Position, newPosition, this));
+                viewNode.Data.Position = newPosition;
+            }
             
             // 更新有效Y位置
             validYPosPerDepth[depth] = ValidYPos + (int)viewNode.localBound.size.y + Y_SPACE;
-            
+            //Debug.Log($"[{depth}] {ValidYPos} -> {validYPosPerDepth[depth]}");
+
+
             // 收集并排序子节点
             List<JsonNode> childs = new List<JsonNode>();
             if (viewNode.ChildPorts != null)

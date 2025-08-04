@@ -125,12 +125,10 @@ namespace TreeNode.Editor
                 }
                 
                 RedoSteps.Clear();
+                Window.MakeDirty();
             }
-
             _currentBatch = null;
             _isBatchMode = false;
-
-            Window.MakeDirty();
         }
 
         public List<ViewChange> Undo()
