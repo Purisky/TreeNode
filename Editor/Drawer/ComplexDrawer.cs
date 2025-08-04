@@ -127,7 +127,7 @@ namespace TreeNode.Editor
                 MemberMeta meta = new(TitlePortMember, propertyPath);
                 meta.LabelInfo.Hide = true;
                 bool multi = TitlePortMember.GetValueType().Inherited(typeof(IList));
-                ChildPort port = multi ? MultiPort.Create(meta) : SinglePort.Create(meta);
+                ChildPort port = multi ? MultiPort.Create(node, meta) : SinglePort.Create(node,meta);
                 port.Q<Label>().style.marginLeft = 0;
                 port.Q<Label>().style.marginRight = 0;
                 PropertyElement titlePropertyElement = new(meta, node, propertyPath, null, port);
@@ -135,7 +135,8 @@ namespace TreeNode.Editor
                 titlePropertyElement.style.right = 0;
                 titlePropertyElement.style.alignSelf = Align.Center;
                 node.titleContainer.Add(titlePropertyElement);
-                node.ChildPorts.Add(port);
+
+                node.ChildPorts.Add(propertyPath,port);
             }
             for (int i = 0; i < Groups.Count; i++)
             {
@@ -239,13 +240,13 @@ namespace TreeNode.Editor
                             }
                             NumPort port = propertyElement.Q<NumPort>();
                             lineVE.Add(propertyElement);
-                            node.ChildPorts.Add(port);
+                            node.ChildPorts.Add(propertyPath, port);
                         }
                         else
                         {
                             bool multi = meta.Type.Inherited(typeof(IList));
                             //Debug.Log(Name);
-                            ChildPort port = multi ? MultiPort.Create(meta) : SinglePort.Create(meta);
+                            ChildPort port = multi ? MultiPort.Create(node, meta) : SinglePort.Create(node,meta);
                             PropertyElement propertyElement = new(meta, node, propertyPath, null, port);
                             GroupAttribute groupAttribute = member.GetCustomAttribute<GroupAttribute>();
                             if (groupAttribute != null)
@@ -253,7 +254,7 @@ namespace TreeNode.Editor
                                 propertyElement.SetWidth(groupAttribute.Width);
                             }
                             lineVE.Add(propertyElement);
-                            node.ChildPorts.Add(port);
+                            node.ChildPorts.Add(propertyPath, port);
                         }
 
 

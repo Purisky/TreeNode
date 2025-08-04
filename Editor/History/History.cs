@@ -68,13 +68,13 @@ namespace TreeNode.Editor
         {
             if (operation == null) return;
 
-            Debug.Log($"RecordOperation: {operation}");
+            //Debug.Log($"RecordOperation: {operation}");
 
             // 如果在批量模式中，添加到当前批次
             if (_isBatchMode && _currentBatch != null)
             {
                 _currentBatch.AddOperation(operation);
-                Debug.Log($"[批量模式] 添加操作到当前批次");
+                //Debug.Log($"[批量模式] 添加操作到当前批次");
             }
             else
             {
@@ -88,7 +88,7 @@ namespace TreeNode.Editor
                     Steps.RemoveAt(0);
                 }
                 RedoSteps.Clear();
-                Debug.Log($"[新建步骤] 创建新步骤");
+                //Debug.Log($"[新建步骤] 创建新步骤");
             }
 
             Window.MakeDirty();
@@ -135,10 +135,10 @@ namespace TreeNode.Editor
 
         public List<ViewChange> Undo()
         {
-            if (Steps.Count <= 1) { return new(); }
+            if (Steps.Count <= 0) { return new(); }
             
             HistoryStep step = Steps[^1];
-            Debug.Log($"执行撤销操作 - 当前步骤: {step}");
+            //Debug.Log($"执行撤销操作 - 当前步骤: {step}");
             Steps.RemoveAt(Steps.Count - 1);
             RedoSteps.Push(step);
             List<ViewChange> changes = step.Undo();
@@ -148,7 +148,7 @@ namespace TreeNode.Editor
         public List<ViewChange> Redo()
         {
             if (!RedoSteps.Any()) { return new(); }
-            Debug.Log($"执行重做操作 - 可重做步骤数: {RedoSteps.Count}");
+            //Debug.Log($"执行重做操作 - 可重做步骤数: {RedoSteps.Count}");
             HistoryStep step = RedoSteps.Pop();
             Steps.Add(step);
             List<ViewChange> changes = step.Redo();

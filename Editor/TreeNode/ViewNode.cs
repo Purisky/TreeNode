@@ -18,7 +18,7 @@ namespace TreeNode.Editor
     {
         public TreeNodeGraphView View;
         public ParentPort ParentPort;
-        public List<ChildPort> ChildPorts;
+
         public VisualElement Content;
 
         static readonly StyleSheet StyleSheet = ResourcesUtil.LoadStyleSheet("ViewNode");
@@ -26,6 +26,10 @@ namespace TreeNode.Editor
         public JsonNode Data;
 
         private Dictionary<PAPath, PropertyElement> _propertyElementCache = new ();
+        public Dictionary<PAPath,ChildPort> ChildPorts;
+
+
+
         private bool _needsFullRefresh = false;
 
         public ViewNode(JsonNode data, TreeNodeGraphView view)
@@ -140,6 +144,18 @@ namespace TreeNode.Editor
                 _needsFullRefresh = true;
             }
         }
+
+        public void RefreshList(ViewChange viewChange)
+        {
+            if (_propertyElementCache.TryGetValue(viewChange.Path, out PropertyElement element) &&
+                element is ListElement listElement
+                )
+            {
+                listElement.ApplyViewChange(viewChange);
+            }
+        }
+
+
 
         /// <summary>
         /// 完整刷新属性
@@ -311,16 +327,24 @@ namespace TreeNode.Editor
                 _propertyElementCache[propertyElement.LocalPath] = propertyElement;
             }
         }
+        public ChildPort GetChildPort(PAPath path)
+        {
+            if (ChildPorts == null) return null;
+            if (ChildPorts.TryGetValue(path, out ChildPort childPort))
+            {
+                return childPort;
+            }
+            return null;
+        }
 
         public List<Edge> GetAllEdges()
         {
             List<Edge> edges = new();
             if (ChildPorts != null)
             {
-                for (int i = 0; i < ChildPorts.Count; i++)
+                foreach (var item in ChildPorts)
                 {
-                    ChildPort childPort = ChildPorts[i];
-                    edges.AddRange(childPort.connections);
+                    edges.AddRange(item.Value.connections);
                 }
             }
             
@@ -336,7 +360,7 @@ namespace TreeNode.Editor
         {
             if (parentType == null) { return; }
             
-            ParentPort = ParentPort.Create(parentType);
+            ParentPort = ParentPort.Create(this,parentType);
             ParentPort.OnChange = OnChange;
             titleContainer.Insert(1, ParentPort);
         }
@@ -366,7 +390,7 @@ namespace TreeNode.Editor
             {
                 foreach (var item in ChildPorts)
                 {
-                    foreach (var child in item.GetChildValues())
+                    foreach (var child in item.Value.GetChildValues())
                     {
                         if (View.NodeDic.TryGetValue(child, out ViewNode viewNode))
                         {
@@ -452,7 +476,7 @@ namespace TreeNode.Editor
             List<ViewNode> nodes = new();
             if (ChildPorts == null) return nodes;
             
-            List<ChildPort> childPorts = ChildPorts.Where(n => n.connected)
+            List<ChildPort> childPorts = ChildPorts.Values.Where(n => n.connected)
                                                    .OrderBy(n => n.worldBound.position.y)
                                                    .ToList();
             

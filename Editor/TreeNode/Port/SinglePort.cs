@@ -6,13 +6,13 @@ namespace TreeNode.Editor
 {
     public class SinglePort : ChildPort
     {
-        protected SinglePort(MemberMeta meta,Type type) : base(meta,Capacity.Single, type)
+        protected SinglePort(ViewNode node_,MemberMeta meta,Type type) : base(node_,meta, Capacity.Single, type)
         {
         }
-        public static SinglePort Create(MemberMeta meta)
+        public static SinglePort Create(ViewNode node_, MemberMeta meta)
         {
             Type type = meta.Type;
-            SinglePort port = new(meta,type)
+            SinglePort port = new(node_, meta, type)
             {
                 tooltip = type.Name,
                 portName = meta.LabelInfo.Hide?null: meta.LabelInfo.Text,

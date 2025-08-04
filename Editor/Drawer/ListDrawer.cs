@@ -8,6 +8,7 @@ using TreeNode.Utility;
 using Unity.Properties;
 using UnityEditor;
 using UnityEditor.Experimental.GraphView;
+using UnityEditorInternal;
 using UnityEngine;
 using UnityEngine.UIElements;
 
@@ -39,7 +40,8 @@ namespace TreeNode.Editor
             bool dirty = memberMeta.Json;
             object parent = node.Data.GetParent(path);
             action = memberMeta.OnChangeMethod.GetOnChangeAction(parent) + action;
-            
+
+            //Debug.Log($"ListDrawer memberMeta.Path:{memberMeta.Path}=>{path}");
             listElement.MakeItem = () => new ListItem(listElement, memberMeta, node, itemDrawer, path, dirty, action);
             listElement.BindItem = (element, index) => ((ListItem)element).InitValue(index);
             
@@ -120,16 +122,6 @@ namespace TreeNode.Editor
         private static void AddItemToList(ListElement listElement, object newItem)
         {
             listElement.ItemsSource.Add(newItem);
-        }
-
-        /// <summary>
-        /// 添加新项目到列表 - 保持向后兼容
-        /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void AddNewItem(ListElement listElement, Type gType)
-        {
-            var newItem = CreateNewItem(gType);
-            AddItemToList(listElement, newItem);
         }
     }
 
@@ -678,23 +670,8 @@ namespace TreeNode.Editor
         /// <param name="viewChange">视图变更信息</param>
         public void ApplyViewChange(ViewChange viewChange)
         {
-            if (viewChange.ChangeType != ViewChangeType.ListItem)
-            {
-                Debug.LogWarning($"ListElement.ApplyViewChange: 不支持的ViewChangeType: {viewChange.ChangeType}");
-                return;
-            }
-
-            if (viewChange.ExtraInfo == null || viewChange.ExtraInfo.Length < 2)
-            {
-                Debug.LogWarning("ListElement.ApplyViewChange: ExtraInfo格式无效，期望[fromIndex, toIndex]");
-                return;
-            }
-
             int fromIndex = viewChange.ExtraInfo[0];
             int toIndex = viewChange.ExtraInfo[1];
-            
-            Debug.Log($"ListElement.ApplyViewChange: {LocalPath}, fromIndex={fromIndex}, toIndex={toIndex}");
-
             // 重新同步数据源 - 确保与数据层一致
             SyncItemsSourceFromData();
 
@@ -916,7 +893,7 @@ namespace TreeNode.Editor
         public MemberMeta Meta { get; private set; }
         public BaseDrawer Drawer { get; private set; }
         public bool HasPort { get; private set; }
-        public List<ChildPort> ChildPorts { get; private set; }
+        public Dictionary<PAPath,ChildPort> ChildPorts { get; private set; }
         #endregion
 
         #region 事件和委托
@@ -930,6 +907,7 @@ namespace TreeNode.Editor
         /// </summary>
         public ListItem(ListElement parentList, MemberMeta meta, ViewNode node, BaseDrawer baseDrawer, string path, bool dirty, Action action)
         {
+
             // 保存父级引用
             _parentList = parentList;
             
@@ -953,7 +931,7 @@ namespace TreeNode.Editor
             ViewNode = node;
             Path = path;
             Drawer = baseDrawer;
-            ChildPorts = new List<ChildPort>();
+            ChildPorts = new ();
         }
 
         private void InitializeOnChange(bool dirty)
@@ -1135,6 +1113,7 @@ namespace TreeNode.Editor
         private void CreateContent(string propertyPath)
         {
             // 同步创建新内容
+            Meta.LabelInfo.Hide = true;
             _contentElement = Drawer.Create(Meta, ViewNode, propertyPath, Action);
             
             // 批量设置内容样式
@@ -1159,10 +1138,16 @@ namespace TreeNode.Editor
             
             // 直接遍历查询结果，避免ToList()
             var portQuery = this.Query<ChildPort>();
-            portQuery.ForEach(port => ChildPorts.Add(port));
+
+
+
+            portQuery.ForEach(port =>
+            {
+                ChildPorts.Add(port.LocalPath, port);
+            } );
             
             // 立即添加边连接
-            AddEdges();
+            AddPorts();
         }
         
         /// <summary>
@@ -1195,10 +1180,10 @@ namespace TreeNode.Editor
             
             foreach (var childPort in ChildPorts)
             {
-                if (childPort.connected)
+                if (childPort.Value.connected)
                 {
                     // 优化：避免ToList()，直接遍历
-                    var connections = childPort.connections;
+                    var connections = childPort.Value.connections;
                     var edgesToRemove = new List<Edge>(connections);
                     
                     foreach (var edge in edgesToRemove)
@@ -1206,14 +1191,14 @@ namespace TreeNode.Editor
                         edge.ParentPort().DisconnectAll();
                         ViewNode.View.RemoveElement(edge);
                     }
-                    childPort.DisconnectAll();
+                    childPort.Value.DisconnectAll();
                 }
-                ViewNode.ChildPorts.Remove(childPort);
+                ViewNode.ChildPorts.Remove(childPort.Key);
             }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void AddEdges()
+        private void AddPorts()
         {
             if (ChildPorts.Count == 0) return;
             
@@ -1221,7 +1206,7 @@ namespace TreeNode.Editor
             {
                 if (!ViewNode.ChildPorts.Contains(childPort))
                 {
-                    ViewNode.ChildPorts.Add(childPort);
+                    ViewNode.ChildPorts.Add(childPort.Value.LocalPath,childPort.Value);
                 }
             }
         }
@@ -1265,6 +1250,8 @@ namespace TreeNode.Editor
             if (edit)
             {
                 AddToClassList("editmode");
+                IndexLabel.style.display = DisplayStyle.None;
+                IndexField.style.display = DisplayStyle.Flex;
                 // 使用常量替代魔法数字
                 IndexField?.schedule.Execute(() =>
                 {
@@ -1274,6 +1261,8 @@ namespace TreeNode.Editor
             }
             else
             {
+                IndexLabel.style.display = DisplayStyle.Flex;
+                IndexField.style.display = DisplayStyle.None;
                 RemoveFromClassList("editmode");
             }
         }
@@ -1307,7 +1296,7 @@ namespace TreeNode.Editor
             var childValues = new List<JsonNode>();
             foreach (var port in ChildPorts)
             {
-                childValues.AddRange(port.GetChildValues());
+                childValues.AddRange(port.Value.GetChildValues());
             }
             ViewNode.View.Asset.Data.Nodes.AddRange(childValues);
             

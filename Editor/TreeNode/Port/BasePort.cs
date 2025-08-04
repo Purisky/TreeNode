@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Reflection;
 using TreeNode.Runtime;
@@ -13,10 +13,12 @@ namespace TreeNode.Editor
     {
 
         protected static StyleSheet StyleSheet = ResourcesUtil.LoadStyleSheet("NodePort");
-        public new ViewNode node => GetFirstAncestorOfType<ViewNode>();
+        
+        public new ViewNode node;
         public Action OnChange;
-        protected BasePort(Direction portDirection, Capacity portCapacity, Type type) : base(Orientation.Horizontal, portDirection, portCapacity, type)
+        protected BasePort(ViewNode node_,Direction portDirection, Capacity portCapacity, Type type) : base(Orientation.Horizontal, portDirection, portCapacity, type)
         {
+            node = node_;
             EdgeConnectorListener listener = new();
             m_EdgeConnector = new EdgeConnector<Edge>(listener);
             UnityEngine.UIElements.VisualElementExtensions.AddManipulator(this, m_EdgeConnector);

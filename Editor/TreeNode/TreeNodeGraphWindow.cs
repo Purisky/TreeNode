@@ -163,7 +163,7 @@ namespace TreeNode.Editor
                         List<ViewChange> changes;
                         if (evt.shiftKey)
                         {
-                             changes = History.Redo();
+                            changes = History.Redo();
                             dirty = changes.Any();
                         }
                         else
@@ -214,7 +214,10 @@ namespace TreeNode.Editor
             Repaint();
             hasUnsavedChanges = false;
         }
-
+        public void RemoveChangeMark()
+        {
+            hasUnsavedChanges = false;
+        }
         // Helper method to check if the associated file exists
         public bool FileExists()
         {

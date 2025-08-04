@@ -12,14 +12,14 @@ namespace TreeNode.Editor
 {
     public class NumPort : ChildPort, IPopupTextPort
     {
-        protected NumPort(MemberMeta meta, Type type) : base(meta, Capacity.Single, type)
+        protected NumPort(ViewNode node_, MemberMeta meta, Type type) : base(node_,meta, Capacity.Single, type)
         {
         }
         public NumValue NumValue;
         public Label Text;
         public FloatField FloatField;
-        public new ViewNode node;
-        public static NumPort Create(MemberMeta meta, ViewNode node)
+        public override PAPath LocalPath => base.LocalPath.AppendField(nameof(NumValue.Node));
+        public static NumPort Create(ViewNode node_, MemberMeta meta, ViewNode node)
         {
             Type type = typeof(NumNode);
             if (meta.Type != typeof(NumValue))
@@ -27,7 +27,7 @@ namespace TreeNode.Editor
                 Type gType = GetGenericType(meta.Type, typeof(NumValue<>));
                 type = gType.GetGenericArguments()[0];
             }
-            NumPort port = new(meta, type)
+            NumPort port = new(node_, meta, type)
             {
                 node = node
             };

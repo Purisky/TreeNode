@@ -199,7 +199,7 @@ namespace TreeNode.Editor
         private async Task CreateEdgesAsync(CancellationToken cancellationToken)
         {
             // 在主线程中收集所有需要创建边的元数据
-            var edgeMetadataList = new List<Runtime.JsonNodeTree.NodeMetadata>();
+            var edgeMetadataList = new List<JsonNodeTree.NodeMetadata>();
 
             await ExecuteOnMainThreadAsync(() =>
             {
@@ -214,7 +214,7 @@ namespace TreeNode.Editor
                 }
             });
 
-            Debug.Log($"收集到 {edgeMetadataList.Count} 个边连接需要创建");
+            //Debug.Log($"收集到 {edgeMetadataList.Count} 个边连接需要创建");
 
             // 批量创建边连接 - 使用并行Task但在主线程执行UI操作
             var edgeCreationTasks = new List<Task>();
@@ -227,12 +227,15 @@ namespace TreeNode.Editor
                 edgeCreationTasks.Add(task);
             }
 
+
+
+
             await Task.WhenAll(edgeCreationTasks);
             
             // 渲染后处理 - 检查并修复可能缺失的连接
             await PostRenderProcessAsync(cancellationToken);
             
-            Debug.Log("所有边连接创建完成");
+            //Debug.Log("所有边连接创建完成");
         }
 
         /// <summary>
@@ -329,34 +332,15 @@ namespace TreeNode.Editor
             
             return false;
         }
-
         /// <summary>
-        /// 为指定节点创建边连接
+        /// 创建具体的边连接
         /// </summary>
-        private async Task CreateEdgeForNodeAsync(Runtime.JsonNodeTree.NodeMetadata childMetadata, CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            // 在主线程执行UI操作
-            await ExecuteOnMainThreadAsync(() =>
-            {
-                if (NodeDic.TryGetValue(childMetadata.Node, out var childViewNode) &&
-                    NodeDic.TryGetValue(childMetadata.Parent.Node, out var parentViewNode))
-                {
-                    CreateEdgeConnection(parentViewNode, childViewNode, childMetadata);
-                }
-            });
-        }
-
-        /// <summary>
-        /// 创建具体的边连接 (优化错误处理和日志)
-        /// </summary>
-        private void CreateEdgeConnection(ViewNode parentViewNode, ViewNode childViewNode, Runtime.JsonNodeTree.NodeMetadata childMetadata)
+        private void CreateEdgeConnection(ViewNode parentViewNode, ViewNode childViewNode,JsonNodeTree.NodeMetadata childMetadata)
         {
             try
             {
                 // 查找对应的ChildPort
-                var childPort = FindChildPortByName(parentViewNode, childMetadata.PortName, childMetadata.IsMultiPort, childMetadata.ListIndex);
+                var childPort = parentViewNode.GetChildPort( childMetadata.LocalPath);
                 if (childPort != null && childViewNode.ParentPort != null)
                 {
                     var edge = childPort.ConnectTo(childViewNode.ParentPort);
@@ -370,50 +354,13 @@ namespace TreeNode.Editor
                 }
                 else
                 {
-                    Debug.LogWarning($"无法创建边连接: 端口查找失败 - 父节点={parentViewNode.Data.GetType().Name}, 端口名={childMetadata.PortName}, 子节点={childViewNode.Data.GetType().Name}");
+                    Debug.LogWarning($"无法创建边连接: 端口查找失败 - 父节点={parentViewNode.Data.GetType().Name}, 端口名={childMetadata.LocalPath}, 子节点={childViewNode.Data.GetType().Name}");
                 }
             }
             catch (Exception e)
             {
                 Debug.LogError($"创建边连接时发生异常: {e.Message}\n父节点={parentViewNode.Data.GetType().Name}, 子节点={childViewNode.Data.GetType().Name}");
             }
-        }
-
-        /// <summary>
-        /// 根据名称和索引查找ChildPort (优化查找逻辑)
-        /// </summary>
-        private ChildPort FindChildPortByName(ViewNode parentViewNode, string portName, bool isMultiPort, int listIndex)
-        {
-            try
-            {
-                foreach (var childPort in parentViewNode.ChildPorts)
-                {
-                    // 通过PropertyElement获取端口路径信息
-                    var propertyElement = childPort.GetFirstAncestorOfType<PropertyElement>();
-                    if (propertyElement != null)
-                    {
-                        var memberName = propertyElement.MemberMeta.Path.LastPart.Name;
-                        if (memberName == portName)
-                        {
-                            // 精确匹配端口类型
-                            if (isMultiPort && childPort is MultiPort)
-                            {
-                                return childPort;
-                            }
-                            else if (!isMultiPort && childPort is not MultiPort)
-                            {
-                                return childPort;
-                            }
-                        }
-                    }
-                }
-            }
-            catch (Exception e)
-            {
-                Debug.LogError($"查找ChildPort时发生异常: {e.Message}");
-            }
-            
-            return null;
         }
 
         public virtual void CreateEdge(Edge edge)
@@ -433,26 +380,18 @@ namespace TreeNode.Editor
 
         public virtual void RemoveEdge(Edge edge)
         {
-            try
-            {
-                ViewNode parent = edge.ChildPort()?.node;
-                ViewNode child = edge.ParentPort()?.node;
-                if (parent == null || child == null) { return; }
-                PAPath from = child.GetNodePath();
-                //Debug.Log($"RemoveEdge: {from}");
-                ChildPort childPortOfParent = edge.ChildPort();
-                childPortOfParent.SetNodeValue(child.Data);
-                Asset.Data.Nodes.Add(child.Data);
-                Window.History.Record(NodeOperation.Move(child.Data, from, PAPath.Index(Asset.Data.Nodes.Count-1), this));
-                edge.ParentPort().DisconnectAll();
-                childPortOfParent.OnRemoveEdge(edge);
-            }
-            catch (Exception e)
-            {
-                Debug.LogError(e);
-                throw e;
-            }
 
+            ViewNode parent = edge.ChildPort()?.node;
+            ViewNode child = edge.ParentPort()?.node;
+            if (parent == null || child == null) { return; }
+            PAPath from = child.GetNodePath();
+            //Debug.Log($"RemoveEdge: {from}");
+            ChildPort childPortOfParent = edge.ChildPort();
+            childPortOfParent.SetNodeValue(child.Data);
+            Asset.Data.Nodes.Add(child.Data);
+            Window.History.Record(NodeOperation.Move(child.Data, from, PAPath.Index(Asset.Data.Nodes.Count - 1), this));
+            edge.ParentPort().DisconnectAll();
+            childPortOfParent.OnRemoveEdge(edge);
         }
         #endregion
         #region 端口兼容性检查
@@ -475,7 +414,7 @@ namespace TreeNode.Editor
                 }
                 else
                 {
-                    allPorts.AddRange(node.ChildPorts);
+                    allPorts.AddRange(node.ChildPorts.Values);
                 }
             }
 
@@ -586,7 +525,7 @@ namespace TreeNode.Editor
         #region 图表视图管理
         private GraphViewChange OnGraphViewChanged(GraphViewChange graphViewChange)
         {
-            Debug.Log($"启动批量操作");
+            //Debug.Log($"启动批量操作");
             Window.History.BeginBatch();
             // 处理删除操作
             if (graphViewChange.elementsToRemove != null && graphViewChange.elementsToRemove.Count > 0)
@@ -604,14 +543,14 @@ namespace TreeNode.Editor
             {
                 ProcessNodeMoveOperations(graphViewChange.movedElements.OfType<ViewNode>().ToList(), graphViewChange.moveDelta);
             }
-            Debug.Log($"结束批量操作");
+            //Debug.Log($"结束批量操作");
             Window.History.EndBatch();
             return graphViewChange;
         }
         private void ProcessRemoveOperations(List<ViewNode> nodesToRemove, List<Edge> edgesToRemove, 
             GraphViewChange graphViewChange)
         {
-            Debug.Log($"开始处理删除操作 - 节点:{nodesToRemove.Count}个, 直接删除边:{edgesToRemove.Count}个");
+            //Debug.Log($"开始处理删除操作 - 节点:{nodesToRemove.Count}个, 直接删除边:{edgesToRemove.Count}个");
             
             // 1. 首先收集所有需要删除的边（包括节点关联的边)
             var allEdgesToRemove = new HashSet<Edge>(edgesToRemove);
@@ -629,7 +568,7 @@ namespace TreeNode.Editor
                 }
             }
             
-            Debug.Log($"收集到节点关联边:{nodeAssociatedEdges}个, 总删除边数:{allEdgesToRemove.Count}个");
+            //Debug.Log($"收集到节点关联边:{nodeAssociatedEdges}个, 总删除边数:{allEdgesToRemove.Count}个");
             
             // 2. 按照依赖关系顺序删除边
             var edgeList = allEdgesToRemove.ToList();
@@ -637,11 +576,11 @@ namespace TreeNode.Editor
             
             // 3. 删除节点（按深度倒序，避免引用问题)
             var sortedNodes = nodesToRemove.OrderByDescending(n => n.GetDepth()).ToList();
-            Debug.Log($"按深度排序删除节点，顺序: {string.Join(" -> ", sortedNodes.Select(n => $"{n.Data.GetType().Name}(深度{n.GetDepth()})"))}");
+            //Debug.Log($"按深度排序删除节点，顺序: {string.Join(" -> ", sortedNodes.Select(n => $"{n.Data.GetType().Name}(深度{n.GetDepth()})"))}");
             
             foreach (ViewNode viewNode in sortedNodes)
             {
-                Debug.Log($"删除节点: {viewNode.Data.GetType().Name}");
+                //Debug.Log($"删除节点: {viewNode.Data.GetType().Name}");
                 RemoveViewNode(viewNode);
             }
             
@@ -650,7 +589,7 @@ namespace TreeNode.Editor
             graphViewChange.elementsToRemove.AddRange(allEdgesToRemove);
             graphViewChange.elementsToRemove.AddRange(nodesToRemove);
             
-            Debug.Log($"删除操作完成 - 实际删除边:{allEdgesToRemove.Count}个, 节点:{nodesToRemove.Count}个");
+            //Debug.Log($"删除操作完成 - 实际删除边:{allEdgesToRemove.Count}个, 节点:{nodesToRemove.Count}个");
         }
         private void ProcessEdgeRemovalInOrder(List<Edge> edges)
         {
@@ -660,7 +599,7 @@ namespace TreeNode.Editor
                 .OrderByDescending(e => e.ParentPort().node.GetDepth())
                 .ToList();
             
-            Debug.Log($"按深度排序删除 {sortedEdges.Count} 条边");
+            //Debug.Log($"按深度排序删除 {sortedEdges.Count} 条边");
             
             foreach (Edge edge in sortedEdges)
             {
@@ -668,7 +607,7 @@ namespace TreeNode.Editor
                 {
                     var parentNode = edge.ChildPort()?.node?.Data?.GetType().Name ?? "Unknown";
                     var childNode = edge.ParentPort()?.node?.Data?.GetType().Name ?? "Unknown";
-                    Debug.Log($"删除边: {parentNode} -> {childNode}");
+                    //Debug.Log($"删除边: {parentNode} -> {childNode}");
                     RemoveEdge(edge);
                 }
                 catch (Exception e)

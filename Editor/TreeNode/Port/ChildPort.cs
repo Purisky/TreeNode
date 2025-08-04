@@ -11,7 +11,7 @@ namespace TreeNode.Editor
     {
         public MemberMeta Meta;
         public bool Require;
-        public ChildPort(MemberMeta meta, Capacity portCapacity, Type type) : base(Direction.Output, portCapacity, type)
+        public ChildPort(ViewNode node_, MemberMeta meta, Capacity portCapacity, Type type) : base(node_,Direction.Output, portCapacity, type)
         {
             Meta = meta;
             if (this is not NumPort)
@@ -68,5 +68,6 @@ namespace TreeNode.Editor
             return true;
         }
 
+        public virtual PAPath LocalPath=> Meta.Path;
     }
 }

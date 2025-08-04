@@ -103,7 +103,7 @@ namespace TreeNode.Editor
             if (viewNode.ChildPorts != null)
             {
                 // 按照worldBound.y排序ChildPort以确保正确的顺序
-                List<ChildPort> childPorts = viewNode.ChildPorts
+                List<ChildPort> childPorts = viewNode.ChildPorts.Values
                     .Where(port => port != null)
                     .OrderBy(port => port.worldBound.y)
                     .ToList();

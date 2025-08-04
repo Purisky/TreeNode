@@ -1,9 +1,10 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using TreeNode.Runtime;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine.UIElements;
+using static TreeEditor.TreeEditorHelper;
 
 namespace TreeNode.Editor
 {
@@ -12,10 +13,10 @@ namespace TreeNode.Editor
         public int Index;
         public int Depth;
         public bool Collection;
-        protected ParentPort(Type type) : base( Direction.Input, Capacity.Single, type)
+        protected ParentPort(ViewNode node_,Type type) : base(node_, Direction.Input, Capacity.Single, type)
         {
         }
-        public static ParentPort Create(Type type)
+        public static ParentPort Create(ViewNode node, Type type)
         {
             bool collection = false;
             if (type.Inherited(typeof(IList)))
@@ -24,7 +25,7 @@ namespace TreeNode.Editor
                 collection = true;
             }
 
-            ParentPort port = new(type)
+            ParentPort port = new(node,type)
             {
                 tooltip = type.Name,
                 portName = ""

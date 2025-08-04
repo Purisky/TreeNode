@@ -15,6 +15,7 @@ using UnityEditor.Experimental.GraphView;
 using UnityEngine;
 using UnityEngine.SocialPlatforms;
 using UnityEngine.UIElements;
+using static TreeNode.Runtime.JsonNodeTree;
 
 namespace TreeNode.Editor
 {
@@ -68,6 +69,7 @@ namespace TreeNode.Editor
             canPasteSerializedData = CanPaste;
             serializeGraphElements = Copy;
             unserializeAndPaste = Paste;
+            window.RemoveChangeMark();
         }
 
         /// <summary>
@@ -275,7 +277,7 @@ namespace TreeNode.Editor
                 var cancellationToken = _renderCancellationSource.Token;
 
                 var startTime = DateTime.Now;
-                Debug.Log($"开始异步渲染 {_nodeTree.TotalNodeCount} 个节点");
+                //Debug.Log($"开始异步渲染 {_nodeTree.TotalNodeCount} 个节点");
 
                 // 第一步：并行创建所有ViewNode（主线程执行UI创建）
                 await CreateViewNodesAsync(cancellationToken);
@@ -287,7 +289,7 @@ namespace TreeNode.Editor
                 await CreateEdgesAsync(cancellationToken);
 
                 var elapsed = (DateTime.Now - startTime).TotalMilliseconds;
-                Debug.Log($"异步渲染完成，耗时: {elapsed:F2}ms");
+                Debug.Log($"渲染完成，耗时: {elapsed:F2}ms");
             }
             catch (OperationCanceledException)
             {
@@ -344,16 +346,19 @@ namespace TreeNode.Editor
 
         public virtual void ApplyChanges(List<ViewChange> changes)
         {
+            //Debug.Log($"应用 {changes.Count} 个变化");
             if (changes == null || changes.Count == 0) { return; }
+            ViewNode viewNode;
             for (int i = 0; i < changes.Count; i++)
             {
+                //Debug.Log(changes[i].ChangeType);
                 switch (changes[i].ChangeType)
                 {
                     case ViewChangeType.NodeCreate:
                         CreateViewNodeSafe(changes[i].Node);
                         break;
                     case ViewChangeType.NodeDelete:
-                        if (NodeDic.TryGetValue(changes[i].Node, out var viewNode))
+                        if (NodeDic.TryGetValue(changes[i].Node, out viewNode))
                         {
                             RemoveElement(viewNode);
                             ViewNodes.Remove(viewNode);
@@ -361,14 +366,38 @@ namespace TreeNode.Editor
                         }
                         break;
                     case ViewChangeType.NodeField:
-                        if (NodeDic.TryGetValue(changes[i].Node, out var fieldNode))
+                        if (NodeDic.TryGetValue(changes[i].Node, out viewNode))
                         {
-                            fieldNode.RefreshPropertyElements(changes[i].Path);
+                            viewNode.RefreshPropertyElements(changes[i].Path);
                         }
                         break;
                     case ViewChangeType.EdgeCreate:
+                        NodeMetadata metadata =  NodeTree.GetNodeMetadata(changes[i].Node);
+                        if (NodeDic.TryGetValue(changes[i].Node, out viewNode) && NodeDic.TryGetValue(metadata.Parent.Node, out ViewNode parentNode))
+                        {
+                            ChildPort childPort = parentNode.GetChildPort(metadata.LocalPath);
+                            Edge edge = childPort.ConnectTo(viewNode.ParentPort);
+                            childPort.OnAddEdge(edge);
+                            AddElement(edge);
+                        }
                         break;
                     case ViewChangeType.EdgeDelete:
+                        if (NodeDic.TryGetValue(changes[i].Node, out viewNode))
+                        {
+                            if (viewNode.ParentPort.connected)
+                            {
+                                Edge edge = viewNode.ParentPort.connections.First();
+                                viewNode.ParentPort.DisconnectAll();
+                                edge.ChildPort().OnRemoveEdge(edge);
+                                RemoveElement(edge);
+                            }
+                        }
+                        break;
+                    case ViewChangeType.ListItem:
+                        if (NodeDic.TryGetValue(changes[i].Node, out viewNode))
+                        {
+                            viewNode.RefreshList(changes[i]);
+                        }
                         break;
                 }
             }
@@ -456,11 +485,13 @@ namespace TreeNode.Editor
             NodeDic.Clear();
             ViewContainer.Query<Layer>().ForEach(p => p.Clear());
 
+
             // 重新初始化逻辑层
             InitializeNodeTreeSync();
 
             // 启动异步重新渲染
             _ = DrawNodesAsync();
+            Window.RemoveChangeMark();
         }
 
         /// <summary>

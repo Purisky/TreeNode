@@ -11,6 +11,13 @@ ListItem
     border-bottom-color: rgba(127, 127, 127, 0.2);
     background-color: transparent;
 }
+ListItem.editmode
+{
+        
+
+}
+
+
 
 /* ListView兼容性样式 */
 ListItem.unity-list-view__item
@@ -28,16 +35,6 @@ ListItem.unity-list-view__item--alternative-background
     background-color: rgba(127, 127, 127, 0.05);
 }
 
-/* 编辑模式样式优化 */
-.editmode #listitemindexlabel 
-{
-    display: none;
-}
-
-.editmode #listitemindexfield 
-{
-    display: flex;
-}
 
 /* 索引区域样式优化 */
 #listitemindex 
@@ -73,7 +70,16 @@ ListItem.unity-list-view__item--alternative-background
     background-color: rgba(127, 127, 127, 0.2);
     border-radius: 2px;
 }
+/* 编辑模式样式优化 */
+.editmode #listitemindexlabel 
+{
+    display: none;
+}
 
+.editmode #listitemindexfield 
+{
+    display: flex;
+}
 /* 鼠标悬停效果 */
 ListItem:hover
 {

@@ -25,20 +25,6 @@ namespace TreeNode.Editor
         public TreeNodeGraphView GraphView;
         public List<JsonNode> Nodes => GraphView.Asset.Data.Nodes;
 
-        public string Description
-        {
-            get
-            {
-                return Type switch
-                {
-                    OperationType.Create => $"在{From}创建节点: {Node?.GetType().Name}",
-                    OperationType.Delete => $"在{To}删除节点: {Node?.GetType().Name}",
-                    OperationType.Move => $"移动节点: {From}->{To}",
-                    _ => "未知操作"
-                };
-            }
-        }
-        public string GetOperationSummary() { return Description; }
 
 
 
@@ -128,17 +114,31 @@ namespace TreeNode.Editor
             {
                 case OperationType.Create:
                     Remove(To.Value);
-
-
-
-
+                    if (!To.Value.Root)
+                    {
+                        changes.Add(new(ViewChangeType.EdgeDelete, Node, To.Value));
+                    }
+                    changes.Add(new(ViewChangeType.NodeDelete, Node, To.Value));
                     break;
                 case OperationType.Delete:
                     Insert(From.Value);
+                    changes.Add(new(ViewChangeType.NodeCreate, Node, From.Value));
+                    if (!From.Value.Root)
+                    {
+                        changes.Add(new(ViewChangeType.EdgeCreate, Node, From.Value));
+                    }
                     break;
                 case OperationType.Move:
                     Remove(To.Value);
                     Insert(From.Value);
+                    if (!To.Value.Root)
+                    {
+                        changes.Add(new(ViewChangeType.EdgeDelete, Node, To.Value));
+                    }
+                    if (!From.Value.Root)
+                    {
+                        changes.Add(new(ViewChangeType.EdgeCreate, Node, From.Value));
+                    }
                     break;
             }
             return changes;
@@ -167,5 +167,17 @@ namespace TreeNode.Editor
                 PropertyAccessor.SetValueNull(Nodes, path);
             }
         }
+
+        public override string ToString()
+        {
+            return Type switch
+            {
+                OperationType.Create => $"在{From}创建节点: {Node?.GetType().Name}",
+                OperationType.Delete => $"在{To}删除节点: {Node?.GetType().Name}",
+                OperationType.Move => $"移动节点: {From}->{To}",
+                _ => "未知操作"
+            };
+        }
+
     }
 }

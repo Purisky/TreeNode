@@ -23,13 +23,13 @@ namespace TreeNode.Runtime
         public class NodeMetadata
         {
             public JsonNode Node { get; set; }
-            public string Path { get; set; }
+            public PAPath Path { get; set; }
+            public PAPath LocalPath { get; set; }
             public int Depth { get; set; }
             public NodeMetadata Parent { get; set; }
             public List<NodeMetadata> Children { get; set; } = new();
             public int RootIndex { get; set; } = -1;
             public int ListIndex { get; set; } = 0;
-            public string PortName { get; set; }
             public bool IsMultiPort { get; set; }
             public int RenderOrder { get; set; } = 0; // UI渲染顺序
             
@@ -422,7 +422,7 @@ namespace TreeNode.Runtime
                 if (_nodeMetadataMap.TryGetValue(childNode, out var childMetadata))
                 {
                     childMetadata.Parent = parentMetadata;
-                    childMetadata.PortName = renderInfo.Member.Name;
+                    childMetadata.LocalPath = renderInfo.Member.Name;
                     childMetadata.IsMultiPort = false;
                     childMetadata.RenderOrder = renderInfo.RenderOrder;
                     parentMetadata.Children.Add(childMetadata);
@@ -453,7 +453,7 @@ namespace TreeNode.Runtime
                 if (item is JsonNode childJsonNode && _nodeMetadataMap.TryGetValue(childJsonNode, out var childMetadata))
                 {
                     childMetadata.Parent = parentMetadata;
-                    childMetadata.PortName = renderInfo.Member.Name;
+                    childMetadata.LocalPath = renderInfo.Member.Name;
                     childMetadata.IsMultiPort = true;
                     childMetadata.ListIndex = index;
                     childMetadata.RenderOrder = renderInfo.RenderOrder;
@@ -484,7 +484,7 @@ namespace TreeNode.Runtime
                     if (nestedNode != null && _nodeMetadataMap.TryGetValue(nestedNode, out var childMetadata))
                     {
                         childMetadata.Parent = parentMetadata;
-                        childMetadata.PortName = $"{renderInfo.Member.Name}[{itemIndex}].{nestedPath.Path}";
+                        childMetadata.LocalPath = $"{renderInfo.Member.Name}[{itemIndex}].{nestedPath.Path}";
                         childMetadata.IsMultiPort = true;
                         childMetadata.ListIndex = itemIndex;
                         childMetadata.RenderOrder = renderInfo.RenderOrder + nestedPath.Depth;
@@ -511,7 +511,7 @@ namespace TreeNode.Runtime
                     if (nestedNode != null && _nodeMetadataMap.TryGetValue(nestedNode, out var childMetadata))
                     {
                         childMetadata.Parent = parentMetadata;
-                        childMetadata.PortName = nestedPath.Path;
+                        childMetadata.LocalPath = nestedPath.Path;
                         childMetadata.IsMultiPort = false;
                         childMetadata.RenderOrder = 500 + nestedPath.Depth; // 嵌套节点优先级较低
                         parentMetadata.Children.Add(childMetadata);
@@ -560,11 +560,11 @@ namespace TreeNode.Runtime
         {
             if (child.IsMultiPort)
             {
-                return $"{parentPath}.{child.PortName}";
+                return $"{parentPath}.{child.LocalPath}";
             }
             else
             {
-                return $"{parentPath}.{child.PortName}";
+                return $"{parentPath}.{child.LocalPath}";
             }
         }
 
