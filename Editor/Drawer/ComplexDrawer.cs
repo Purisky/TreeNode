@@ -20,7 +20,8 @@ namespace TreeNode.Editor
         MemberInfo TitlePortMember;
         public ComplexDrawer()
         {
-            List<MemberInfo> members = DrawType.GetAll<ShowInNodeAttribute>();
+            // 使用反射缓存替代直接调用DrawType.GetAll<ShowInNodeAttribute>()
+            List<MemberInfo> members = ReflectionCache.GetCachedMembers<ShowInNodeAttribute>(DrawType).ToList();
             bool rootDrawer = DrawType.Inherited(typeof(JsonNode));
 
             Groups = new();
@@ -29,13 +30,17 @@ namespace TreeNode.Editor
                 MemberInfo member = members[i];
                 if (rootDrawer && TitlePortMember == null)
                 {
-                    if (member.GetCustomAttribute<TitlePortAttribute>() != null&& member.GetCustomAttribute<ChildAttribute>() != null&& member.GetValueType()!= typeof(NumValue))
+                    // 使用缓存的属性获取
+                    if (ReflectionCache.GetCachedAttribute<TitlePortAttribute>(member) != null && 
+                        ReflectionCache.GetCachedAttribute<ChildAttribute>(member) != null && 
+                        member.GetValueType() != typeof(NumValue))
                     {
                         TitlePortMember = member;
                         continue;
                     }
                 }
-                GroupAttribute groupAttribute = member.GetCustomAttribute<GroupAttribute>();
+                // 使用缓存的属性获取
+                GroupAttribute groupAttribute = ReflectionCache.GetCachedAttribute<GroupAttribute>(member);
                 string groupName = member.Name;
                 if (groupAttribute != null && groupAttribute.Name != null)
                 {
@@ -160,7 +165,8 @@ namespace TreeNode.Editor
             }
             public bool Add(MemberInfo memberInfo)
             {
-                ShowInNodeAttribute showInNodeAttribute = memberInfo.GetCustomAttribute<ShowInNodeAttribute>();
+                // 使用缓存的属性获取
+                ShowInNodeAttribute showInNodeAttribute = ReflectionCache.GetCachedAttribute<ShowInNodeAttribute>(memberInfo);
                 MinOrder = Math.Min(MinOrder, showInNodeAttribute.Order);
                 if (showInNodeAttribute is ChildAttribute || memberInfo.GetValueType() == typeof(NumValue) || memberInfo.GetValueType().Inherited(typeof(NumValue)))
                 {
@@ -305,7 +311,7 @@ namespace TreeNode.Editor
     { 
         public static bool IsComplex(this Type type)
         {
-            return type.GetAll<ShowInNodeAttribute>().Any();
+            return ReflectionCache.GetCachedMembers<ShowInNodeAttribute>(type).Any();
         }
     }
 }
