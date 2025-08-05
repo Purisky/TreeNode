@@ -298,7 +298,7 @@ namespace TreeNode.Editor
 
     /// <summary>
     /// ListElement - 继承自PropertyElement的高性能列表组件
-    /// 优化版本：添加异步批量创建支持
+    /// 优化版本：添加增量更新支持
     /// </summary>
     public class ListElement : PropertyElement
     {
@@ -347,6 +347,9 @@ namespace TreeNode.Editor
         public Button AddButton { get; private set; }
         public VisualElement ItemContainer { get; private set; }
         #endregion
+        
+        private IList _lastKnownItems; // 缓存上次的数据状态
+        private readonly Dictionary<int, VisualElement> _visualElementCache = new(); // 视觉元素缓存
         
         public ListElement(MemberMeta memberMeta, ViewNode node, PAPath path, BaseDrawer drawer, bool hasPort)
             : base(memberMeta, node, path, drawer, null)
@@ -563,7 +566,6 @@ namespace TreeNode.Editor
         }
         #endregion
         
-        #region 核心刷新方法 - 高性能版本（移除锁）
         /// <summary>
         /// 同步重建所有项目 - 高性能版本，移除锁机制，优化DOM操作
         /// </summary>
@@ -584,21 +586,29 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 核心刷新逻辑 - 分离职责，提升可读性
+        /// 核心刷新逻辑 - 增强版本，支持增量更新
         /// </summary>
         private void RefreshItemsCore()
         {
-            // 步骤1：快速清理现有项目
+            // 如果有缓存的数据，尝试增量更新
+            if (_lastKnownItems != null && ItemsSource != null)
+            {
+                UpdateItems(ItemsSource);
+                return;
+            }
+
+            // 传统的完全刷新
             ClearExistingItems();
             
-            // 步骤2：批量创建新项目
             if (ItemsSource?.Count > 0)
             {
                 CreateNewItems();
             }
             
-            // 步骤3：更新UI状态
             UpdateUIState();
+            
+            // 更新缓存
+            _lastKnownItems = CreateSnapshot(ItemsSource);
         }
         
         /// <summary>
@@ -623,6 +633,7 @@ namespace TreeNode.Editor
             
             // 一次性清空容器
             ItemContainer.Clear();
+            _visualElementCache.Clear();
         }
         
         /// <summary>
@@ -647,6 +658,8 @@ namespace TreeNode.Editor
                     
                     // 立即处理端口连接，无延迟
                     ProcessItemPorts(listItem);
+                    
+                    _visualElementCache[i] = listItem;
                 }
             }
             
@@ -666,6 +679,231 @@ namespace TreeNode.Editor
             if (ShowAlternatingRowBackgrounds)
             {
                 schedule.Execute(UpdateAlternatingBackgrounds).ExecuteLater(ListConstants.UI_UPDATE_DELAY_MS);
+            }
+        }
+        
+        #region 增量更新支持
+        /// <summary>
+        /// 智能更新列表项 - 使用增量算法避免完全重建
+        /// </summary>
+        public void UpdateItems(IList newItems)
+        {
+            if (newItems == null)
+            {
+                ClearExistingItems();
+                UpdateUIState();
+                return;
+            }
+
+            // 计算差异
+            var diff = ListDiffCalculator.CalculateDifference(_lastKnownItems, newItems);
+            
+            if (diff.RequiresFullRefresh)
+            {
+                // 变化太大，执行完全刷新
+                RefreshItemsWithNewData(newItems);
+            }
+            else
+            {
+                // 执行增量更新
+                ApplyIncrementalChanges(diff.Changes, newItems);
+            }
+
+            // 更新缓存
+            _lastKnownItems = CreateSnapshot(newItems);
+        }
+
+        /// <summary>
+        /// 应用增量变更
+        /// </summary>
+        private void ApplyIncrementalChanges(List<ItemChange> changes, IList newItems)
+        {
+            if (changes.Count == 0) return;
+
+            _isRefreshing = true;
+            try
+            {
+                // 批量处理变更，减少DOM操作
+                var insertions = new List<ItemChange>();
+                var updates = new List<ItemChange>();
+                var deletions = new List<ItemChange>();
+
+                // 按类型分组
+                foreach (var change in changes)
+                {
+                    switch (change.Type)
+                    {
+                        case ChangeType.Insert:
+                            insertions.Add(change);
+                            break;
+                        case ChangeType.Update:
+                            updates.Add(change);
+                            break;
+                        case ChangeType.Remove:
+                            deletions.Add(change);
+                            break;
+                        case ChangeType.Move:
+                            ApplyMoveChange(change);
+                            break;
+                    }
+                }
+
+                // 按顺序执行：删除 -> 更新 -> 插入
+                ApplyDeletions(deletions);
+                ApplyUpdates(updates, newItems);
+                ApplyInsertions(insertions, newItems);
+
+                UpdateUIState();
+            }
+            finally
+            {
+                _isRefreshing = false;
+            }
+        }
+
+        /// <summary>
+        /// 应用删除操作
+        /// </summary>
+        private void ApplyDeletions(List<ItemChange> deletions)
+        {
+            // 从后往前删除避免索引问题
+            deletions.Sort((a, b) => b.Index.CompareTo(a.Index));
+            
+            foreach (var deletion in deletions)
+            {
+                if (deletion.Index < ItemContainer.childCount)
+                {
+                    var item = ItemContainer.ElementAt(deletion.Index);
+                    if (item is ListItem listItem)
+                    {
+                        listItem.Cleanup();
+                        UIElementPool.Return(listItem);
+                    }
+                    ItemContainer.RemoveAt(deletion.Index);
+                    _visualElementCache.Remove(deletion.Index);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 应用更新操作
+        /// </summary>
+        private void ApplyUpdates(List<ItemChange> updates, IList newItems)
+        {
+            foreach (var update in updates)
+            {
+                if (update.Index < ItemContainer.childCount)
+                {
+                    var existingItem = ItemContainer.ElementAt(update.Index);
+                    if (existingItem is ListItem listItem)
+                    {
+                        // 重新绑定数据
+                        BindItem?.Invoke(listItem, update.Index);
+                        
+                        // 处理端口连接
+                        if (HasPort)
+                        {
+                            listItem.ProcessChildPorts();
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 应用插入操作
+        /// </summary>
+        private void ApplyInsertions(List<ItemChange> insertions, IList newItems)
+        {
+            // 按索引排序确保正确插入
+            insertions.Sort((a, b) => a.Index.CompareTo(b.Index));
+            
+            foreach (var insertion in insertions)
+            {
+                var newItem = MakeItem?.Invoke();
+                if (newItem != null)
+                {
+                    BindItem?.Invoke(newItem, insertion.Index);
+                    
+                    if (insertion.Index < ItemContainer.childCount)
+                    {
+                        ItemContainer.Insert(insertion.Index, newItem);
+                    }
+                    else
+                    {
+                        ItemContainer.Add(newItem);
+                    }
+                    
+                    // 处理端口连接
+                    ProcessItemPorts(newItem);
+                    
+                    _visualElementCache[insertion.Index] = newItem;
+                }
+            }
+            
+            // 更新后续项目索引
+            if (insertions.Count > 0)
+            {
+                var minIndex = insertions.Min(i => i.Index);
+                UpdateIndicesFrom(minIndex);
+            }
+        }
+
+        /// <summary>
+        /// 应用移动操作
+        /// </summary>
+        private void ApplyMoveChange(ItemChange change)
+        {
+            if (change.Index < ItemContainer.childCount && 
+                change.NewIndex < ItemContainer.childCount)
+            {
+                var item = ItemContainer.ElementAt(change.Index);
+                ItemContainer.RemoveAt(change.Index);
+                ItemContainer.Insert(change.NewIndex, item);
+                
+                // 更新索引范围
+                UpdateIndicesInRange(change.Index, change.NewIndex);
+            }
+        }
+
+        /// <summary>
+        /// 创建数据快照用于差异比较
+        /// </summary>
+        private IList CreateSnapshot(IList source)
+        {
+            if (source == null) return null;
+            
+            var snapshot = new List<object>(source.Count);
+            foreach (var item in source)
+            {
+                snapshot.Add(item);
+            }
+            return snapshot;
+        }
+
+        /// <summary>
+        /// 使用新数据执行完全刷新
+        /// </summary>
+        private void RefreshItemsWithNewData(IList newItems)
+        {
+            ItemsSource = newItems;
+            RefreshItemsCore();
+        }
+
+        /// <summary>
+        /// 批量索引更新优化
+        /// </summary>
+        private void BatchUpdateIndices(int startIndex, int endIndex)
+        {
+            var childCount = ItemContainer.childCount;
+            endIndex = Math.Min(endIndex, childCount - 1);
+            
+            for (int i = startIndex; i <= endIndex; i++)
+            {
+                if (ItemContainer.ElementAt(i) is ListItem listItem)
+                {
+                    listItem.UpdateIndex(i);
+                }
             }
         }
         #endregion
@@ -1580,5 +1818,121 @@ namespace TreeNode.Editor
             menu.AddSeparator("");
         }
         #endregion
+    }
+
+    /// <summary>
+    /// 增量更新操作类型
+    /// </summary>
+    public enum ChangeType
+    {
+        Insert,
+        Remove,
+        Update,
+        Move
+    }
+
+    /// <summary>
+    /// 单个变更描述
+    /// </summary>
+    public struct ItemChange
+    {
+        public ChangeType Type;
+        public int Index;
+        public int NewIndex; // 用于Move操作
+        public object Item;
+
+        public ItemChange(ChangeType type, int index, object item, int newIndex = -1)
+        {
+            Type = type;
+            Index = index;
+            Item = item;
+            NewIndex = newIndex;
+        }
+    }
+
+    /// <summary>
+    /// 差异计算结果
+    /// </summary>
+    public struct DiffResult
+    {
+        public List<ItemChange> Changes;
+        public bool RequiresFullRefresh;
+
+        public DiffResult(List<ItemChange> changes, bool requiresFullRefresh = false)
+        {
+            Changes = changes ?? new List<ItemChange>();
+            RequiresFullRefresh = requiresFullRefresh;
+        }
+    }
+
+    /// <summary>
+    /// 高性能列表差异计算器
+    /// </summary>
+    public static class ListDiffCalculator
+    {
+        /// <summary>
+        /// 计算两个列表之间的差异 - 基于最长公共子序列算法的优化版本
+        /// </summary>
+        public static DiffResult CalculateDifference(IList oldItems, IList newItems, float maxChangeRatio = 0.7f)
+        {
+            if (oldItems == null || newItems == null)
+            {
+                return new DiffResult(new List<ItemChange>(), true);
+            }
+
+            int oldCount = oldItems.Count;
+            int newCount = newItems.Count;
+
+            // 如果变化太大，直接返回完全刷新
+            if (oldCount == 0 || newCount == 0 || 
+                Math.Abs(newCount - oldCount) / (float)Math.Max(oldCount, newCount) > maxChangeRatio)
+            {
+                return new DiffResult(new List<ItemChange>(), true);
+            }
+
+            var changes = new List<ItemChange>();
+
+            // 简化版差异算法：逐个比较并记录变化
+            int minCount = Math.Min(oldCount, newCount);
+            
+            // 1. 检查现有项目的变化
+            for (int i = 0; i < minCount; i++)
+            {
+                if (!AreEqual(oldItems[i], newItems[i]))
+                {
+                    changes.Add(new ItemChange(ChangeType.Update, i, newItems[i]));
+                }
+            }
+
+            // 2. 处理新增项目
+            if (newCount > oldCount)
+            {
+                for (int i = oldCount; i < newCount; i++)
+                {
+                    changes.Add(new ItemChange(ChangeType.Insert, i, newItems[i]));
+                }
+            }
+            // 3. 处理删除项目
+            else if (newCount < oldCount)
+            {
+                for (int i = newCount; i < oldCount; i++)
+                {
+                    changes.Add(new ItemChange(ChangeType.Remove, i, oldItems[i]));
+                }
+            }
+
+            return new DiffResult(changes);
+        }
+
+        /// <summary>
+        /// 快速相等性比较 - 使用new关键字避免隐藏警告
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static bool AreEqual(object a, object b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a == null || b == null) return false;
+            return a.Equals(b);
+        }
     }
 }
