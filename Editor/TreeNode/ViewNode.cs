@@ -26,11 +26,18 @@ namespace TreeNode.Editor
         public JsonNode Data;
 
         private Dictionary<PAPath, PropertyElement> _propertyElementCache = new ();
+        
+        // 新增：多层缓存架构
+        private Dictionary<PAPath, PropertyElement> _localPathCache = new();
+        private HashSet<PAPath> _invalidatedPaths = new();
+        
         public Dictionary<PAPath,ChildPort> ChildPorts;
 
-
-
         private bool _needsFullRefresh = false;
+        
+        // 新增：缓存统计信息（调试用）
+        private int _cacheHits = 0;
+        private int _cacheMisses = 0;
 
         public ViewNode(JsonNode data, TreeNodeGraphView view)
         {
@@ -164,7 +171,9 @@ namespace TreeNode.Editor
         {
             // 清除旧的属性元素
             Content.Clear();
-            _propertyElementCache.Clear();
+            
+            // 使用新的缓存失效机制
+            InvalidateAllCaches();
             
             // 重新绘制所有属性
             DrawPropertiesAndPorts();
@@ -325,8 +334,144 @@ namespace TreeNode.Editor
             if (propertyElement?.LocalPath != null)
             {
                 _propertyElementCache[propertyElement.LocalPath] = propertyElement;
+                // 同时缓存到本地路径缓存
+                _localPathCache[propertyElement.LocalPath] = propertyElement;
             }
         }
+
+        /// <summary>
+        /// 智能缓存失效机制 - 按路径失效
+        /// </summary>
+        public void InvalidatePathCache(PAPath path)
+        {
+            if (path == null || !path.Valid) return;
+            
+            // 标记路径为失效
+            _invalidatedPaths.Add(path);
+            
+            // 从所有缓存中移除
+            _propertyElementCache.Remove(path);
+            _localPathCache.Remove(path);
+            
+            // 如果是父路径，失效所有子路径
+            InvalidateChildPaths(path);
+            
+            Debug.Log($"ViewNode: 失效缓存路径 {path}");
+        }
+
+        /// <summary>
+        /// 失效所有子路径 - 级联失效机制
+        /// </summary>
+        private void InvalidateChildPaths(PAPath parentPath)
+        {
+            var childPathsToInvalidate = new List<PAPath>();
+            
+            // 查找所有以parentPath开头的子路径
+            foreach (var path in _propertyElementCache.Keys)
+            {
+                if (path.StartsWith(parentPath))
+                {
+                    childPathsToInvalidate.Add(path);
+                }
+            }
+            
+            foreach (var childPath in childPathsToInvalidate)
+            {
+                _propertyElementCache.Remove(childPath);
+                _localPathCache.Remove(childPath);
+                _invalidatedPaths.Add(childPath);
+            }
+            
+            if (childPathsToInvalidate.Count > 0)
+            {
+                Debug.Log($"ViewNode: 级联失效了 {childPathsToInvalidate.Count} 个子路径");
+            }
+        }
+
+        /// <summary>
+        /// 清空所有缓存 - 全量失效
+        /// </summary>
+        public void InvalidateAllCaches()
+        {
+            var cacheCount = _propertyElementCache.Count + _localPathCache.Count;
+            
+            _propertyElementCache.Clear();
+            _localPathCache.Clear();
+            _invalidatedPaths.Clear();
+            
+            // 重置统计信息
+            _cacheHits = 0;
+            _cacheMisses = 0;
+            
+            Debug.Log($"ViewNode: 清空所有缓存，共清理 {cacheCount} 个条目");
+        }
+
+        /// <summary>
+        /// 高性能的本地路径查找 - 多层缓存优化
+        /// </summary>
+        public PropertyElement FindByLocalPath(PAPath localPath)
+        {
+            if (localPath == null || !localPath.Valid)
+            {
+                _cacheMisses++;
+                return null;
+            }
+            
+            // 第一层：检查路径是否已失效
+            if (_invalidatedPaths.Contains(localPath))
+            {
+                _cacheMisses++;
+                return null;
+            }
+            
+            // 第二层：本地路径缓存（最快）
+            if (_localPathCache.TryGetValue(localPath, out var localCachedElement) && 
+                localCachedElement?.parent != null)
+            {
+                _cacheHits++;
+                return localCachedElement;
+            }
+            
+            // 第三层：主属性缓存
+            if (_propertyElementCache.TryGetValue(localPath, out var cachedElement) && 
+                cachedElement?.parent != null)
+            {
+                // 提升到本地缓存
+                _localPathCache[localPath] = cachedElement;
+                _cacheHits++;
+                return cachedElement;
+            }
+            
+            // 第四层：DOM查找（最慢，但更新缓存）
+            var element = this.Q<PropertyElement>(localPath);
+            if (element != null)
+            {
+                // 更新所有缓存层
+                _propertyElementCache[localPath] = element;
+                _localPathCache[localPath] = element;
+                // 从失效列表中移除（如果存在）
+                _invalidatedPaths.Remove(localPath);
+            }
+            
+            _cacheMisses++;
+            return element;
+        }
+
+        /// <summary>
+        /// 获取缓存统计信息（调试用）
+        /// </summary>
+        public void LogCacheStats()
+        {
+            int totalRequests = _cacheHits + _cacheMisses;
+            float hitRate = totalRequests > 0 ? (float)_cacheHits / totalRequests * 100 : 0;
+            
+            Debug.Log($"ViewNode缓存统计: " +
+                     $"命中率={hitRate:F1}% ({_cacheHits}/{totalRequests}), " +
+                     $"主缓存={_propertyElementCache.Count}项, " +
+                     $"本地缓存={_localPathCache.Count}项, " +
+                     $"失效路径={_invalidatedPaths.Count}个");
+        }
+        
         public ChildPort GetChildPort(PAPath path)
         {
             if (ChildPorts == null) return null;
@@ -559,23 +704,16 @@ namespace TreeNode.Editor
             }
         }
         
+        /// <summary>
+        /// 字符串重载版本 - 兼容现有代码
+        /// </summary>
         public PropertyElement FindByLocalPath(string path)
         {
-            // 优先从缓存中查找
-            if (_propertyElementCache.TryGetValue(path, out var cachedElement) && 
-                cachedElement?.parent != null)
-            {
-                return cachedElement;
-            }
-
-            // 从DOM中查找并更新缓存
-            var element = this.Q<PropertyElement>(path);
-            if (element != null)
-            {
-                _propertyElementCache[path] = element;
-            }
-
-            return element;
+            if (string.IsNullOrEmpty(path)) return null;
+            
+            // 转换为PAPath并使用优化的查找方法
+            PAPath paPath = new PAPath(path);
+            return FindByLocalPath(paPath);
         }
 
         public bool Validate(out string msg)
@@ -594,6 +732,7 @@ namespace TreeNode.Editor
             }
             return success;
         }
+        
         public void PopupText()
         {
             JsonNode jsonNode = Data;
@@ -608,9 +747,19 @@ namespace TreeNode.Editor
                 parent.PopupText();
             }
         }
+        
         public void Dispose()
         {
-            _propertyElementCache?.Clear();
+            // 清理所有缓存
+            InvalidateAllCaches();
+            
+            // 清理端口字典
+            ClearChildPorts();
+            
+            // 如果需要调试缓存性能，可以在这里输出统计信息
+            #if UNITY_EDITOR && DEBUG
+            LogCacheStats();
+            #endif
         }
     }
 }

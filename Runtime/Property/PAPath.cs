@@ -527,6 +527,123 @@ namespace TreeNode.Runtime
 
         #endregion
 
+        #region 路径比较方法
+
+        /// <summary>
+        /// 检查当前路径是否以指定路径开头
+        /// </summary>
+        /// <param name="prefix">前缀路径</param>
+        /// <returns>如果当前路径以指定路径开头则返回true</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly bool StartsWith(PAPath prefix)
+        {
+            // 空路径或无效路径处理
+            if (prefix.IsEmpty) return true;
+            if (IsEmpty) return false;
+            if (prefix.Depth > Depth) return false;
+
+            // 逐个比较路径部分
+            for (int i = 0; i < prefix.Depth; i++)
+            {
+                if (!Parts[i].Equals(prefix.Parts[i]))
+                    return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// 检查当前路径是否以指定路径结尾
+        /// </summary>
+        /// <param name="suffix">后缀路径</param>
+        /// <returns>如果当前路径以指定路径结尾则返回true</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly bool EndsWith(PAPath suffix)
+        {
+            // 空路径或无效路径处理
+            if (suffix.IsEmpty) return true;
+            if (IsEmpty) return false;
+            if (suffix.Depth > Depth) return false;
+
+            // 从末尾开始逐个比较路径部分
+            int startIndex = Depth - suffix.Depth;
+            for (int i = 0; i < suffix.Depth; i++)
+            {
+                if (!Parts[startIndex + i].Equals(suffix.Parts[i]))
+                    return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// 检查当前路径是否包含指定路径（作为连续的子路径）
+        /// </summary>
+        /// <param name="subPath">要检查的子路径</param>
+        /// <returns>如果当前路径包含指定子路径则返回true</returns>
+        public readonly bool Contains(PAPath subPath)
+        {
+            // 空路径或无效路径处理
+            if (subPath.IsEmpty) return true;
+            if (IsEmpty) return false;
+            if (subPath.Depth > Depth) return false;
+
+            // 在当前路径的所有可能位置查找子路径
+            for (int startIndex = 0; startIndex <= Depth - subPath.Depth; startIndex++)
+            {
+                bool found = true;
+                for (int i = 0; i < subPath.Depth; i++)
+                {
+                    if (!Parts[startIndex + i].Equals(subPath.Parts[i]))
+                    {
+                        found = false;
+                        break;
+                    }
+                }
+                if (found) return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 检查当前路径是否以指定字符串路径开头
+        /// </summary>
+        /// <param name="prefix">前缀路径字符串</param>
+        /// <returns>如果当前路径以指定路径开头则返回true</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly bool StartsWith(string prefix)
+        {
+            if (string.IsNullOrEmpty(prefix)) return true;
+            return StartsWith(PAPath.Create(prefix));
+        }
+
+        /// <summary>
+        /// 检查当前路径是否以指定字符串路径结尾
+        /// </summary>
+        /// <param name="suffix">后缀路径字符串</param>
+        /// <returns>如果当前路径以指定路径结尾则返回true</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly bool EndsWith(string suffix)
+        {
+            if (string.IsNullOrEmpty(suffix)) return true;
+            return EndsWith(PAPath.Create(suffix));
+        }
+
+        /// <summary>
+        /// 检查当前路径是否包含指定字符串路径（作为连续的子路径）
+        /// </summary>
+        /// <param name="subPath">要检查的子路径字符串</param>
+        /// <returns>如果当前路径包含指定子路径则返回true</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly bool Contains(string subPath)
+        {
+            if (string.IsNullOrEmpty(subPath)) return true;
+            return Contains(PAPath.Create(subPath));
+        }
+
+        #endregion
+
         public readonly static PAPath Empty = new ();
         public readonly static PAPath Position =  new("Position");
 

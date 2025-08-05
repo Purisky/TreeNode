@@ -296,7 +296,6 @@ namespace TreeNode.Runtime
             obj.ThrowIfNull(nameof(obj));
             
             var currentObj = obj;
-            validDepth = 0;
             
             if (path.IsEmpty)
             {
@@ -759,11 +758,7 @@ namespace TreeNode.Runtime
             else
             {
                 // 对于其他集合类型，使用索引器
-                var indexer = type.GetProperty("Item");
-                if (indexer == null)
-                {
-                    throw new ArgumentException($"类型 {type.Name} 不支持索引器访问");
-                }
+                var indexer = type.GetProperty("Item") ?? throw new ArgumentException($"类型 {type.Name} 不支持索引器访问");
                 current = Expression.MakeIndex(current, indexer, new[] { Expression.Constant(index) });
                 type = indexer.PropertyType;
             }
@@ -1040,11 +1035,7 @@ namespace TreeNode.Runtime
             else
             {
                 // 对其他集合使用索引器
-                var indexer = structType.GetProperty("Item");
-                if (indexer == null)
-                {
-                    throw new ArgumentException($"类型 {structType.Name} 不支持索引器");
-                }
+                var indexer = structType.GetProperty("Item") ?? throw new ArgumentException($"类型 {structType.Name} 不支持索引器");
                 var indexAccess = Expression.MakeIndex(structVariable, indexer, new[] { Expression.Constant(index) });
                 return Expression.Assign(indexAccess, Expression.Convert(valueParam, indexAccess.Type));
             }
