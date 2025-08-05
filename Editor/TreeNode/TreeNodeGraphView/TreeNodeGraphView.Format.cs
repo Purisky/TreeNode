@@ -70,11 +70,9 @@ namespace TreeNode.Editor
 
         void FormatNode(JsonNode node, HashSet<JsonNode> visitedNodes = null)
         {
-            // 防止无限递归
-            if (visitedNodes == null) visitedNodes = new HashSet<JsonNode>();
+            visitedNodes ??= new HashSet<JsonNode>();
             if (visitedNodes.Contains(node)) return;
             visitedNodes.Add(node);
-            
             if (!NodeDic.TryGetValue(node, out ViewNode viewNode)) return;
 
             //Debug.Log($"{node.GetType().Name}");
@@ -93,7 +91,7 @@ namespace TreeNode.Editor
             
             // 设置节点位置
             Rect rect = viewNode.localBound;
-            Vec2 newPosition = new Vec2 { x = GetXPos(depth), y = ValidYPos };
+            Vec2 newPosition = new  (  GetXPos(depth), ValidYPos );
             rect.position = newPosition;
             
             // 更新ViewNode位置
@@ -110,7 +108,7 @@ namespace TreeNode.Editor
 
 
             // 收集并排序子节点
-            List<JsonNode> childs = new List<JsonNode>();
+            List<JsonNode> childs = new ();
             if (viewNode.ChildPorts != null)
             {
                 // 按照worldBound.y排序ChildPort以确保正确的顺序
