@@ -572,6 +572,7 @@ namespace TreeNode.Editor
 
         private void RemoveItemFromUI(int index)
         {
+            //Debug.Log($"RemoveItemFromUI:{index}");
             if (index < ItemContainer.childCount)
             {
                 var itemToRemove = ItemContainer.ElementAt(index);
@@ -1188,6 +1189,7 @@ namespace TreeNode.Editor
                     
                     foreach (var edge in edgesToRemove)
                     {
+                        //Debug.Log("RemoveEdge");
                         edge.ParentPort().DisconnectAll();
                         ViewNode.View.RemoveElement(edge);
                     }
@@ -1275,39 +1277,33 @@ namespace TreeNode.Editor
             
             // 记录删除前的状态，用于 History
             object removedValue = _parentList?.ItemsSource[index];
-            
-            // 优化：避免ToList()内存分配
-            var listItems = new List<ListItem>();
-            foreach (var child in parent.Children())
-            {
-                if (child is ListItem item)
-                {
-                    listItems.Add(item);
-                }
-            }
-            
-            // 高效的批量Edge清理
-            foreach (var listItem in listItems)
-            {
-                listItem.RemoveEdges();
-            }
+
+            RemoveEdges();
             
             // 将ChildPort的子值添加回节点数据
             var childValues = new List<JsonNode>();
+            ViewNode.View.Window.History.BeginBatch();
             foreach (var port in ChildPorts)
             {
-                childValues.AddRange(port.Value.GetChildValues());
+                List<JsonNode> removeNodes = port.Value.GetChildValues();
+                if (removeNodes == null || removeNodes.Count == 0) continue;
+                List<JsonNode> nodes = ViewNode.View.Asset.Data.Nodes;
+                for (int i = 0; i < removeNodes.Count; i++)
+                {
+                    PAPath from = ViewNode.View.NodeTree.GetNodeMetadata(removeNodes[i]).Path;
+                    PAPath to = PAPath.Index(nodes.Count);
+                    nodes.Add(removeNodes[i]);
+                    NodeOperation nodeOperation = NodeOperation.Move(removeNodes[i], from, to, ViewNode.View);
+                    //Debug.Log(nodeOperation);
+                    ViewNode.View.Window.History.Record(nodeOperation);
+                }
+                //Debug.Log($"Remove Port:{port.Value.LocalPath}");
+                ViewNode.RemoveChildPort(port.Value);
             }
-            ViewNode.View.Asset.Data.Nodes.AddRange(childValues);
-            
-            // 记录 History - 通过 ListElement 的扩展方法
-            if (removedValue != null)
-            {
-                _parentList?.RecordItem(_parentList.LocalPath, removedValue, index, -1);
-            }
-            
+
             // 使用新的ListElement删除方法
             _parentList?.RemoveItem(index);
+            ViewNode.View.Window.History.EndBatch();
             _parentList?.Focus();
             OnChange?.Invoke();
         }

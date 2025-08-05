@@ -340,7 +340,9 @@ namespace TreeNode.Editor
             try
             {
                 // 查找对应的ChildPort
-                var childPort = parentViewNode.GetChildPort( childMetadata.LocalPath);
+                PAPath path = childMetadata.LocalPath;
+                if (path.ItemOfCollection) { path = path.GetParent(); }
+                var childPort = parentViewNode.GetChildPort(path);
                 if (childPort != null && childViewNode.ParentPort != null)
                 {
                     var edge = childPort.ConnectTo(childViewNode.ParentPort);

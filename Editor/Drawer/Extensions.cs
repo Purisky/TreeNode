@@ -23,6 +23,13 @@ namespace TreeNode.Editor
             viewNode.View.Window.History.Record(new FieldModifyOperation<T>(viewNode.Data, path, oldValue, newValue, viewNode.View));
             viewNode.View.Window.MakeDirty();
         }
+        public static void RecordMove(this ViewNode viewNode, PAPath from, PAPath to)
+        {
+            if (viewNode == null) { return; }
+            viewNode.View.Window.History.Record(NodeOperation.Move(viewNode.Data, from, to, viewNode.View));
+            viewNode.View.Window.MakeDirty();
+        }
+
         public static void RecordItem(this ListElement listElement, PAPath path, object Value,int from,int to )
         {
             ViewNode viewNode = listElement.ViewNode;

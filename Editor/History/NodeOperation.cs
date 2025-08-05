@@ -145,6 +145,7 @@ namespace TreeNode.Editor
         }
         public void Insert(PAPath path)
         {
+            //Debug.Log($"Insert to {path}");
             if (path.ItemOfCollection)
             {
                 IList collection = PropertyAccessor.GetParentObject(Nodes, path, out PAPart last) as IList;

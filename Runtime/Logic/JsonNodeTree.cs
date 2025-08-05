@@ -453,7 +453,7 @@ namespace TreeNode.Runtime
                 if (item is JsonNode childJsonNode && _nodeMetadataMap.TryGetValue(childJsonNode, out var childMetadata))
                 {
                     childMetadata.Parent = parentMetadata;
-                    childMetadata.LocalPath = renderInfo.Member.Name;
+                    childMetadata.LocalPath = $"{renderInfo.Member.Name}[{index}]"; // 修复：包含索引信息
                     childMetadata.IsMultiPort = true;
                     childMetadata.ListIndex = index;
                     childMetadata.RenderOrder = renderInfo.RenderOrder;
@@ -496,6 +496,15 @@ namespace TreeNode.Runtime
                     // 跳过无法访问的嵌套路径
                 }
             }
+        }
+
+        /// <summary>
+        /// 构建子节点路径
+        /// </summary>
+        private string BuildChildPath(string parentPath, NodeMetadata child, JsonNode parentNode)
+        {
+            // 现在LocalPath已经包含了正确的索引信息，直接使用即可
+            return $"{parentPath}.{child.LocalPath}";
         }
 
         /// <summary>
@@ -550,21 +559,6 @@ namespace TreeNode.Runtime
             {
                 string childPath = BuildChildPath(path, child, metadata.Node);
                 CalculatePathAndDepthRecursively(child, childPath, depth + 1);
-            }
-        }
-
-        /// <summary>
-        /// 构建子节点路径
-        /// </summary>
-        private string BuildChildPath(string parentPath, NodeMetadata child, JsonNode parentNode)
-        {
-            if (child.IsMultiPort)
-            {
-                return $"{parentPath}.{child.LocalPath}";
-            }
-            else
-            {
-                return $"{parentPath}.{child.LocalPath}";
             }
         }
 

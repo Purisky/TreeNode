@@ -337,6 +337,64 @@ namespace TreeNode.Editor
             return null;
         }
 
+        /// <summary>
+        /// 从字典中移除ChildPort
+        /// </summary>
+        public bool RemoveChildPort(ChildPort childPort)
+        {
+            if (childPort == null || ChildPorts == null) return false;
+            
+            return ChildPorts.Remove(childPort.LocalPath);
+        }
+
+        /// <summary>
+        /// 清空所有端口
+        /// </summary>
+        public void ClearChildPorts()
+        {
+            ChildPorts?.Clear();
+        }
+
+        /// <summary>
+        /// 验证字典一致性（调试和测试用）
+        /// </summary>
+        public void ValidateChildPortsDict()
+        {
+            if (ChildPorts == null) return;
+            
+            var invalidPorts = new List<PAPath>();
+            
+            foreach (var kvp in ChildPorts)
+            {
+                var path = kvp.Key;
+                var port = kvp.Value;
+                
+                if (port == null)
+                {
+                    invalidPorts.Add(path);
+                    Debug.LogWarning($"ViewNode: 发现空端口引用 {path}");
+                    continue;
+                }
+                
+                if (port.LocalPath != path)
+                {
+                    invalidPorts.Add(path);
+                    Debug.LogWarning($"ViewNode: 发现不一致的端口 键:{path} 实际路径:{port.LocalPath}");
+                }
+            }
+            
+            // 清理无效端口
+            foreach (var invalidPath in invalidPorts)
+            {
+                ChildPorts.Remove(invalidPath);
+            }
+            
+            if (invalidPorts.Count > 0)
+            {
+                Debug.Log($"ViewNode: 清理了 {invalidPorts.Count} 个无效端口");
+            }
+        }
+
         public List<Edge> GetAllEdges()
         {
             List<Edge> edges = new();

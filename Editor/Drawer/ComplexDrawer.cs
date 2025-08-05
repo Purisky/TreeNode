@@ -240,7 +240,8 @@ namespace TreeNode.Editor
                             }
                             NumPort port = propertyElement.Q<NumPort>();
                             lineVE.Add(propertyElement);
-                            node.ChildPorts.Add(propertyPath, port);
+                            //Debug.Log(port.LocalPath);
+                            node.ChildPorts.Add(port.LocalPath, port);
                         }
                         else
                         {
