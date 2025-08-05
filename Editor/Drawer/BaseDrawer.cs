@@ -1,9 +1,9 @@
 ﻿using System;
 using System.Collections;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Collections.Concurrent;
 using TreeNode.Runtime;
 using TreeNode.Utility;
 using Unity.Properties;
@@ -117,8 +117,6 @@ namespace TreeNode.Editor
         {
             _drawerCache.Clear();
         }
-
-
 
 
 

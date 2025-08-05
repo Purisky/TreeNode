@@ -29,10 +29,60 @@ namespace TreeNode.Editor
             {
                 dropdownElement = new TreeDropDownElement<T>();
             }
-            dropdownElement.Init(memberMeta, node, path, action);
+            dropdownElement.Init(memberMeta, node, path.ToString(), action);
             return new PropertyElement(memberMeta, node, path, this, dropdownElement);
         }
     }
+    
+    /// <summary>
+    /// 简化的下拉菜单池 - 移除复杂的泛型处理
+    /// </summary>
+    public static class DropdownMenuPool
+    {
+        // 使用非泛型的字典来存储不同类型的活跃菜单
+        private static readonly Dictionary<Type, object> _activeMenus = new();
+        
+        public static DropdownElement<T>.DropMenu GetMenu<T>(DropdownElement<T> dropDownElement)
+        {
+            Type type = typeof(T);
+            
+            // 如果有活跃菜单，先隐藏
+            if (_activeMenus.TryGetValue(type, out object activeMenu))
+            {
+                if (activeMenu is DropdownElement<T>.DropMenu activeDropMenu)
+                {
+                    activeDropMenu.Hide();
+                    ReturnMenu(activeDropMenu);
+                    _activeMenus.Remove(type);
+                }
+            }
+            
+            // 创建新菜单
+            var newMenu = new DropdownElement<T>.DropMenu(dropDownElement);
+            _activeMenus[type] = newMenu;
+            return newMenu;
+        }
+        
+        public static void ReturnMenu<T>(DropdownElement<T>.DropMenu menu)
+        {
+            if (menu == null) return;
+            
+            Type type = typeof(T);
+            if (_activeMenus.TryGetValue(type, out object activeMenu) && activeMenu == menu)
+            {
+                _activeMenus.Remove(type);
+            }
+            
+            // 简单清理
+            menu.Cleanup();
+        }
+        
+        public static void ClearPool()
+        {
+            _activeMenus.Clear();
+        }
+    }
+
     public abstract class DropdownElement<T> : BaseField<T>, IValidator
     {
         protected VisualElement visualInput;
@@ -197,15 +247,19 @@ namespace TreeNode.Editor
         protected VisualElement menu;
         public virtual void OnMouseDown(MouseDownEvent evt)
         {
-            //Debug.Log(menu?.parent);
-            if (menu != null && menu.parent!=null)
+            // 使用简化的菜单池
+            if (menu != null && menu.parent != null)
             {
-                menu.RemoveFromHierarchy();
+                DropdownMenuPool.ReturnMenu<T>(menu as DropdownElement<T>.DropMenu);
                 menu = null;
                 return;
             }
+            
             DropdownList<T> items = GetList();
-            DropMenu dropMenu = new(this);
+            DropdownElement<T>.DropMenu dropMenu = DropdownMenuPool.GetMenu(this);
+            
+            // 清理旧项目并添加新项目
+            dropMenu.ClearItems();
             for (int i = 0; i < items.Count; i++)
             {
                 DropdownItem<T> item = items[i];
@@ -228,7 +282,8 @@ namespace TreeNode.Editor
             evt.StopPropagation();
         }
 
-        protected class DropMenu
+        // 改为 public 访问级别
+        public class DropMenu
         {
             internal DropdownElement<T> DropDownElement;
             internal Dictionary<string, TreeItem> Dic;
@@ -340,9 +395,52 @@ namespace TreeNode.Editor
                 });
                 return m_MenuContainer;
             }
-
-
+            /// <summary>
+            /// 重置菜单以供复用
+            /// </summary>
+            public void Reset(DropdownElement<T> dropDownElement)
+            {
+                DropDownElement = dropDownElement;
+                ClearItems();
+                
+                // 重置菜单容器样式
+                m_MenuContainer.style.width = DropDownElement.VisualInput.localBound.width;
+                m_OuterContainer.style.width = DropDownElement.VisualInput.localBound.width;
+                m_ScrollView.style.width = DropDownElement.VisualInput.localBound.width;
+            }
+            
+            /// <summary>
+            /// 清理菜单项，准备复用
+            /// </summary>
+            public void ClearItems()
+            {
+                // 回收TreeItem到对象池
+                foreach (var menuItem in MenuItems)
+                {
+                    if (menuItem.element != null)
+                    {
+                        // 使用UIElementPool回收TreeItem
+                        UIElementPool.Return(menuItem.element);
+                    }
+                }
+                
+                MenuItems.Clear();
+                Dic.Clear();
+                m_ScrollView.Clear();
+            }
+            
+            /// <summary>
+            /// 清理资源准备回池
+            /// </summary>
+            public void Cleanup()
+            {
+                ClearItems();
+                m_MenuContainer.RemoveFromHierarchy();
+            }
         }
+        /// <summary>
+        /// TreeItem 支持对象池的优化版本
+        /// </summary>
         public class TreeItem : VisualElement
         {
             public string Path;
@@ -948,10 +1046,11 @@ namespace TreeNode.Editor
             {
                 dropdownElement = new TreeDropDownElement<T>();
             }
-            dropdownElement.Init(memberMeta, node, path, action);
+            dropdownElement.Init(memberMeta, node, path.ToString(), action);
             return new PropertyElement(memberMeta, node, path.ToString(), this, dropdownElement);
         }
     }
+
 
     public class DropdownExpand
     {

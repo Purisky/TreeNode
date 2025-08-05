@@ -16,6 +16,171 @@ using UnityEngine.UIElements;
 namespace TreeNode.Editor
 {
     /// <summary>
+    /// UI元素对象池 - 基于现有ObjPool实现的高效池化版本
+    /// </summary>
+    public static class UIElementPool
+    {
+        private static readonly Dictionary<Type, object> _pools = new();
+
+        /// <summary>
+        /// 获取指定类型的对象池
+        /// </summary>
+        private static ObjPool<T> GetPool<T>() where T : VisualElement, new()
+        {
+            var type = typeof(T);
+            if (!_pools.TryGetValue(type, out var pool))
+            {
+                pool = new ObjPool<T>(
+                    actionOnGet: element => 
+                    {
+                        element.RemoveFromHierarchy();
+                        if (element is IPoolable poolable)
+                            poolable.OnGet();
+                    },
+                    actionOnRelease: element => 
+                    {
+                        element.RemoveFromHierarchy();
+                        if (element is IPoolable poolable)
+                            poolable.OnReturn();
+                    }
+                );
+                _pools[type] = pool;
+            }
+            return (ObjPool<T>)pool;
+        }
+
+        /// <summary>
+        /// 从池中获取元素
+        /// </summary>
+        public static T Get<T>() where T : VisualElement, new() => GetPool<T>().Get();
+
+        /// <summary>
+        /// 返回元素到池中 - 优化版本，支持真正的池化
+        /// </summary>
+        public static void Return(VisualElement element)
+        {
+            if (element == null) return;
+
+            // 先移除父级关系
+            element.RemoveFromHierarchy();
+
+            // 尝试特定类型的池化
+            switch (element)
+            {
+                case Button button:
+                    ReturnTyped(button);
+                    break;
+                case Label label:
+                    ReturnTyped(label);
+                    break;
+                default:
+                    // 通用清理：重置常用属性，避免状态泄漏
+                    ResetElementState(element);
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// 强类型返回到池
+        /// </summary>
+        private static void ReturnTyped<T>(T element) where T : VisualElement, new()
+        {
+            try
+            {
+                GetPool<T>().Release(element);
+            }
+            catch
+            {
+                // 池化失败时的fallback - 直接清理
+                ResetElementState(element);
+            }
+        }
+
+        /// <summary>
+        /// 重置元素状态 - 防止状态泄漏
+        /// </summary>
+        private static void ResetElementState(VisualElement element)
+        {
+            if (element == null) return;
+
+            // 重置基础状态
+            element.style.display = DisplayStyle.Flex;
+            element.style.visibility = Visibility.Visible;
+            element.SetEnabled(true);
+            
+            // 清理CSS类
+            element.ClearClassList();
+            
+            // 重置常用属性
+            if (element is TextElement textElement)
+            {
+                textElement.text = string.Empty;
+            }
+            
+            // 调用自定义重置
+            if (element is IPoolable poolable)
+            {
+                poolable.OnReturn();
+            }
+        }
+
+        /// <summary>
+        /// 清空所有池
+        /// </summary>
+        public static void Clear()
+        {
+            foreach (var pool in _pools.Values)
+            {
+                if (pool.GetType().GetGenericTypeDefinition() == typeof(ObjPool<>))
+                {
+                    var releaseMethod = pool.GetType().GetMethod("ReleaseAll");
+                    releaseMethod?.Invoke(pool, null);
+                }
+            }
+            _pools.Clear();
+        }
+
+        /// <summary>
+        /// 获取池统计信息
+        /// </summary>
+        public static string GetPoolStats()
+        {
+            var stats = new System.Text.StringBuilder();
+            foreach (var kvp in _pools)
+            {
+                var pool = kvp.Value;
+                var type = pool.GetType();
+                var countAllProp = type.GetProperty("CountAll");
+                var countInactiveProp = type.GetProperty("CountInactive");
+                
+                if (countAllProp != null && countInactiveProp != null)
+                {
+                    var total = countAllProp.GetValue(pool);
+                    var inactive = countInactiveProp.GetValue(pool);
+                    stats.AppendLine($"{kvp.Key.Name}: {inactive}/{total}");
+                }
+            }
+            return stats.ToString();
+        }
+    }
+
+    /// <summary>
+    /// 池化元素接口 - 支持自定义重置逻辑
+    /// </summary>
+    public interface IPoolable
+    {
+        /// <summary>
+        /// 从池中获取时调用
+        /// </summary>
+        void OnGet();
+        
+        /// <summary>
+        /// 返回池中时调用
+        /// </summary>
+        void OnReturn();
+    }
+
+    /// <summary>
     /// ListDrawer - 高性能列表组件绘制器
     /// 优化版本：添加异步批量创建，提升大列表性能
     /// </summary>
@@ -43,7 +208,13 @@ namespace TreeNode.Editor
             action = memberMeta.OnChangeMethod.GetOnChangeAction(parent) + action;
 
             //Debug.Log($"ListDrawer memberMeta.Path:{memberMeta.Path}=>{path}");
-            listElement.MakeItem = () => new ListItem(listElement, memberMeta, node, itemDrawer, path, dirty, action);
+            listElement.MakeItem = () => 
+            {
+                // 优先从对象池获取ListItem
+                var listItem = UIElementPool.Get<ListItem>();
+                listItem.Initialize(listElement, memberMeta, node, itemDrawer, path, dirty, action);
+                return listItem;
+            };
             listElement.BindItem = (element, index) => ((ListItem)element).InitValue(index);
 
             // 配置添加按钮事件
@@ -431,20 +602,22 @@ namespace TreeNode.Editor
         }
         
         /// <summary>
-        /// 清理现有项目 - 优化版本，避免ToList()内存分配
+        /// 清理现有项目 - 优化版本，使用对象池回收
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void ClearExistingItems()
         {
             var childCount = ItemContainer.childCount;
             
-            // 反向遍历避免索引问题，无需ToList()
+            // 反向遍历避免索引问题，回收到对象池
             for (int i = childCount - 1; i >= 0; i--)
             {
                 var child = ItemContainer.ElementAt(i);
                 if (child is ListItem item)
                 {
                     item.Cleanup();
+                    // 回收到对象池而非直接销毁
+                    UIElementPool.Return(item);
                 }
             }
             
@@ -453,7 +626,7 @@ namespace TreeNode.Editor
         }
         
         /// <summary>
-        /// 批量创建新项目 - 优化版本，减少DOM操作
+        /// 批量创建新项目 - 优化版本，使用对象池减少内存分配
         /// </summary>
         private void CreateNewItems()
         {
@@ -462,9 +635,10 @@ namespace TreeNode.Editor
             // 预分配集合避免动态扩容
             var newItems = new List<VisualElement>(itemCount);
             
-            // 批量创建项目，延迟DOM操作
+            // 批量创建项目，优先从对象池获取
             for (int i = 0; i < itemCount; i++)
             {
+                // 优先从对象池获取，减少内存分配
                 var listItem = MakeItem?.Invoke();
                 if (listItem != null)
                 {
@@ -478,24 +652,6 @@ namespace TreeNode.Editor
             
             // 批量添加到容器，减少重排次数
             AddItemsToContainer(newItems);
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void ProcessItemPorts(VisualElement listItem)
-        {
-            if (listItem is ListItem item && item.HasPort)
-            {
-                item.ProcessChildPorts();
-            }
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void AddItemsToContainer(List<VisualElement> newItems)
-        {
-            foreach (var item in newItems)
-            {
-                ItemContainer.Add(item);
-            }
         }
         
         /// <summary>
@@ -588,6 +744,28 @@ namespace TreeNode.Editor
                 
                 // 批量更新后续项目的索引
                 UpdateIndicesFrom(index);
+            }
+        }
+        
+        /// <summary>
+        /// 处理项目端口连接 - 添加缺失的方法
+        /// </summary>
+        private void ProcessItemPorts(VisualElement item)
+        {
+            if (!HasPort || !(item is ListItem listItem)) return;
+            
+            // 处理端口连接
+            listItem.ProcessChildPorts();
+        }
+        
+        /// <summary>
+        /// 批量添加项目到容器 - 添加缺失的方法
+        /// </summary>
+        private void AddItemsToContainer(List<VisualElement> items)
+        {
+            foreach (var item in items)
+            {
+                ItemContainer.Add(item);
             }
         }
         
@@ -864,9 +1042,9 @@ namespace TreeNode.Editor
     /// <summary>
     /// ListItem - 完全重写的高性能列表项组件
     /// 专为ListElement优化，实现同步初始化和立即可用的ChildPort
-    /// 优化版本：提取常量，改善可读性，优化性能
+    /// 优化版本：提取常量，改善可读性，优化性能，支持对象池化
     /// </summary>
-    public class ListItem : VisualElement
+    public class ListItem : VisualElement, IPoolable
     {
         #region 静态资源和常量
         static readonly StyleSheet StyleSheet = ResourcesUtil.LoadStyleSheet("ListItem");
@@ -894,7 +1072,7 @@ namespace TreeNode.Editor
         public IntegerField IndexField { get; private set; }
         public PropertyElement Value => _contentElement;
         public ViewNode ViewNode { get; private set; }
-        public string Path { get; private set; }
+        public PAPath Path { get; private set; }
         public MemberMeta Meta { get; private set; }
         public BaseDrawer Drawer { get; private set; }
         public bool HasPort { get; private set; }
@@ -908,11 +1086,27 @@ namespace TreeNode.Editor
 
         #region 构造函数
         /// <summary>
-        /// 构造函数 - 接收ListElement父级引用，实现直接交互
+        /// 默认构造函数 - 支持对象池化
         /// </summary>
-        public ListItem(ListElement parentList, MemberMeta meta, ViewNode node, BaseDrawer baseDrawer, string path, bool dirty, Action action)
+        public ListItem()
         {
+            ChildPorts = new();
+            InitializeUIStructure();
+        }
 
+        /// <summary>
+        /// 完整构造函数 - 接收ListElement父级引用，实现直接交互
+        /// </summary>
+        public ListItem(ListElement parentList, MemberMeta meta, ViewNode node, BaseDrawer baseDrawer, PAPath path, bool dirty, Action action) : this()
+        {
+            Initialize(parentList, meta, node, baseDrawer, path, dirty, action);
+        }
+
+        /// <summary>
+        /// 初始化ListItem - 支持池化复用
+        /// </summary>
+        public void Initialize(ListElement parentList, MemberMeta meta, ViewNode node, BaseDrawer baseDrawer, PAPath path, bool dirty, Action action)
+        {
             // 保存父级引用
             _parentList = parentList;
             
@@ -925,18 +1119,16 @@ namespace TreeNode.Editor
             // 检查是否有Port
             CheckPortAvailability();
             
-            // 高性能UI初始化
-            InitializeUIOptimized();
+            _isInitialized = true;
         }
 
-        private void InitializeProperties(MemberMeta meta, ViewNode node, BaseDrawer baseDrawer, string path, Action action)
+        private void InitializeProperties(MemberMeta meta, ViewNode node, BaseDrawer baseDrawer, PAPath path, Action action)
         {
             Action = action;
             Meta = meta;
             ViewNode = node;
             Path = path;
             Drawer = baseDrawer;
-            ChildPorts = new ();
         }
 
         private void InitializeOnChange(bool dirty)
@@ -961,12 +1153,58 @@ namespace TreeNode.Editor
         }
         #endregion
 
-        #region 高性能UI初始化
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void InitializeUIOptimized()
+        #region IPoolable 实现
+        /// <summary>
+        /// 从池中获取时调用
+        /// </summary>
+        public void OnGet()
+        {
+            // 重置为默认状态
+            _isInitialized = false;
+            _hasProcessedPorts = false;
+            _currentIndex = 0;
+            
+            // 确保UI结构存在
+            if (IndexElement == null)
+            {
+                InitializeUIStructure();
+            }
+        }
+
+        /// <summary>
+        /// 返回池中时调用
+        /// </summary>
+        public void OnReturn()
+        {
+            // 清理资源
+            Cleanup();
+            
+            // 重置所有引用
+            _parentList = null;
+            ViewNode = null;
+            Path = default;
+            Meta = default;
+            Drawer = null;
+            OnChange = null;
+            Action = null;
+            
+            // 重置UI状态
+            if (IndexLabel != null) IndexLabel.text = "";
+            if (IndexField != null) IndexField.value = 0;
+            
+            RemoveFromClassList("editmode");
+        }
+        #endregion
+
+        #region UI结构初始化
+        /// <summary>
+        /// 初始化基础UI结构 - 只在构造或池化重用时调用
+        /// </summary>
+        private void InitializeUIStructure()
         {
             // 应用样式
-            styleSheets.Add(StyleSheet);
+            if (styleSheets.Contains(StyleSheet) == false)
+                styleSheets.Add(StyleSheet);
             
             // 批量设置基础样式
             ApplyBaseStyles();
@@ -974,13 +1212,12 @@ namespace TreeNode.Editor
             // 添加ListView兼容的CSS类
             AddToClassList("unity-list-view__item");
             
-            // 创建索引显示区域
-            CreateIndexElementOptimized();
-            
-            // 注册事件
-            RegisterEvents();
-            
-            _isInitialized = true;
+            // 创建索引显示区域（如果不存在）
+            if (IndexElement == null)
+            {
+                CreateIndexElementOptimized();
+                RegisterEvents();
+            }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1077,7 +1314,7 @@ namespace TreeNode.Editor
             // 批量更新索引显示
             UpdateIndexDisplay(index);
 
-            string propertyPath = $"{Path}[{index}]";
+            PAPath propertyPath = Path.AppendIndex(index);
 
             // 高效的内容清理和重建
             CleanupContent();
@@ -1115,7 +1352,7 @@ namespace TreeNode.Editor
         }
         
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void CreateContent(string propertyPath)
+        private void CreateContent(PAPath propertyPath)
         {
             // 同步创建新内容
             Meta.LabelInfo.Hide = true;
