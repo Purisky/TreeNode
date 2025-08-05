@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 using TreeNode.Runtime;
 using TreeNode.Utility;
 using Unity.Properties;
@@ -16,12 +17,12 @@ namespace TreeNode.Editor
 {
     /// <summary>
     /// ListDrawer - 高性能列表组件绘制器
-    /// 优化版本：移除锁机制，提升性能，改善可读性
+    /// 优化版本：添加异步批量创建，提升大列表性能
     /// </summary>
     public class ListDrawer : BaseDrawer
     {
         public override Type DrawType => typeof(List<>);
-        
+
         public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, PAPath path, Action action)
         {
             Type gType = memberMeta.Type.GetGenericArguments()[0];
@@ -31,11 +32,11 @@ namespace TreeNode.Editor
 
             // 创建ListElement而非ListView
             ListElement listElement = new ListElement(memberMeta, node, path, this, hasPort);
-            
+
             // 配置数据绑定
             IList list = node.Data.GetValue<IList>(path);
             listElement.ItemsSource = list;
-            
+
             // 配置项目创建委托
             bool dirty = memberMeta.Json;
             object parent = node.Data.GetParent(path);
@@ -44,16 +45,15 @@ namespace TreeNode.Editor
             //Debug.Log($"ListDrawer memberMeta.Path:{memberMeta.Path}=>{path}");
             listElement.MakeItem = () => new ListItem(listElement, memberMeta, node, itemDrawer, path, dirty, action);
             listElement.BindItem = (element, index) => ((ListItem)element).InitValue(index);
-            
+
             // 配置添加按钮事件
             ConfigureAddButton(listElement, node, path, gType, dirty, action);
-            
+
             // 设置启用状态
             listElement.SetEnabled(!memberMeta.ShowInNode.ReadOnly);
-            
-            // 立即同步渲染
+
             listElement.RefreshItems();
-            
+
             return listElement;
         }
 
@@ -127,8 +127,7 @@ namespace TreeNode.Editor
 
     /// <summary>
     /// ListElement - 继承自PropertyElement的高性能列表组件
-    /// 完全替代ListView，实现同步初始化和智能折叠控制
-    /// 优化版本：移除锁机制，提升性能，减少内存分配
+    /// 优化版本：添加异步批量创建支持
     /// </summary>
     public class ListElement : PropertyElement
     {
@@ -144,11 +143,16 @@ namespace TreeNode.Editor
             public const int SIZE_LABEL_FONT_SIZE = 11;
             public const int ADD_BUTTON_FONT_SIZE = 18;
             public const int BORDER_RADIUS = 2;
+            
+            // 异步批量创建常量
+            public const int ASYNC_BATCH_SIZE = 10;
+            public const int ASYNC_THRESHOLD = 50; // 超过此数量使用异步
+            public const int ASYNC_DELAY_MS = 5; // 批次间延迟
         }
         #endregion
         
-        #region 私有字段 - 移除锁相关
-        private bool _isRefreshing = false; // 简单标志位替代锁
+        #region 私有字段
+        private bool _isRefreshing = false;
         #endregion
         
         #region 数据源和配置

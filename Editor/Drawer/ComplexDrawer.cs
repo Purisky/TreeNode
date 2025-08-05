@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Collections.Concurrent;
 using TreeNode.Runtime;
 using TreeNode.Utility;
 using Unity.Properties;
@@ -11,31 +12,62 @@ using UnityEngine.UIElements;
 
 namespace TreeNode.Editor
 {
+    // ComplexDrawer元数据缓存结构
+    public class ComplexDrawerMetadata
+    {
+        public List<ComplexDrawer.MemberGroup> Groups { get; set; }
+        public int Height { get; set; }
+        public bool HasPort { get; set; }
+        public MemberInfo TitlePortMember { get; set; }
+        public HashSet<ComplexDrawer> ChildDrawers { get; set; }
+    }
+
     public abstract class ComplexDrawer : BaseDrawer
     {
+        // 静态缓存，避免重复计算
+        private static readonly ConcurrentDictionary<Type, ComplexDrawerMetadata> _metadataCache = new();
+        
         List<MemberGroup> Groups;
         public int Height;
         public bool HasPort;
         HashSet<ComplexDrawer> ChildDrawers = new();
         MemberInfo TitlePortMember;
+        
         public ComplexDrawer()
         {
-            // 使用反射缓存替代直接调用DrawType.GetAll<ShowInNodeAttribute>()
-            List<MemberInfo> members = ReflectionCache.GetCachedMembers<ShowInNodeAttribute>(DrawType).ToList();
-            bool rootDrawer = DrawType.Inherited(typeof(JsonNode));
+            // 使用缓存的元数据
+            var metadata = _metadataCache.GetOrAdd(DrawType, BuildMetadata);
+            Groups = metadata.Groups;
+            Height = metadata.Height;
+            HasPort = metadata.HasPort;
+            TitlePortMember = metadata.TitlePortMember;
+            ChildDrawers = metadata.ChildDrawers;
+        }
 
-            Groups = new();
+        // 优化的元数据构建，一次性构建所有元数据
+        private static ComplexDrawerMetadata BuildMetadata(Type drawType)
+        {
+            var metadata = new ComplexDrawerMetadata
+            {
+                Groups = new List<MemberGroup>(),
+                ChildDrawers = new HashSet<ComplexDrawer>()
+            };
+
+            // 使用反射缓存替代直接调用DrawType.GetAll<ShowInNodeAttribute>()
+            List<MemberInfo> members = ReflectionCache.GetCachedMembers<ShowInNodeAttribute>(drawType).ToList();
+            bool rootDrawer = drawType.Inherited(typeof(JsonNode));
+
             for (int i = 0; i < members.Count; i++)
             {
                 MemberInfo member = members[i];
-                if (rootDrawer && TitlePortMember == null)
+                if (rootDrawer && metadata.TitlePortMember == null)
                 {
                     // 使用缓存的属性获取
                     if (ReflectionCache.GetCachedAttribute<TitlePortAttribute>(member) != null && 
                         ReflectionCache.GetCachedAttribute<ChildAttribute>(member) != null && 
                         member.GetValueType() != typeof(NumValue))
                     {
-                        TitlePortMember = member;
+                        metadata.TitlePortMember = member;
                         continue;
                     }
                 }
@@ -46,11 +78,11 @@ namespace TreeNode.Editor
                 {
                     groupName = groupAttribute.Name;
                 }
-                MemberGroup tempGroup = getTempGroup(groupName);
+                MemberGroup tempGroup = GetTempGroup(metadata.Groups, groupName);
                 tempGroup.ShowIf ??= groupAttribute?.ShowIf;
                 if (tempGroup.Add(member))
                 {
-                    HasPort = true;
+                    metadata.HasPort = true;
                 }
                 else
                 {
@@ -61,34 +93,38 @@ namespace TreeNode.Editor
                     }
                     if (type.IsComplex() && DrawerManager.TryGet(type, out BaseDrawer drawer) && drawer is ComplexDrawer complex)
                     {
-                        ChildDrawers.Add(complex);
+                        metadata.ChildDrawers.Add(complex);
                     }
                 }
             }
-            Groups.Sort((a, b) => a.MinOrder.CompareTo(b.MinOrder));
-            Height = Groups.Sum(n => Mathf.Max(1, n.PortMembers.Count)) * 24;
-            if (!HasPort && ChildDrawers.Any())
+            metadata.Groups.Sort((a, b) => a.MinOrder.CompareTo(b.MinOrder));
+            metadata.Height = metadata.Groups.Sum(n => Mathf.Max(1, n.PortMembers.Count)) * 24;
+            if (!metadata.HasPort && metadata.ChildDrawers.Any())
             {
-                HasPort = CheckPort(new() { this });
+                metadata.HasPort = CheckPortRecursive(metadata.ChildDrawers, new HashSet<ComplexDrawer> { });
             }
-            MemberGroup getTempGroup(string name)
-            {
-                for (int i = 0; i < Groups.Count; i++)
-                {
-                    if (Groups[i].Name == name)
-                    {
-                        return Groups[i];
-                    }
-                }
-                MemberGroup tempGroup = new(name);
-                Groups.Add(tempGroup);
-                return tempGroup;
-            }
+            
+            return metadata;
         }
 
-        public bool CheckPort(HashSet<ComplexDrawer> visited)
+        private static MemberGroup GetTempGroup(List<MemberGroup> groups, string name)
         {
-            foreach (var item in ChildDrawers)
+            for (int i = 0; i < groups.Count; i++)
+            {
+                if (groups[i].Name == name)
+                {
+                    return groups[i];
+                }
+            }
+            MemberGroup tempGroup = new(name);
+            groups.Add(tempGroup);
+            return tempGroup;
+        }
+
+        // 优化的端口检查，使用静态方法避免实例方法调用
+        private static bool CheckPortRecursive(HashSet<ComplexDrawer> childDrawers, HashSet<ComplexDrawer> visited)
+        {
+            foreach (var item in childDrawers)
             {
                 if (visited.Contains(item))
                 {
@@ -96,15 +132,25 @@ namespace TreeNode.Editor
                 }
                 if (item.HasPort) { return true; }
                 visited.Add(item);
-                if (item.CheckPort(visited))
+                if (CheckPortRecursive(item.ChildDrawers, visited))
                 {
                     return true;
                 }
             }
             return false;
-
-
         }
+
+        public bool CheckPort(HashSet<ComplexDrawer> visited)
+        {
+            return CheckPortRecursive(ChildDrawers, visited);
+        }
+
+        // 添加清理缓存的方法
+        public static void ClearMetadataCache()
+        {
+            _metadataCache.Clear();
+        }
+
         public override PropertyElement Create(MemberMeta memberMeta, ViewNode node, PAPath path, Action action)
         {
             PropertyElement propertyElement = new(memberMeta, node, path, this);
@@ -149,7 +195,8 @@ namespace TreeNode.Editor
             }
             return propertyElement;
         }
-        class MemberGroup
+        
+        public class MemberGroup
         {
             public int MinOrder;
             public string Name;
