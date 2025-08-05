@@ -196,114 +196,71 @@ namespace TreeNode.Editor
         /// <summary>
         /// 批量创建Edge连接
         /// </summary>
-        private async Task CreateEdgesAsync(CancellationToken cancellationToken)
+        private void CreateEdgesAsync()
         {
-            // 在主线程中收集所有需要创建边的元数据
-            var edgeMetadataList = new List<JsonNodeTree.NodeMetadata>();
-
-            await ExecuteOnMainThreadAsync(() =>
+            foreach (var metadata in _nodeTree.GetSortedNodes())
             {
-                foreach (var metadata in _nodeTree.GetSortedNodes())
+                if (metadata.Parent != null)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    if (metadata.Parent != null)
-                    {
-                        edgeMetadataList.Add(metadata);
-                    }
+                    CreateEdgeBatchAsync(metadata);
                 }
-            });
-
-            //Debug.Log($"收集到 {edgeMetadataList.Count} 个边连接需要创建");
-
-            // 批量创建边连接 - 使用并行Task但在主线程执行UI操作
-            var edgeCreationTasks = new List<Task>();
-            var batchSize = Math.Max(5, edgeMetadataList.Count / 10); // 动态批次大小
-            
-            for (int i = 0; i < edgeMetadataList.Count; i += batchSize)
-            {
-                var batch = edgeMetadataList.Skip(i).Take(batchSize).ToList();
-                var task = CreateEdgeBatchAsync(batch, cancellationToken);
-                edgeCreationTasks.Add(task);
             }
-
-
-
-
-            await Task.WhenAll(edgeCreationTasks);
-            
-            // 渲染后处理 - 检查并修复可能缺失的连接
-            await PostRenderProcessAsync(cancellationToken);
-            
-            //Debug.Log("所有边连接创建完成");
+            //PostRenderProcessAsync();
         }
 
         /// <summary>
         /// 批量创建边连接 - 分批处理避免UI线程阻塞
         /// </summary>
-        private async Task CreateEdgeBatchAsync(List<JsonNodeTree.NodeMetadata> batch, CancellationToken cancellationToken)
+        private void CreateEdgeBatchAsync(JsonNodeTree.NodeMetadata metadata)
         {
-            await ExecuteOnMainThreadAsync(() =>
+
+            if (NodeDic.TryGetValue(metadata.Node, out var childViewNode) &&
+                NodeDic.TryGetValue(metadata.Parent.Node, out var parentViewNode))
             {
-                foreach (var metadata in batch)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    
-                    if (NodeDic.TryGetValue(metadata.Node, out var childViewNode) &&
-                        NodeDic.TryGetValue(metadata.Parent.Node, out var parentViewNode))
-                    {
-                        CreateEdgeConnection(parentViewNode, childViewNode, metadata);
-                    }
-                    else
-                    {
-                        Debug.LogWarning($"无法找到节点ViewNode进行边连接: 子节点={metadata.Node?.GetType().Name}, 父节点={metadata.Parent?.Node?.GetType().Name}");
-                    }
-                }
-            });
+                CreateEdgeConnection(parentViewNode, childViewNode, metadata);
+            }
+            else
+            {
+                Debug.LogWarning($"无法找到节点ViewNode进行边连接: 子节点={metadata.Node?.GetType().Name}, 父节点={metadata.Parent?.Node?.GetType().Name}");
+            }
+
         }
 
         /// <summary>
         /// 渲染后处理
         /// </summary>
-        private async Task PostRenderProcessAsync(CancellationToken cancellationToken)
+        private void PostRenderProcessAsync()
         {
-            await ExecuteOnMainThreadAsync(() =>
+            int fixedConnections = 0;
+            int missingConnections = 0;
+
+            // 检查所有节点的连接状态
+            foreach (var (node, viewNode) in NodeDic)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                
-                int fixedConnections = 0;
-                int missingConnections = 0;
-                
-                // 检查所有节点的连接状态
-                foreach (var kvp in NodeDic)
+                // 如果节点有ParentPort但没有连接，尝试修复
+                if (viewNode.ParentPort != null && !viewNode.ParentPort.connected)
                 {
-                    var node = kvp.Key;
-                    var viewNode = kvp.Value;
-                    
-                    // 如果节点有ParentPort但没有连接，尝试修复
-                    if (viewNode.ParentPort != null && !viewNode.ParentPort.connected)
+                    if (TryRestoreNodeConnection(node, viewNode))
                     {
-                        if (TryRestoreNodeConnection(node, viewNode))
-                        {
-                            fixedConnections++;
-                        }
-                        else
-                        {
-                            missingConnections++;
-                        }
+                        fixedConnections++;
+                    }
+                    else
+                    {
+                        missingConnections++;
                     }
                 }
-                
-                if (fixedConnections > 0)
-                {
-                    Debug.Log($"渲染后处理完成: 修复了 {fixedConnections} 个缺失连接");
-                }
-                
-                if (missingConnections > 0)
-                {
-                    Debug.LogWarning($"渲染后处理发现 {missingConnections} 个无法修复的缺失连接");
-                }
-            });
+            }
+
+            if (fixedConnections > 0)
+            {
+                Debug.Log($"渲染后处理完成: 修复了 {fixedConnections} 个缺失连接");
+            }
+
+            if (missingConnections > 0)
+            {
+                Debug.LogWarning($"渲染后处理发现 {missingConnections} 个无法修复的缺失连接");
+            }
+
         }
 
         /// <summary>

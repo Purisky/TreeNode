@@ -13,9 +13,11 @@ using Unity.Properties;
 using UnityEditor;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine;
+using UnityEngine.Profiling.Memory.Experimental;
 using UnityEngine.SocialPlatforms;
 using UnityEngine.UIElements;
 using static TreeNode.Runtime.JsonNodeTree;
+using Timer = TreeNode.Utility.Timer;
 
 namespace TreeNode.Editor
 {
@@ -26,11 +28,7 @@ namespace TreeNode.Editor
         public TreeNodeWindowSearchProvider SearchProvider;
         public VisualElement ViewContainer;
         protected ContentZoomer m_Zoomer;
-
-        // 异步渲染相关
-        private CancellationTokenSource _renderCancellationSource;
-        private readonly object _renderLock = new object();
-        private volatile bool _isDrawing = false;
+        
 
         #region 构造函数和初始化
 
@@ -62,8 +60,9 @@ namespace TreeNode.Editor
             this.AddManipulator(new RectangleSelector());
             this.AddManipulator(new ClickSelector());
 
+
             // 使用优化的异步方式渲染节点
-            _ = DrawNodesAsync();
+             DrawNodesAsync();
 
             SetupZoom(0.2f, 2f);
             canPasteSerializedData = CanPaste;
@@ -71,6 +70,8 @@ namespace TreeNode.Editor
             unserializeAndPaste = Paste;
             window.RemoveChangeMark();
         }
+
+
 
         /// <summary>
         /// 同步初始化JsonNodeTree - 确保逻辑层数据准备完成
@@ -242,106 +243,216 @@ namespace TreeNode.Editor
 
         public virtual void OnSave() { }
 
-        /// <summary>
-        /// 清理资源
-        /// </summary>
-        public void Dispose()
-        {
-            _renderCancellationSource?.Cancel();
-            _renderCancellationSource?.Dispose();
-        }
-
         #endregion
 
         #region 高性能异步渲染系统
 
         /// <summary>
-        /// 高性能异步节点渲染 - 第三阶段性能优化
+        /// 高性能异步节点渲染 - 优化版本
         /// </summary>
-        private async Task DrawNodesAsync()
+        private void DrawNodesAsync()
         {
-            lock (_renderLock)
+            using (new Timer("DrawNodesAsync"))
             {
-                if (_isDrawing)
+                //using (new Timer("CreateViewNodesAsyncOptimized"))
                 {
-                    return;
+                    CreateViewNodesAsyncOptimized();
                 }
-                _isDrawing = true;
-            }
-
-            try
-            {
-                // 创建新的取消令牌
-                _renderCancellationSource?.Cancel();
-                _renderCancellationSource = new CancellationTokenSource();
-                var cancellationToken = _renderCancellationSource.Token;
-
-                var startTime = DateTime.Now;
-                //Debug.Log($"开始异步渲染 {_nodeTree.TotalNodeCount} 个节点");
-
-                // 第一步：并行创建所有ViewNode（主线程执行UI创建）
-                await CreateViewNodesAsync(cancellationToken);
-
-                // 检查取消状态
-                cancellationToken.ThrowIfCancellationRequested();
-
-                // 第二步：异步建立Edge连接
-                await CreateEdgesAsync(cancellationToken);
-
-                var elapsed = (DateTime.Now - startTime).TotalMilliseconds;
-                Debug.Log($"渲染完成，耗时: {elapsed:F2}ms");
-            }
-            catch (OperationCanceledException)
-            {
-                Debug.Log("渲染任务被取消");
-            }
-            catch (Exception e)
-            {
-                Debug.LogError($"异步渲染失败: {e.Message}");
-                UnityEngine.Debug.LogException(e);
-            }
-            finally
-            {
-                lock (_renderLock)
+                //using (new Timer("CreateEdgesAsync"))
                 {
-                    _isDrawing = false;
+                    CreateEdgesAsync();
                 }
+            }
+
+        }
+
+        /// <summary>
+        /// 优化的异步ViewNode创建 - 实现真正的异步优化
+        /// </summary>
+        private void CreateViewNodesAsyncOptimized()
+        {
+            var sortedNodes = _nodeTree.GetSortedNodes();
+            var totalNodes = sortedNodes.Count;
+
+            if (totalNodes == 0) return;
+            NodePrepData[] nodeDataPrep;
+            //using (new Timer("异步数据预准备"))
+            {
+                // 预准备节点数据 - 异步执行
+                nodeDataPrep = PrepareNodeDataParallel(sortedNodes);
+            }
+
+
+            //using (new Timer($"UI创建[{nodeDataPrep.Length}]"))
+            {
+                // 第二阶段：渐进式UI创建（主线程小批次）
+                CreateUIProgressively(nodeDataPrep);
+            }
+
+        }
+
+        /// <summary>
+        /// 异步数据预准备阶段 - 在后台线程执行
+        /// </summary>
+        private NodePrepData[] PrepareNodeDataParallel(List<NodeMetadata> sortedNodes)
+        {
+            var prepDataList = new NodePrepData[sortedNodes.Count];
+            //using (new Timer("PrepareNodeDataParallel"))
+            {
+                Parallel.For(0, sortedNodes.Count, (i) =>
+                {
+                    var metadata = sortedNodes[i];
+                    var nodeType = metadata.Node.GetType();
+                    var prepData = new NodePrepData
+                    {
+                        Node = metadata.Node,
+                        NodeType = nodeType,
+                        IsPrefab = metadata.Node.PrefabData != null,
+                        Drawer = DrawerManager.Get(nodeType), // 预获取Drawer
+                        NodeInfo = nodeType.GetCustomAttribute<NodeInfoAttribute>(),
+                        Position = metadata.Node.Position
+                    };
+                    prepDataList[i] = prepData;
+                });
+            }
+            return prepDataList;
+
+        }
+        private void CreateUIProgressively(NodePrepData[] nodeDataPrep)
+        {
+            for (int i = 0; i < nodeDataPrep.Length; i++)
+            {
+                CreateViewNodeOptimized(nodeDataPrep[i]);
             }
         }
 
         /// <summary>
-        /// 并行创建ViewNode - 基于逻辑层排序的优化版本
+        /// 优化的ViewNode创建 - 使用预准备数据
         /// </summary>
-        private async Task CreateViewNodesAsync(CancellationToken cancellationToken)
+        private void CreateViewNodeOptimized(NodePrepData prepData)
         {
-            var sortedNodes = _nodeTree.GetSortedNodes();
-            var batchSize = Math.Max(10, sortedNodes.Count / 4); // 动态批次大小
-            var batches = new List<List<JsonNodeTree.NodeMetadata>>();
-
-            // 将节点分批处理
-            for (int i = 0; i < sortedNodes.Count; i += batchSize)
+            if (NodeDic.ContainsKey(prepData.Node))
             {
-                var batch = sortedNodes.Skip(i).Take(batchSize).ToList();
-                batches.Add(batch);
+                return; // 已存在，跳过
+            }
+            ViewNode viewNode;
+            // 使用预准备的数据快速创建
+            if (prepData.IsPrefab)
+            {
+                viewNode = new PrefabViewNode(prepData.Node, this);
+            }
+            else
+            {
+
+                viewNode = CreateViewNodeFast(prepData);
             }
 
-            // 在主线程中批量创建ViewNode
-            foreach (var batch in batches)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
+            ViewNodes.Add(viewNode);
+            NodeDic.Add(prepData.Node, viewNode);
+            AddElement(viewNode);
 
-                await ExecuteOnMainThreadAsync(() =>
+            // 延迟复杂初始化（可选优化）
+            if (prepData.Drawer != null)
+            {
+                schedule.Execute(() =>
                 {
-                    foreach (var metadata in batch)
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        CreateViewNodeSafe(metadata.Node);
-                    }
-                });
-
-                // 给UI线程喘息的机会
-                await Task.Yield();
+                    CompleteViewNodeInitialization(viewNode, prepData);
+                }).ExecuteLater(1);
             }
+        }
+
+        /// <summary>
+        /// 快速ViewNode创建 - 最小化构造时间
+        /// </summary>
+        private ViewNode CreateViewNodeFast(NodePrepData prepData)
+        {
+            // 创建最基础的ViewNode，延迟复杂初始化
+            var viewNode = new ViewNode(prepData.Node, this);
+            
+            // 应用预准备的位置信息
+            viewNode.SetPosition(new Rect(prepData.Position, new Vector2()));
+            
+            return viewNode;
+        }
+
+        /// <summary>
+        /// 完成ViewNode的延迟初始化
+        /// </summary>
+        private void CompleteViewNodeInitialization(ViewNode viewNode, NodePrepData prepData)
+        {
+            try
+            {
+                // 这里可以添加延迟的复杂初始化逻辑
+                // 例如：复杂的样式应用、动画等
+                viewNode.OnChange();
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"完成ViewNode初始化失败: {e.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 计算最优批次大小 - 同步优化版本
+        /// </summary>
+        private int CalculateOptimalBatchSize(PerformanceTracker tracker, int minSize, int maxSize)
+        {
+            var avgTime = tracker.GetAverageTime();
+            var lastBatchSize = tracker.LastBatchSize;
+            var throughput = tracker.GetAverageThroughput();
+            var isImproving = tracker.IsPerformanceImproving();
+            var stability = tracker.GetTimeStabilityIndex();
+            
+            // 同步处理的目标：每批次耗时在10-25ms之间
+            
+            // 如果性能正在改善且稳定，可以适度增加批次大小
+            if (isImproving && stability < 3) // 稳定性阈值：3ms
+            {
+                if (avgTime < 15)
+                {
+                    return Math.Min(maxSize, lastBatchSize + 2); // 适度增加
+                }
+            }
+            
+            // 基于平均时间的标准调整
+            if (avgTime < 10) // 太快，增加批次大小
+            {
+                int increment = stability < 2 ? 3 : 2; // 稳定时增加更多
+                return Math.Min(maxSize, lastBatchSize + increment);
+            }
+            else if (avgTime > 25) // 太慢，减少批次大小
+            {
+                return Math.Max(minSize, lastBatchSize - 2);
+            }
+            else if (avgTime > 20) // 稍慢，小幅减少
+            {
+                return Math.Max(minSize, lastBatchSize - 1);
+            }
+            
+            // 基于吞吐量的微调
+            if (throughput > 200) // 高吞吐量，可以尝试增加批次
+            {
+                return Math.Min(maxSize, lastBatchSize + 1);
+            }
+            else if (throughput < 50) // 低吞吐量，减少批次
+            {
+                return Math.Max(minSize, lastBatchSize - 1);
+            }
+            
+            return lastBatchSize; // 保持当前大小
+        }
+
+        /// <summary>
+        /// 计算自适应延迟 - 同步优化版本
+        /// </summary>
+        private int CalculateAdaptiveDelay(double batchTime)
+        {
+            // 同步处理的延迟策略：保持UI响应性
+            if (batchTime < 8) return 0;    // 很快，无延迟
+            if (batchTime < 15) return 1;   // 快，短延迟
+            if (batchTime < 25) return 2;   // 正常，标准延迟
+            if (batchTime < 40) return 4;   // 较慢，长延迟
+            return 6;                       // 很慢，更长延迟
         }
 
         public virtual void ApplyChanges(List<ViewChange> changes)
@@ -483,12 +594,6 @@ namespace TreeNode.Editor
         /// </summary>
         public void Redraw()
         {
-            lock (_renderLock)
-            {
-                // 取消当前的渲染任务
-                _renderCancellationSource?.Cancel();
-            }
-
             // 清理现有视图
             ViewNodes.Clear();
             NodeDic.Clear();
@@ -499,7 +604,7 @@ namespace TreeNode.Editor
             InitializeNodeTreeSync();
 
             // 启动异步重新渲染
-            _ = DrawNodesAsync();
+             DrawNodesAsync();
             Window.RemoveChangeMark();
         }
 
@@ -534,5 +639,108 @@ namespace TreeNode.Editor
         }
 
         #endregion
+    }
+
+    /// <summary>
+    /// 节点预准备数据结构
+    /// </summary>
+    public class NodePrepData
+    {
+        public JsonNode Node { get; set; }
+        public Type NodeType { get; set; }
+        public bool IsPrefab { get; set; }
+        public BaseDrawer Drawer { get; set; }
+        public NodeInfoAttribute NodeInfo { get; set; }
+        public Vec2 Position { get; set; }
+    }
+
+    /// <summary>
+    /// 性能跟踪器 - 并行优化版本，支持更精确的性能监控
+    /// </summary>
+    public class PerformanceTracker
+    {
+        private readonly Queue<PerformanceSample> _recentSamples = new Queue<PerformanceSample>();
+        private const int MaxSamples = 15; // 增加样本数量获得更稳定的统计
+        
+        public int LastBatchSize { get; private set; } = 5; // 增加初始批次大小
+
+        /// <summary>
+        /// 性能样本数据
+        /// </summary>
+        private struct PerformanceSample
+        {
+            public double TimeMs { get; set; }
+            public int BatchSize { get; set; }
+            public double Throughput { get; set; } // 吞吐量：节点数/秒
+        }
+
+        public void RecordBatch(double timeMs, int batchSize)
+        {
+            var throughput = batchSize / (timeMs / 1000.0); // 节点数/秒
+            
+            var sample = new PerformanceSample
+            {
+                TimeMs = timeMs,
+                BatchSize = batchSize,
+                Throughput = throughput
+            };
+            
+            _recentSamples.Enqueue(sample);
+            LastBatchSize = batchSize;
+            
+            if (_recentSamples.Count > MaxSamples)
+            {
+                _recentSamples.Dequeue();
+            }
+        }
+
+        public double GetAverageTime()
+        {
+            return _recentSamples.Count > 0 ? _recentSamples.Average(s => s.TimeMs) : 0;
+        }
+
+        /// <summary>
+        /// 获取平均吞吐量
+        /// </summary>
+        public double GetAverageThroughput()
+        {
+            return _recentSamples.Count > 0 ? _recentSamples.Average(s => s.Throughput) : 0;
+        }
+
+        /// <summary>
+        /// 获取性能稳定性指标（标准差）
+        /// </summary>
+        public double GetTimeStabilityIndex()
+        {
+            if (_recentSamples.Count < 3) return 0;
+            
+            var times = _recentSamples.Select(s => s.TimeMs).ToArray();
+            var mean = times.Average();
+            var variance = times.Sum(t => Math.Pow(t - mean, 2)) / times.Length;
+            return Math.Sqrt(variance);
+        }
+
+        /// <summary>
+        /// 获取性能趋势（最近的性能是否在改善）
+        /// </summary>
+        public bool IsPerformanceImproving()
+        {
+            if (_recentSamples.Count < 5) return false;
+            
+            var samples = _recentSamples.ToArray();
+            var recentHalf = samples.Skip(samples.Length / 2).Select(s => s.Throughput).Average();
+            var earlierHalf = samples.Take(samples.Length / 2).Select(s => s.Throughput).Average();
+            
+            return recentHalf > earlierHalf; // 吞吐量提升表示性能改善
+        }
+
+        /// <summary>
+        /// 重置跟踪器
+        /// </summary>
+        public void Reset()
+        {
+            _recentSamples.Clear();
+            LastBatchSize = 5;
+        }
     }
 }

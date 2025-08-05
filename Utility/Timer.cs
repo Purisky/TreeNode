@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
@@ -10,6 +10,7 @@ namespace TreeNode.Utility
         private static Dictionary<string, List<long>> _timings = new();
         private Stopwatch _stopwatch;
         private string _name;
+        public static Action<string> LogAction;
 
         public Timer(string name)
         {
@@ -25,6 +26,7 @@ namespace TreeNode.Utility
                 _timings[_name] = new List<long>();
             }
             _timings[_name].Add(_stopwatch.ElapsedMilliseconds);
+            LogAction?.Invoke($"{_name} took {_stopwatch.ElapsedMilliseconds} ms");
         }
 
         public static string PrintTimings()

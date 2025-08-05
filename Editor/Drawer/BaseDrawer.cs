@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -24,13 +25,15 @@ namespace TreeNode.Editor
 
     public class DrawerManager
     {
-        static Dictionary<Type, BaseDrawer> Drawers;
+        static ConcurrentDictionary<Type, BaseDrawer> Drawers;
         static DrawerManager()
         {
             InitDrawers();
         }
         static void InitDrawers()
         {
+
+            //using Timer timer = new("Init Drawers");
             Drawers = new();
             Type[] types = AppDomain.CurrentDomain.GetAssemblies().SelectMany(a => a.GetTypes()).Where(n => !n.IsAbstract&& n.IsSubclassOf(typeof(BaseDrawer))).ToArray();
             for (int i = 0; i < types.Length; i++)
@@ -108,7 +111,7 @@ namespace TreeNode.Editor
             }
             else
             {
-                Drawers.Add(type, null);
+                Drawers.TryAdd(type, null);
             }
             return false;
         }
