@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -9,6 +10,7 @@ using TreeNode.Utility;
 using UnityEditor;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.UIElements;
 using static TreeNode.Runtime.JsonNodeTree;
 using Timer = TreeNode.Utility.Timer;
@@ -550,10 +552,15 @@ namespace TreeNode.Editor
 
         public Vector2 GetMousePosition()
         {
-            var windowPosition = this.ChangeCoordinatesTo(this, Event.current.mousePosition - Window.position.position);
-            return ViewContainer.WorldToLocal(windowPosition);
+            Vector2 mousePositionInWindow = Mouse.current.position.ReadValue()/ EditorGUIUtility.pixelsPerPoint;
+            mousePositionInWindow.y -= 24;
+            mousePositionInWindow /= scale;
+            Vector2 vector2 = ViewContainer.localBound.position;
+            vector2 /= scale;
+            var graphMousePosition = mousePositionInWindow - vector2;
+            return graphMousePosition;
         }
-
+        
     }
 
     /// <summary>

@@ -16,7 +16,6 @@ namespace TreeNode.Editor
 
         public virtual string Copy(IEnumerable<GraphElement> elements)
         {
-            Debug.Log("Copy");
             if (elements == null || !elements.Any())
                 return string.Empty;
 
@@ -197,9 +196,7 @@ namespace TreeNode.Editor
 
         public virtual bool CanPaste(string data)
         {
-            Debug.Log($"CanPaste:{data}");
             bool canPaste = CanPasteWithUserChoice(data, Asset, out _, out _);
-            Debug.Log($"CanPaste:{canPaste}");
             return canPaste;
         }
 
@@ -213,7 +210,7 @@ namespace TreeNode.Editor
                 if (string.IsNullOrEmpty(data))
                     return false;
 
-                var copyData = JsonUtility.FromJson<CopyPasteData>(data);
+                var copyData = Json.Get<CopyPasteData>(data);
                 if (copyData?.RootNodes == null || !copyData.RootNodes.Any())
                     return false;
 
@@ -377,7 +374,6 @@ namespace TreeNode.Editor
 
         public virtual void Paste(string operationName, string data)
         {
-            Debug.Log("Paste");
             if (CanPasteWithUserChoice(data, Asset, out var finalData, out var errorMessage))
             {
                 PasteWithCleanedData(operationName, finalData);

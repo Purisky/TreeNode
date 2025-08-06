@@ -3,7 +3,8 @@
     "rootNamespace": "TreeNode.Editor",
     "references": [
         "GUID:6d520efc4128be94485c253f88331fa1",
-        "GUID:5aa57a3ff641069429c6484cc6b35f20"
+        "GUID:5aa57a3ff641069429c6484cc6b35f20",
+        "GUID:75469ad4d38634e559750d17036d5f7c"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
