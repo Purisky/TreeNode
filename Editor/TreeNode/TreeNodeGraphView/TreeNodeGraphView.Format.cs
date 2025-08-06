@@ -29,11 +29,11 @@ namespace TreeNode.Editor
         public void FormatNodes()
         {
             if (ViewNodes.Count <= 1) return;
-            
+
             // 初始化数组  
             maxWidthPerDepth = new int[256];
             validYPosPerDepth = new int[256];
-            
+
             // 第一步：计算每个深度层的最大宽度
             for (int i = 0; i < ViewNodes.Count; i++)
             {
@@ -42,9 +42,9 @@ namespace TreeNode.Editor
                 if (depth >= maxWidthPerDepth.Length) { throw new Exception("depth error"); }
                 maxWidthPerDepth[depth] = Math.Max(maxWidthPerDepth[depth], (int)node.localBound.size.x);
             }
-            
+
             // 第二步：找到所有根节点（没有父节点的节点）
-            List<JsonNode> rootNodes = new List<JsonNode>();
+            List<JsonNode> rootNodes = new();
             foreach (var node in Asset.Data.Nodes)
             {
                 if (NodeDic.TryGetValue(node, out ViewNode viewNode))
@@ -80,7 +80,7 @@ namespace TreeNode.Editor
             int maxDepth = viewNode.GetChildMaxDepth();
             int depth = viewNode.GetDepth();
             ViewNode parent = viewNode.GetParent();
-            
+
             // 计算有效的Y位置
             int ValidYPos = parent == null ? 0 : parent.Data.Position.y;
             for (int i = depth; i <= maxDepth; i++)
@@ -88,12 +88,12 @@ namespace TreeNode.Editor
                 //Debug.Log($"[{i}] {ValidYPos}->{validYPosPerDepth[i]}");
                 ValidYPos = Math.Max(ValidYPos, validYPosPerDepth[i]);
             }
-            
+
             // 设置节点位置
             Rect rect = viewNode.localBound;
-            Vec2 newPosition = new  (  GetXPos(depth), ValidYPos );
+            Vec2 newPosition = new(GetXPos(depth), ValidYPos);
             rect.position = newPosition;
-            
+
             // 更新ViewNode位置
             viewNode.SetPosition(rect);
             if (newPosition != viewNode.Data.Position)
@@ -101,14 +101,14 @@ namespace TreeNode.Editor
                 Window.History.Record(new FieldModifyOperation<Vec2>(viewNode.Data, PAPath.Position, viewNode.Data.Position, newPosition, this));
                 viewNode.Data.Position = newPosition;
             }
-            
+
             // 更新有效Y位置
             validYPosPerDepth[depth] = ValidYPos + (int)viewNode.localBound.size.y + Y_SPACE;
             //Debug.Log($"[{depth}] {ValidYPos} -> {validYPosPerDepth[depth]}");
 
 
             // 收集并排序子节点
-            List<JsonNode> childs = new ();
+            List<JsonNode> childs = new();
             if (viewNode.ChildPorts != null)
             {
                 // 按照worldBound.y排序ChildPort以确保正确的顺序
@@ -116,7 +116,7 @@ namespace TreeNode.Editor
                     .Where(port => port != null)
                     .OrderBy(port => port.worldBound.y)
                     .ToList();
-                
+
                 foreach (ChildPort port in childPorts)
                 {
                     try
@@ -133,7 +133,7 @@ namespace TreeNode.Editor
                     }
                 }
             }
-            
+
             // 递归格式化子节点
             foreach (JsonNode child in childs)
             {

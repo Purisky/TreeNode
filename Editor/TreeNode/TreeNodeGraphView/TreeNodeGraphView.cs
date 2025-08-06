@@ -1,20 +1,14 @@
 ﻿using System;
-using System.Collections;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Threading;
 using System.Threading.Tasks;
 using TreeNode.Runtime;
 using TreeNode.Utility;
-using Unity.Properties;
 using UnityEditor;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine;
-using UnityEngine.Profiling.Memory.Experimental;
-using UnityEngine.SocialPlatforms;
 using UnityEngine.UIElements;
 using static TreeNode.Runtime.JsonNodeTree;
 using Timer = TreeNode.Utility.Timer;
@@ -28,7 +22,7 @@ namespace TreeNode.Editor
         public TreeNodeWindowSearchProvider SearchProvider;
         public VisualElement ViewContainer;
         protected ContentZoomer m_Zoomer;
-        
+
 
         #region 构造函数和初始化
 
@@ -36,10 +30,10 @@ namespace TreeNode.Editor
         {
             Window = window;
             style.flexGrow = 1;
-            
+
             // 立即初始化逻辑层树结构
             InitializeNodeTreeSync();
-            
+
             StyleSheet styleSheet = ResourcesUtil.LoadStyleSheet("TreeNodeGraphView");
             styleSheets.Add(styleSheet);
             ViewNodes = new();
@@ -60,9 +54,7 @@ namespace TreeNode.Editor
             this.AddManipulator(new RectangleSelector());
             this.AddManipulator(new ClickSelector());
 
-
-            // 使用优化的异步方式渲染节点
-             DrawNodesAsync();
+            DrawNodesAsync();
 
             SetupZoom(0.2f, 2f);
             canPasteSerializedData = CanPaste;
@@ -209,24 +201,6 @@ namespace TreeNode.Editor
         }
 
         #endregion
-        #region 复制粘贴功能
-
-        public virtual string Copy(IEnumerable<GraphElement> elements)
-        {
-            return "";
-        }
-
-        public virtual bool CanPaste(string data)
-        {
-            return false;
-        }
-
-        public virtual void Paste(string operationName, string data)
-        {
-
-        }
-
-        #endregion
         #region 资源管理和保存
 
         public void MakeDirty()
@@ -245,10 +219,10 @@ namespace TreeNode.Editor
 
         #endregion
 
-        #region 高性能异步渲染系统
+        #region 渲染系统
 
         /// <summary>
-        /// 高性能异步节点渲染 - 优化版本
+        /// 节点渲染
         /// </summary>
         private void DrawNodesAsync()
         {
@@ -267,7 +241,7 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 优化的异步ViewNode创建 - 实现真正的异步优化
+        /// ViewNode创建
         /// </summary>
         private void CreateViewNodesAsyncOptimized()
         {
@@ -292,7 +266,7 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 异步数据预准备阶段 - 在后台线程执行
+        /// 数据预准备阶段
         /// </summary>
         private NodePrepData[] PrepareNodeDataParallel(List<NodeMetadata> sortedNodes)
         {
@@ -382,8 +356,6 @@ namespace TreeNode.Editor
         {
             try
             {
-                // 这里可以添加延迟的复杂初始化逻辑
-                // 例如：复杂的样式应用、动画等
                 viewNode.OnChange();
             }
             catch (Exception e)
@@ -391,70 +363,6 @@ namespace TreeNode.Editor
                 Debug.LogWarning($"完成ViewNode初始化失败: {e.Message}");
             }
         }
-
-        /// <summary>
-        /// 计算最优批次大小 - 同步优化版本
-        /// </summary>
-        private int CalculateOptimalBatchSize(PerformanceTracker tracker, int minSize, int maxSize)
-        {
-            var avgTime = tracker.GetAverageTime();
-            var lastBatchSize = tracker.LastBatchSize;
-            var throughput = tracker.GetAverageThroughput();
-            var isImproving = tracker.IsPerformanceImproving();
-            var stability = tracker.GetTimeStabilityIndex();
-            
-            // 同步处理的目标：每批次耗时在10-25ms之间
-            
-            // 如果性能正在改善且稳定，可以适度增加批次大小
-            if (isImproving && stability < 3) // 稳定性阈值：3ms
-            {
-                if (avgTime < 15)
-                {
-                    return Math.Min(maxSize, lastBatchSize + 2); // 适度增加
-                }
-            }
-            
-            // 基于平均时间的标准调整
-            if (avgTime < 10) // 太快，增加批次大小
-            {
-                int increment = stability < 2 ? 3 : 2; // 稳定时增加更多
-                return Math.Min(maxSize, lastBatchSize + increment);
-            }
-            else if (avgTime > 25) // 太慢，减少批次大小
-            {
-                return Math.Max(minSize, lastBatchSize - 2);
-            }
-            else if (avgTime > 20) // 稍慢，小幅减少
-            {
-                return Math.Max(minSize, lastBatchSize - 1);
-            }
-            
-            // 基于吞吐量的微调
-            if (throughput > 200) // 高吞吐量，可以尝试增加批次
-            {
-                return Math.Min(maxSize, lastBatchSize + 1);
-            }
-            else if (throughput < 50) // 低吞吐量，减少批次
-            {
-                return Math.Max(minSize, lastBatchSize - 1);
-            }
-            
-            return lastBatchSize; // 保持当前大小
-        }
-
-        /// <summary>
-        /// 计算自适应延迟 - 同步优化版本
-        /// </summary>
-        private int CalculateAdaptiveDelay(double batchTime)
-        {
-            // 同步处理的延迟策略：保持UI响应性
-            if (batchTime < 8) return 0;    // 很快，无延迟
-            if (batchTime < 15) return 1;   // 快，短延迟
-            if (batchTime < 25) return 2;   // 正常，标准延迟
-            if (batchTime < 40) return 4;   // 较慢，长延迟
-            return 6;                       // 很慢，更长延迟
-        }
-
         public virtual void ApplyChanges(List<ViewChange> changes)
         {
             //Debug.Log($"应用 {changes.Count} 个变化");
@@ -525,7 +433,7 @@ namespace TreeNode.Editor
 
 
         /// <summary>
-        /// 安全创建ViewNode - 避免重复创建
+        /// 安全创建ViewNode
         /// </summary>
         private void CreateViewNodeSafe(JsonNode node)
         {
@@ -558,7 +466,7 @@ namespace TreeNode.Editor
             }
         }
         /// <summary>
-        /// 在主线程执行异步操作 - Unity编辑器优化版本
+        /// 在主线程执行
         /// </summary>
         private async Task ExecuteOnMainThreadAsync(Action action)
         {
@@ -604,7 +512,7 @@ namespace TreeNode.Editor
             InitializeNodeTreeSync();
 
             // 启动异步重新渲染
-             DrawNodesAsync();
+            DrawNodesAsync();
             Window.RemoveChangeMark();
         }
 
@@ -639,6 +547,13 @@ namespace TreeNode.Editor
         }
 
         #endregion
+
+        public Vector2 GetMousePosition()
+        {
+            var windowPosition = this.ChangeCoordinatesTo(this, Event.current.mousePosition - Window.position.position);
+            return ViewContainer.WorldToLocal(windowPosition);
+        }
+
     }
 
     /// <summary>
@@ -652,95 +567,5 @@ namespace TreeNode.Editor
         public BaseDrawer Drawer { get; set; }
         public NodeInfoAttribute NodeInfo { get; set; }
         public Vec2 Position { get; set; }
-    }
-
-    /// <summary>
-    /// 性能跟踪器 - 并行优化版本，支持更精确的性能监控
-    /// </summary>
-    public class PerformanceTracker
-    {
-        private readonly Queue<PerformanceSample> _recentSamples = new Queue<PerformanceSample>();
-        private const int MaxSamples = 15; // 增加样本数量获得更稳定的统计
-        
-        public int LastBatchSize { get; private set; } = 5; // 增加初始批次大小
-
-        /// <summary>
-        /// 性能样本数据
-        /// </summary>
-        private struct PerformanceSample
-        {
-            public double TimeMs { get; set; }
-            public int BatchSize { get; set; }
-            public double Throughput { get; set; } // 吞吐量：节点数/秒
-        }
-
-        public void RecordBatch(double timeMs, int batchSize)
-        {
-            var throughput = batchSize / (timeMs / 1000.0); // 节点数/秒
-            
-            var sample = new PerformanceSample
-            {
-                TimeMs = timeMs,
-                BatchSize = batchSize,
-                Throughput = throughput
-            };
-            
-            _recentSamples.Enqueue(sample);
-            LastBatchSize = batchSize;
-            
-            if (_recentSamples.Count > MaxSamples)
-            {
-                _recentSamples.Dequeue();
-            }
-        }
-
-        public double GetAverageTime()
-        {
-            return _recentSamples.Count > 0 ? _recentSamples.Average(s => s.TimeMs) : 0;
-        }
-
-        /// <summary>
-        /// 获取平均吞吐量
-        /// </summary>
-        public double GetAverageThroughput()
-        {
-            return _recentSamples.Count > 0 ? _recentSamples.Average(s => s.Throughput) : 0;
-        }
-
-        /// <summary>
-        /// 获取性能稳定性指标（标准差）
-        /// </summary>
-        public double GetTimeStabilityIndex()
-        {
-            if (_recentSamples.Count < 3) return 0;
-            
-            var times = _recentSamples.Select(s => s.TimeMs).ToArray();
-            var mean = times.Average();
-            var variance = times.Sum(t => Math.Pow(t - mean, 2)) / times.Length;
-            return Math.Sqrt(variance);
-        }
-
-        /// <summary>
-        /// 获取性能趋势（最近的性能是否在改善）
-        /// </summary>
-        public bool IsPerformanceImproving()
-        {
-            if (_recentSamples.Count < 5) return false;
-            
-            var samples = _recentSamples.ToArray();
-            var recentHalf = samples.Skip(samples.Length / 2).Select(s => s.Throughput).Average();
-            var earlierHalf = samples.Take(samples.Length / 2).Select(s => s.Throughput).Average();
-            
-            return recentHalf > earlierHalf; // 吞吐量提升表示性能改善
-        }
-
-        /// <summary>
-        /// 重置跟踪器
-        /// </summary>
-        public void Reset()
-        {
-            _recentSamples.Clear();
-            LastBatchSize = 5;
-        }
     }
 }
