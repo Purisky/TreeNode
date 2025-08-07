@@ -73,3 +73,5 @@ crashlytics-build.properties
 LICENSE.meta
 *.Plan.md
 *.Plan.md.meta
+Generator~/bin/*
+Generator~/obj/*

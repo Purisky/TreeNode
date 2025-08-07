@@ -509,7 +509,6 @@ namespace TreeNode.Editor
             NodeDic.Clear();
             ViewContainer.Query<Layer>().ForEach(p => p.Clear());
 
-
             // 重新初始化逻辑层
             InitializeNodeTreeSync();
 

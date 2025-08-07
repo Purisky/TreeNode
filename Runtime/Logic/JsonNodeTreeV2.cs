@@ -1,7 +1,8 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
-using System.Reflection;
 using TreeNode.Runtime.Generated;
 using TreeNode.Runtime.Logic;
 using TreeNode.Utility;
@@ -18,12 +19,12 @@ namespace TreeNode.Runtime.Logic
         #region 内部数据结构
 
         /// <summary>
-        /// 紧凑内存布局的节点记录结构
-        /// 使用值类型减少内存碎片和GC压力
+        /// 紧凑内存布局的节点记录结构 - 合并优化
         /// </summary>
-        private struct NodeRecord
+        private struct CompactNodeRecord
         {
-            public int NodeId;              // 节点ID
+            public JsonNode Node;           // 节点引用
+            public string Path;             // 节点路径
             public int ParentId;            // 父节点ID (-1表示根节点)
             public int FirstChildIndex;     // 第一个子节点在子关系数组中的索引
             public short TypeId;            // 类型ID (用于快速类型查找)
@@ -32,31 +33,21 @@ namespace TreeNode.Runtime.Logic
             public short RenderOrder;       // UI渲染顺序
         }
 
-        /// <summary>
-        /// 类型信息记录
-        /// </summary>
-        private struct TypeRecord
-        {
-            public Type Type;
-            public string TypeName;
-            public INodeAccessor Accessor;
-        }
-
         #endregion
 
-        #region 核心存储结构
+        #region 核心存储结构 - 优化版本
 
-        // 紧凑存储结构 - 数组优化内存布局
-        private NodeRecord[] _nodes;
-        private JsonNode[] _nodeObjects;
-        private string[] _nodePaths;
+        // 合并的紧凑存储结构 - 减少内存访问和提高缓存局部性
+        private CompactNodeRecord[] _compactNodes;
         private List<int> _childRelations;  // 子节点ID列表，按FirstChildIndex索引
         
-        // 快速查找索引
+        // 优化的查找索引 - 预缓存访问器
         private Dictionary<JsonNode, int> _nodeToId;
         private Dictionary<string, int> _pathToId;
         private Dictionary<Type, short> _typeToId;
-        private TypeRecord[] _typeRecords;
+        
+        // 静态的访问器缓存 - 优化方案1：减少重复创建
+        private static readonly ConcurrentDictionary<Type, INodeAccessor> _staticAccessorCache = new();
         
         // 访问器提供者
         private readonly INodeAccessorProvider _accessorProvider;
@@ -74,10 +65,12 @@ namespace TreeNode.Runtime.Logic
         /// <summary>
         /// 构造函数
         /// </summary>
-        public JsonNodeTreeV2(TreeNodeAsset asset, INodeAccessorProvider accessorProvider = null)
+        public JsonNodeTreeV2(TreeNodeAsset asset, [NotNull]INodeAccessorProvider accessorProvider)
         {
             _asset = asset ?? throw new ArgumentNullException(nameof(asset));
-            _accessorProvider = accessorProvider ?? new ExpressionTreeAccessorGenerator();
+            _accessorProvider = accessorProvider ?? throw new ArgumentNullException(nameof(accessorProvider));
+            
+            // 静态访问器缓存无需初始化
             
             _capacity = 1024; // 初始容量
             InitializeStorage();
@@ -107,15 +100,12 @@ namespace TreeNode.Runtime.Logic
         /// </summary>
         private void InitializeStorage()
         {
-            _nodes = new NodeRecord[_capacity];
-            _nodeObjects = new JsonNode[_capacity];
-            _nodePaths = new string[_capacity];
+            _compactNodes = new CompactNodeRecord[_capacity];
             _childRelations = new List<int>();
             
             _nodeToId = new Dictionary<JsonNode, int>();
             _pathToId = new Dictionary<string, int>();
             _typeToId = new Dictionary<Type, short>();
-            _typeRecords = new TypeRecord[256]; // 最多256种类型
             
             _nodeCount = 0;
         }
@@ -126,43 +116,32 @@ namespace TreeNode.Runtime.Logic
         private void ExpandCapacity()
         {
             var newCapacity = _capacity * 2;
-            Array.Resize(ref _nodes, newCapacity);
-            Array.Resize(ref _nodeObjects, newCapacity);
-            Array.Resize(ref _nodePaths, newCapacity);
+            Array.Resize(ref _compactNodes, newCapacity);
             _capacity = newCapacity;
         }
 
         #endregion
 
-        #region 核心重建方法
+        #region 核心重建方法 - 优化版本
 
         /// <summary>
-        /// 重新构建整个树结构 - 高性能版本
+        /// 重新构建整个树结构 - 优化的单次遍历版本
         /// </summary>
         public void RebuildTree()
         {
-            using (new Timer("JsonNodeTreeV2.RebuildTree"))
-            {
-                // 1. 清理现有数据
-                ClearExistingData();
-                
-                // 2. 收集所有节点 - O(N)
-                var allNodes = CollectAllNodesOptimized();
-                
-                // 3. 分配存储空间
-                EnsureCapacity(allNodes.Count);
-                
-                // 4. 并行处理节点基础信息
-                ProcessNodesInParallel(allNodes);
-                
-                // 5. 构建父子关系和路径索引
-                BuildRelationshipsAndPaths();
-                
-                // 6. 计算深度和渲染顺序
-                CalculateDepthsAndOrders();
-                
-                _isDirty = false;
-            }
+            // 1. 清理现有数据
+            ClearExistingData();
+            
+            // 2. 收集所有节点并预缓存访问器
+            var allNodes = CollectAllNodesAndCacheAccessors();
+            
+            // 3. 分配存储空间
+            EnsureCapacity(allNodes.Count);
+            
+            // 4. 优化的单次处理：合并多个阶段到一次遍历中
+            BuildTreeOptimized(allNodes);
+            
+            _isDirty = false;
         }
 
         /// <summary>
@@ -170,109 +149,108 @@ namespace TreeNode.Runtime.Logic
         /// </summary>
         private void ClearExistingData()
         {
-            _nodeCount = 0;
-            _childRelations.Clear();
             _nodeToId.Clear();
             _pathToId.Clear();
+            _childRelations.Clear();
             
-            // 快速清零数组的关键部分
-            if (_nodes.Length > 0)
+            // 清理访问器缓存中不再需要的条目
+            // 保留缓存以提高重复重建的性能
+            
+            _nodeCount = 0;
+        }
+
+        /// <summary>
+        /// 收集所有节点并预缓存访问器 - 优化方案1
+        /// </summary>
+        private List<JsonNode> CollectAllNodesAndCacheAccessors()
+        {
+            var allNodes = new List<JsonNode>();
+            var visited = new HashSet<JsonNode>();
+            var uniqueTypes = new HashSet<Type>();
+            
+            // 获取根节点并开始收集
+            if (_asset?.Nodes != null)
             {
-                Array.Clear(_nodes, 0, _nodeCount);
-                Array.Clear(_nodeObjects, 0, _nodeCount);
-                Array.Clear(_nodePaths, 0, _nodeCount);
+                foreach (var rootNode in _asset.Nodes.Where(n => n != null))
+                {
+                    CollectNodeTreeRecursiveOptimized(rootNode, allNodes, visited, uniqueTypes);
+                }
+            }
+            
+            // 预缓存所有访问器 - 避免重复获取
+            PreCacheAccessors(uniqueTypes);
+            
+            return allNodes;
+        }
+        
+        /// <summary>
+        /// 递归收集节点并记录类型 - 优化版本
+        /// </summary>
+        private void CollectNodeTreeRecursiveOptimized(JsonNode node, List<JsonNode> allNodes, 
+            HashSet<JsonNode> visited, HashSet<Type> uniqueTypes)
+        {
+            if (node == null || visited.Contains(node))
+                return;
+                
+            visited.Add(node);
+            allNodes.Add(node);
+            uniqueTypes.Add(node.GetType()); // 记录类型用于预缓存
+            
+            try
+            {
+                // 获取预缓存的访问器（如果有）或使用提供者
+                var accessor = GetCachedAccessor(node.GetType());
+                var children = new List<JsonNode>();
+                accessor.CollectChildren(node, children);
+                
+                // 递归处理子节点
+                foreach (var child in children.Where(c => c != null))
+                {
+                    CollectNodeTreeRecursiveOptimized(child, allNodes, visited, uniqueTypes);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to collect children for {node.GetType().Name}: {ex.Message}");
             }
         }
 
         /// <summary>
-        /// 高效收集所有节点 - 使用访问器优化
+        /// 预缓存访问器 - 优化方案1：使用静态缓存
         /// </summary>
-        private List<JsonNode> CollectAllNodesOptimized()
+        private void PreCacheAccessors(HashSet<Type> uniqueTypes)
         {
-            var allNodes = new HashSet<JsonNode>();
-            var nodeQueue = new Queue<JsonNode>();
-            
-            // 从根节点开始
-            foreach (var rootNode in _asset.Nodes)
+            foreach (var type in uniqueTypes)
             {
-                if (rootNode != null)
+                if (!_staticAccessorCache.ContainsKey(type))
                 {
-                    nodeQueue.Enqueue(rootNode);
-                }
-            }
-            
-            // 使用队列进行广度优先遍历，避免递归栈溢出
-            while (nodeQueue.Count > 0)
-            {
-                var currentNode = nodeQueue.Dequeue();
-                
-                if (allNodes.Contains(currentNode))
-                    continue;
-                    
-                allNodes.Add(currentNode);
-                
-                // 使用高性能访问器收集子节点
-                try
-                {
-                    var accessor = _accessorProvider.GetAccessor(currentNode.GetType());
-                    var children = new List<JsonNode>();
-                    accessor.CollectChildren(currentNode, children);
-                    
-                    foreach (var child in children)
+                    try
                     {
-                        if (child != null && !allNodes.Contains(child))
-                        {
-                            nodeQueue.Enqueue(child);
-                        }
+                        var accessor = _accessorProvider.GetAccessor(type);
+                        _staticAccessorCache.TryAdd(type, accessor);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Failed to cache accessor for {type.Name}: {ex.Message}");
                     }
                 }
-                catch (Exception ex)
-                {
-                    // 如果访问器失败，回退到反射方式
-                    Debug.LogWarning($"Accessor failed for {currentNode.GetType().Name}, falling back to reflection: {ex.Message}");
-                    CollectChildrenFallback(currentNode, nodeQueue, allNodes);
-                }
             }
-            
-            return allNodes.ToList();
         }
 
         /// <summary>
-        /// 回退到反射方式收集子节点
+        /// 获取缓存的访问器 - 使用静态缓存
         /// </summary>
-        private void CollectChildrenFallback(JsonNode node, Queue<JsonNode> queue, HashSet<JsonNode> visited)
+        private INodeAccessor GetCachedAccessor(Type nodeType)
         {
-            var type = node.GetType();
-            var members = type.GetMembers(BindingFlags.Public | BindingFlags.Instance)
-                .Where(m => m.MemberType == MemberTypes.Property || m.MemberType == MemberTypes.Field)
-                .Where(m => m.GetCustomAttribute<ChildAttribute>() != null || 
-                           m.GetCustomAttribute<TitlePortAttribute>() != null);
-            
-            foreach (var member in members)
+            if (_staticAccessorCache.TryGetValue(nodeType, out var cachedAccessor))
             {
-                try
-                {
-                    var value = member.GetValue(node);
-                    if (value is JsonNode childNode && !visited.Contains(childNode))
-                    {
-                        queue.Enqueue(childNode);
-                    }
-                    else if (value is System.Collections.IEnumerable enumerable && !(value is string))
-                    {
-                        foreach (var item in enumerable)
-                        {
-                            if (item is JsonNode child && !visited.Contains(child))
-                            {
-                                queue.Enqueue(child);
-                            }
-                        }
-                    }
-                }
-                catch
-                {
-                    // 跳过无法访问的成员
-                }
+                return cachedAccessor;
             }
+            
+            // 如果缓存中没有，获取并缓存
+            var accessor = _accessorProvider.GetAccessor(nodeType);
+            _staticAccessorCache.TryAdd(nodeType, accessor);
+            return accessor;
         }
 
         /// <summary>
@@ -287,12 +265,27 @@ namespace TreeNode.Runtime.Logic
         }
 
         /// <summary>
-        /// 并行处理节点基础信息
+        /// 优化的树构建 - 合并多个处理阶段 (优化方案3)
         /// </summary>
-        private void ProcessNodesInParallel(List<JsonNode> allNodes)
+        private void BuildTreeOptimized(List<JsonNode> allNodes)
         {
             _nodeCount = allNodes.Count;
             
+            // 第一阶段：创建类型映射和节点基础信息
+            CreateTypeMappingAndBasicInfo(allNodes);
+            
+            // 第二阶段：构建父子关系和路径 - 合并处理
+            BuildRelationshipsAndPathsOptimized();
+            
+            // 第三阶段：优化子关系存储
+            OptimizeChildRelationsStorage();
+        }
+
+        /// <summary>
+        /// 创建类型映射和节点基础信息
+        /// </summary>
+        private void CreateTypeMappingAndBasicInfo(List<JsonNode> allNodes)
+        {
             // 创建类型映射
             var typeSet = new HashSet<Type>();
             foreach (var node in allNodes)
@@ -302,15 +295,16 @@ namespace TreeNode.Runtime.Logic
             
             RegisterTypes(typeSet);
             
-            // 并行设置节点基础信息
-            System.Threading.Tasks.Parallel.For(0, _nodeCount, i =>
+            // 设置节点基础信息
+            for (int i = 0; i < _nodeCount; i++)
             {
                 var node = allNodes[i];
                 var typeId = _typeToId[node.GetType()];
                 
-                _nodes[i] = new NodeRecord
+                _compactNodes[i] = new CompactNodeRecord
                 {
-                    NodeId = i,
+                    Node = node,
+                    Path = "", // 稍后设置
                     ParentId = -1, // 稍后设置
                     FirstChildIndex = -1, // 稍后设置
                     TypeId = typeId,
@@ -319,11 +313,10 @@ namespace TreeNode.Runtime.Logic
                     RenderOrder = 0 // 稍后计算
                 };
                 
-                _nodeObjects[i] = node;
                 _nodeToId[node] = i;
-            });
+            }
         }
-
+        
         /// <summary>
         /// 注册类型
         /// </summary>
@@ -335,44 +328,39 @@ namespace TreeNode.Runtime.Logic
                 if (!_typeToId.ContainsKey(type))
                 {
                     _typeToId[type] = typeId;
-                    _typeRecords[typeId] = new TypeRecord
-                    {
-                        Type = type,
-                        TypeName = type.Name,
-                        Accessor = _accessorProvider.GetAccessor(type)
-                    };
                     typeId++;
                 }
             }
         }
 
         /// <summary>
-        /// 构建父子关系和路径索引
+        /// 构建父子关系和路径 - 优化合并版本
         /// </summary>
-        private void BuildRelationshipsAndPaths()
+        private void BuildRelationshipsAndPathsOptimized()
         {
-            // 设置根节点路径
+            // 第一阶段：设置根节点路径
             for (int i = 0; i < _asset.Nodes.Count && i < _nodeCount; i++)
             {
                 var rootNode = _asset.Nodes[i];
                 if (_nodeToId.TryGetValue(rootNode, out var nodeId))
                 {
-                    _nodePaths[nodeId] = $"[{i}]";
-                    _pathToId[_nodePaths[nodeId]] = nodeId;
+                    var rootPath = $"[{i}]";
+                    var record = _compactNodes[nodeId];
+                    record.Path = rootPath;
+                    _compactNodes[nodeId] = record;
+                    _pathToId[rootPath] = nodeId;
                 }
             }
             
-            // 构建父子关系
-            var childRelationsTemp = new List<List<int>>();
-            for (int i = 0; i < _nodeCount; i++)
-            {
-                childRelationsTemp.Add(new List<int>());
-            }
+            // 第二阶段：单次遍历构建关系和路径
+            var childRelationsTemp = new Dictionary<int, List<int>>();
             
             for (int parentId = 0; parentId < _nodeCount; parentId++)
             {
-                var parentNode = _nodeObjects[parentId];
-                var accessor = _typeRecords[_nodes[parentId].TypeId].Accessor;
+                var parentRecord = _compactNodes[parentId];
+                var parentNode = parentRecord.Node;
+                var accessor = GetCachedAccessor(parentNode.GetType()); // 直接使用静态缓存获取访问器
+                var localChildren = new List<int>();
                 
                 try
                 {
@@ -384,14 +372,18 @@ namespace TreeNode.Runtime.Logic
                         if (_nodeToId.TryGetValue(childNode, out var childId))
                         {
                             // 设置父子关系
-                            _nodes[childId].ParentId = parentId;
-                            _nodes[childId].RenderOrder = (short)renderOrder;
-                            childRelationsTemp[parentId].Add(childId);
+                            var childRecord = _compactNodes[childId];
+                            childRecord.ParentId = parentId;
+                            childRecord.RenderOrder = (short)renderOrder;
                             
                             // 构建完整路径
-                            var fullPath = string.IsNullOrEmpty(_nodePaths[parentId]) ? localPath : $"{_nodePaths[parentId]}.{localPath}";
-                            _nodePaths[childId] = fullPath;
+                            var parentPath = parentRecord.Path;
+                            var fullPath = string.IsNullOrEmpty(parentPath) ? localPath : $"{parentPath}.{localPath}";
+                            childRecord.Path = fullPath;
+                            _compactNodes[childId] = childRecord;
                             _pathToId[fullPath] = childId;
+                            
+                            localChildren.Add(childId);
                         }
                     }
                 }
@@ -399,78 +391,99 @@ namespace TreeNode.Runtime.Logic
                 {
                     Debug.LogWarning($"Failed to build relationships for {parentNode.GetType().Name}: {ex.Message}");
                 }
+                
+                if (localChildren.Count > 0)
+                {
+                    childRelationsTemp[parentId] = localChildren;
+                }
             }
             
-            // 优化子关系存储
-            OptimizeChildRelations(childRelationsTemp);
+            // 第三阶段：优化子关系存储和计算深度
+            OptimizeChildRelationsAndDepth(childRelationsTemp);
         }
 
         /// <summary>
-        /// 优化子关系存储
+        /// 优化子关系存储和计算深度 - 合并操作
         /// </summary>
-        private void OptimizeChildRelations(List<List<int>> childRelationsTemp)
+        private void OptimizeChildRelationsAndDepth(Dictionary<int, List<int>> childRelationsTemp)
         {
             _childRelations.Clear();
             
             for (int parentId = 0; parentId < _nodeCount; parentId++)
             {
-                var children = childRelationsTemp[parentId];
-                if (children.Count == 0)
-                {
-                    _nodes[parentId].FirstChildIndex = -1;
-                    _nodes[parentId].ChildCount = 0;
-                }
-                else
+                var parentRecord = _compactNodes[parentId];
+                
+                if (childRelationsTemp.TryGetValue(parentId, out var children))
                 {
                     // 按渲染顺序排序
                     children.Sort((a, b) =>
                     {
-                        var orderA = _nodes[a].RenderOrder;
-                        var orderB = _nodes[b].RenderOrder;
+                        var orderA = _compactNodes[a].RenderOrder;
+                        var orderB = _compactNodes[b].RenderOrder;
                         return orderA.CompareTo(orderB);
                     });
                     
-                    _nodes[parentId].FirstChildIndex = _childRelations.Count;
-                    _nodes[parentId].ChildCount = (short)children.Count;
+                    parentRecord.FirstChildIndex = _childRelations.Count;
+                    parentRecord.ChildCount = (short)children.Count;
                     _childRelations.AddRange(children);
                 }
+                else
+                {
+                    parentRecord.FirstChildIndex = -1;
+                    parentRecord.ChildCount = 0;
+                }
+                
+                _compactNodes[parentId] = parentRecord;
             }
+            
+            // 计算深度 - 从根节点开始
+            CalculateDepthsOptimized();
         }
 
         /// <summary>
-        /// 计算深度和渲染顺序
+        /// 优化的深度计算
         /// </summary>
-        private void CalculateDepthsAndOrders()
+        private void CalculateDepthsOptimized()
         {
-            // 从根节点开始计算深度
             for (int i = 0; i < _asset.Nodes.Count && i < _nodeCount; i++)
             {
                 var rootNode = _asset.Nodes[i];
                 if (_nodeToId.TryGetValue(rootNode, out var rootId))
                 {
-                    CalculateDepthRecursively(rootId, 0);
+                    CalculateDepthRecursive(rootId, 0);
                 }
             }
         }
-
+        
         /// <summary>
         /// 递归计算深度
         /// </summary>
-        private void CalculateDepthRecursively(int nodeId, short depth)
+        private void CalculateDepthRecursive(int nodeId, short depth)
         {
-            _nodes[nodeId].Depth = depth;
+            var nodeRecord = _compactNodes[nodeId];
+            nodeRecord.Depth = depth;
+            _compactNodes[nodeId] = nodeRecord;
             
-            var firstChildIndex = _nodes[nodeId].FirstChildIndex;
-            var childCount = _nodes[nodeId].ChildCount;
+            var firstChildIndex = nodeRecord.FirstChildIndex;
+            var childCount = nodeRecord.ChildCount;
             
             if (firstChildIndex >= 0 && childCount > 0)
             {
                 for (int i = 0; i < childCount; i++)
                 {
                     var childId = _childRelations[firstChildIndex + i];
-                    CalculateDepthRecursively(childId, (short)(depth + 1));
+                    CalculateDepthRecursive(childId, (short)(depth + 1));
                 }
             }
+        }
+
+        /// <summary>
+        /// 优化子关系存储 - 简化版本
+        /// </summary>
+        private void OptimizeChildRelationsStorage()
+        {
+            // 这个方法在优化版本中已经合并到其他方法中
+            // 保留为兼容性接口
         }
 
         #endregion
@@ -478,7 +491,7 @@ namespace TreeNode.Runtime.Logic
         #region 高性能查询接口
 
         /// <summary>
-        /// 根据路径获取节点 - 直接索引查找 O(1)
+        /// 根据路径获取节点 O(1)
         /// </summary>
         public JsonNode GetNodeByPath(string path)
         {
@@ -487,11 +500,11 @@ namespace TreeNode.Runtime.Logic
                 return null;
             }
             
-            return _nodeObjects[nodeId];
+            return nodeId < _nodeCount ? _compactNodes[nodeId].Node : null;
         }
 
         /// <summary>
-        /// 获取子节点 - 基于紧凑存储的高效迭代
+        /// 获取子节点
         /// </summary>
         public IEnumerable<JsonNode> GetChildren(JsonNode node)
         {
@@ -500,21 +513,24 @@ namespace TreeNode.Runtime.Logic
                 yield break;
             }
             
-            var firstChildIndex = _nodes[nodeId].FirstChildIndex;
-            var childCount = _nodes[nodeId].ChildCount;
+            if (nodeId >= _nodeCount) yield break;
+            
+            var record = _compactNodes[nodeId];
+            var firstChildIndex = record.FirstChildIndex;
+            var childCount = record.ChildCount;
             
             if (firstChildIndex >= 0 && childCount > 0)
             {
                 for (int i = 0; i < childCount; i++)
                 {
                     var childId = _childRelations[firstChildIndex + i];
-                    yield return _nodeObjects[childId];
+                    yield return _compactNodes[childId].Node;
                 }
             }
         }
 
         /// <summary>
-        /// 获取子节点数量 - O(1)
+        /// 获取子节点数量 O(1)
         /// </summary>
         public int GetChildCount(JsonNode node)
         {
@@ -523,11 +539,11 @@ namespace TreeNode.Runtime.Logic
                 return 0;
             }
             
-            return _nodes[nodeId].ChildCount;
+            return nodeId < _nodeCount ? _compactNodes[nodeId].ChildCount : 0;
         }
 
         /// <summary>
-        /// 检查是否有子节点 - O(1)
+        /// 检查是否有子节点 O(1)
         /// </summary>
         public bool HasChildren(JsonNode node)
         {
@@ -536,11 +552,11 @@ namespace TreeNode.Runtime.Logic
                 return false;
             }
             
-            return _nodes[nodeId].ChildCount > 0;
+            return nodeId < _nodeCount && _compactNodes[nodeId].ChildCount > 0;
         }
 
         /// <summary>
-        /// 获取节点深度 - O(1)
+        /// 获取节点深度 O(1)
         /// </summary>
         public int GetDepth(JsonNode node)
         {
@@ -549,11 +565,11 @@ namespace TreeNode.Runtime.Logic
                 return -1;
             }
             
-            return _nodes[nodeId].Depth;
+            return nodeId < _nodeCount ? _compactNodes[nodeId].Depth : -1;
         }
 
         /// <summary>
-        /// 获取父节点 - O(1)
+        /// 获取父节点 O(1)
         /// </summary>
         public JsonNode GetParent(JsonNode node)
         {
@@ -562,16 +578,10 @@ namespace TreeNode.Runtime.Logic
                 return null;
             }
             
-            var parentId = _nodes[nodeId].ParentId;
-            return parentId >= 0 ? _nodeObjects[parentId] : null;
-        }
-
-        /// <summary>
-        /// 获取根节点列表
-        /// </summary>
-        public IEnumerable<JsonNode> GetRootNodes()
-        {
-            return _asset.Nodes.Where(n => n != null);
+            if (nodeId >= _nodeCount) return null;
+            
+            var parentId = _compactNodes[nodeId].ParentId;
+            return parentId >= 0 ? _compactNodes[parentId].Node : null;
         }
 
         /// <summary>
@@ -581,7 +591,7 @@ namespace TreeNode.Runtime.Logic
         {
             for (int i = 0; i < _nodeCount; i++)
             {
-                yield return _nodeObjects[i];
+                yield return _compactNodes[i].Node;
             }
         }
 
@@ -629,8 +639,6 @@ namespace TreeNode.Runtime.Logic
         /// </summary>
         public void OnNodeModified(JsonNode node)
         {
-            // 对于小幅修改，可以考虑增量更新
-            // 这里先简单标记为脏数据
             MarkDirty();
         }
 
@@ -644,7 +652,8 @@ namespace TreeNode.Runtime.Logic
         public string GetPerformanceStats()
         {
             return $"Nodes: {_nodeCount}, Capacity: {_capacity}, " +
-                   $"Types: {_typeToId.Count}, Child Relations: {_childRelations.Count}";
+                   $"Types: {_typeToId.Count}, Child Relations: {_childRelations.Count}, " +
+                   $"Static Cached Accessors: {_staticAccessorCache.Count}";
         }
 
         /// <summary>
@@ -662,26 +671,26 @@ namespace TreeNode.Runtime.Logic
                 // 检查父子关系一致性
                 for (int i = 0; i < _nodeCount; i++)
                 {
-                    var node = _nodes[i];
+                    var record = _compactNodes[i];
                     
                     // 检查子节点关系
-                    if (node.FirstChildIndex >= 0)
+                    if (record.FirstChildIndex >= 0)
                     {
-                        if (node.FirstChildIndex + node.ChildCount > _childRelations.Count)
+                        if (record.FirstChildIndex + record.ChildCount > _childRelations.Count)
                             return false;
                             
-                        for (int j = 0; j < node.ChildCount; j++)
+                        for (int j = 0; j < record.ChildCount; j++)
                         {
-                            var childId = _childRelations[node.FirstChildIndex + j];
+                            var childId = _childRelations[record.FirstChildIndex + j];
                             if (childId < 0 || childId >= _nodeCount) return false;
-                            if (_nodes[childId].ParentId != i) return false;
+                            if (_compactNodes[childId].ParentId != i) return false;
                         }
                     }
                     
                     // 检查父节点关系
-                    if (node.ParentId >= 0)
+                    if (record.ParentId >= 0)
                     {
-                        if (node.ParentId >= _nodeCount) return false;
+                        if (record.ParentId >= _nodeCount) return false;
                     }
                 }
                 
@@ -693,6 +702,22 @@ namespace TreeNode.Runtime.Logic
             }
         }
 
+        /// <summary>
+        /// 释放资源
+        /// </summary>
+        public void Dispose()
+        {
+            // 静态缓存不需要在实例销毁时清理
+            // 只在应用程序退出时清理：ClearStaticCache()
+        }
+
+        /// <summary>
+        /// 清理静态访问器缓存 - 应用程序级别的清理
+        /// </summary>
+        public static void ClearStaticCache()
+        {
+            _staticAccessorCache.Clear();
+        }
         #endregion
     }
 }
