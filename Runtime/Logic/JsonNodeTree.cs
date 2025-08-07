@@ -10,7 +10,7 @@ using UnityEngine;
 namespace TreeNode.Runtime
 {
     /// <summary>
-    /// JsonNode树状逻辑处理器 - 高性能版本，使用缓存和UI渲染顺序优化
+    /// JsonNode树状逻辑处理器
     /// 提供高性能的节点查询、遍历和操作功能
     /// </summary>
     public class JsonNodeTree
