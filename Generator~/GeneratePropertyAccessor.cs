@@ -103,13 +103,16 @@ namespace TreeNodeSourceGenerator
             sb.AppendLine("        public override T GetValueInternal<T>(PAPath path)");
             if (members.Count == 0)
             {
-                sb.AppendLine("            {throw new NotSupportedException(\"No readable properties or fields available for getting value.\");}");
+                sb.AppendLine("        {");
+                sb.AppendLine("            throw new NotSupportedException(\"No readable properties or fields available for getting value.\");");
+                sb.AppendLine("        }");
                 return;
             }
             sb.AppendLine("        {");
             sb.AppendLine("            PAPart first = path.FirstPart;");
-            sb.AppendLine($"            if (first.IsIndex){{throw new NotSupportedException($\"Index access not supported by {nodeType.Name}\");}}");
-            sb.AppendLine("            if (path.Parts.Length == 1) {");
+            sb.AppendLine($"            if (first.IsIndex) {{ throw new NotSupportedException($\"Index access not supported by {nodeType.Name}\"); }}");
+            sb.AppendLine("            if (path.Parts.Length == 1)");
+            sb.AppendLine("            {");
             GenerateSinglePathGetterLogic(sb, members);
             sb.AppendLine("            }");
             GenerateMultiPathGetterLogic(sb, members);
@@ -119,18 +122,17 @@ namespace TreeNodeSourceGenerator
 
         private void GenerateSinglePathGetterLogic(StringBuilder sb, List<AccessibleMemberInfo> members)
         {
-            sb.AppendLine("                    switch (first.Name)");
-            sb.AppendLine("                    {");
+            sb.AppendLine("                switch (first.Name)");
+            sb.AppendLine("                {");
 
             foreach (var member in members)
             {
-                sb.AppendLine($"                        case \"{member.Name}\":");
-                sb.AppendLine($"                            return ({member.Name} is T _{member.Name}) ? _{member.Name} : default(T);");
+                sb.AppendLine($"                    case \"{member.Name}\":");
+                sb.AppendLine($"                        return ({member.Name} is T _{member.Name}) ? _{member.Name} : default(T);");
             }
-            sb.AppendLine("                        default:");
-            sb.AppendLine("                            throw new NotSupportedException($\"Property '{first.Name}' not found\");");
-            sb.AppendLine("                    }");
-            sb.AppendLine();
+            sb.AppendLine("                    default:");
+            sb.AppendLine("                        throw new NotSupportedException($\"Property '{first.Name}' not found\");");
+            sb.AppendLine("                }");
         }
 
         private void GenerateMultiPathGetterLogic(StringBuilder sb, List<AccessibleMemberInfo> members)
@@ -138,93 +140,87 @@ namespace TreeNodeSourceGenerator
             var multiPathMembers = members.Where(m => m.HasNestedAccess || m.IsCollection).ToList();
             if (multiPathMembers.Count == 0) return;
 
-            sb.AppendLine("                    switch (first.Name)");
-            sb.AppendLine("                    {");
+            sb.AppendLine("            switch (first.Name)");
+            sb.AppendLine("            {");
 
             foreach (var member in multiPathMembers)
             {
-                sb.AppendLine($"                        case \"{member.Name}\":");
+                sb.AppendLine($"                case \"{member.Name}\":");
 
                 if (member.IsCollection)
                 {
-                    sb.AppendLine("                            if (path.Parts.Length > 1 && path.Parts[1].IsIndex)");
+                    sb.AppendLine("                    if (path.Parts.Length > 1 && path.Parts[1].IsIndex)");
+                    sb.AppendLine("                    {");
+                    sb.AppendLine($"                        if ({member.Name} != null && path.Parts[1].Index >= 0 && path.Parts[1].Index < {member.Name}.Count)");
+                    sb.AppendLine("                        {");
+                    sb.AppendLine($"                            var item = {member.Name}[path.Parts[1].Index];");
+                    sb.AppendLine("                            if (item != null)");
                     sb.AppendLine("                            {");
-                    sb.AppendLine($"                                if ({member.Name} != null && path.Parts[1].Index >= 0 && path.Parts[1].Index < {member.Name}.Count)");
+                    sb.AppendLine("                                if (path.Parts.Length == 2)");
                     sb.AppendLine("                                {");
-                    sb.AppendLine($"                                    var item = {member.Name}[path.Parts[1].Index];");
-                    sb.AppendLine("                                    if (item != null)");
-                    sb.AppendLine("                                    {");
-                    sb.AppendLine("                                        if (path.Parts.Length == 2)");
-                    sb.AppendLine("                                        {");
-                    sb.AppendLine("                                            return (item is T directValue) ? directValue : default(T);");
-                    sb.AppendLine("                                        }");
-                    sb.AppendLine("                                        else");
-                    sb.AppendLine("                                        {");
-                    sb.AppendLine("                                            var remainingPath = new PAPath(path.Parts.Skip(2).ToArray());");
+                    sb.AppendLine("                                    return (item is T directValue) ? directValue : default(T);");
+                    sb.AppendLine("                                }");
+                    sb.AppendLine("                                else");
+                    sb.AppendLine("                                {");
+                    sb.AppendLine("                                    var remainingPath = new PAPath(path.Parts.Skip(2).ToArray());");
 
                     if (member.ElementType != null && ImplementsIPropertyAccessor(member.ElementType))
                     {
-                        sb.AppendLine("                                            return ((IPropertyAccessor)item).GetValueInternal<T>(remainingPath);");
+                        sb.AppendLine("                                    return ((IPropertyAccessor)item).GetValueInternal<T>(remainingPath);");
                     }
                     else
                     {
-                        sb.AppendLine("                                            return PropertyAccessor.GetValue<T>(item, remainingPath.ToString());");
+                        sb.AppendLine("                                    return PropertyAccessor.GetValue<T>(item, remainingPath.ToString());");
                     }
 
-                    sb.AppendLine("                                        }");
-                    sb.AppendLine("                                    }");
                     sb.AppendLine("                                }");
                     sb.AppendLine("                            }");
-                    sb.AppendLine("                            else");
-                    sb.AppendLine("                            {");
-                    sb.AppendLine($"                                if ({member.Name} != null)");
-                    sb.AppendLine("                                {");
-                    sb.AppendLine("                                    var remainingPath = new PAPath(path.Parts.Skip(1).ToArray());");
-                    sb.AppendLine($"                                    return PropertyAccessor.GetValue<T>({member.Name}, remainingPath.ToString());");
-                    sb.AppendLine("                                }");
-                    sb.AppendLine("                            }");
+                    sb.AppendLine("                        }");
+                    sb.AppendLine("                    }");
+                    sb.AppendLine("                    else");
+                    sb.AppendLine("                    {");
+                    sb.AppendLine($"                        if ({member.Name} != null)");
+                    sb.AppendLine("                        {");
+                    sb.AppendLine("                            var remainingPath = new PAPath(path.Parts.Skip(1).ToArray());");
+                    sb.AppendLine($"                            return PropertyAccessor.GetValue<T>({member.Name}, remainingPath.ToString());");
+                    sb.AppendLine("                        }");
+                    sb.AppendLine("                    }");
+                    sb.AppendLine("                    break;");
                 }
                 else if (member.HasNestedAccess)
                 {
+                    string content = member.ImplementsIPropertyAccessor?
+                    $"return {member.Name}.GetValueInternal<T>(path.SkipFirst);" :
+                    $"return PropertyAccessor.GetValue<T>({member.Name}, path.SkipFirst);";
+                    string nullCheck = member.IsValueType ? content : $"if ({member.Name} != null) {{ {content} }}";
+                    sb.AppendLine($"                    {nullCheck}");
                     if (!member.IsValueType)
-                    { 
-                        sb.AppendLine($"                            if ({member.Name} != null){{");
-                    }
-                    if (member.ImplementsIPropertyAccessor)
                     {
-                        sb.AppendLine($"                                return {member.Name}.GetValueInternal<T>(path.SkipFirst);");
+                        sb.AppendLine($"                    throw new NullReferenceException($\"{member.Name} is null\");");
                     }
-                    else
-                    {
-                        sb.AppendLine($"                                return PropertyAccessor.GetValue<T>({member.Name}, path.SkipFirst);");
-                    }
-                    if (!member.IsValueType)
-                    { 
-                    sb.AppendLine($"                            }}throw new NullReferenceException($\"{member.Name} is null\");");
-                    }
-
                 }
-
             }
 
-            sb.AppendLine("                        default:");
-            sb.AppendLine("                            throw new NotSupportedException($\"Path starting with '{first.Name}' not supported\");");
-            sb.AppendLine("                    }");
-            sb.AppendLine();
+            sb.AppendLine("                default:");
+            sb.AppendLine("                    throw new NotSupportedException($\"Path starting with '{first.Name}' not supported\");");
+            sb.AppendLine("            }");
         }
 
         private void GenerateSetValueInternalMethod(StringBuilder sb, INamedTypeSymbol nodeType, List<AccessibleMemberInfo> members)
         {
             sb.AppendLine("        public override void SetValueInternal<T>(PAPath path, T value)");
             if (members.Count == 0)
-            { 
-                sb.AppendLine("            {throw new NotSupportedException(\"No writable properties or fields available for setting value.\");}");
+            {
+                sb.AppendLine("        {");
+                sb.AppendLine("            throw new NotSupportedException(\"No writable properties or fields available for setting value.\");");
+                sb.AppendLine("        }");
                 return;
             }
             sb.AppendLine("        {");
             sb.AppendLine("            PAPart first = path.FirstPart;");
-            sb.AppendLine($"            if (first.IsIndex){{throw new NotSupportedException($\"Index access not supported by {nodeType.Name}\");}}");
-            sb.AppendLine("            if (path.Parts.Length == 1) {");
+            sb.AppendLine($"            if (first.IsIndex) {{ throw new NotSupportedException($\"Index access not supported by {nodeType.Name}\"); }}");
+            sb.AppendLine("            if (path.Parts.Length == 1)");
+            sb.AppendLine("            {");
             GenerateSinglePathSetterLogic(sb, members);
             sb.AppendLine("            }");
             GenerateMultiPathSetterLogic(sb, members);
@@ -243,14 +239,13 @@ namespace TreeNodeSourceGenerator
             foreach (var member in writableMembers)
             {
                 sb.AppendLine($"                    case \"{member.Name}\":");
-                sb.AppendLine($"                        if (value is {member.Type.ToDisplayString()} _{member.Name}) {{ {member.Name} = _{member.Name};return;}}");
+                sb.AppendLine($"                        if (value is {member.Type.ToDisplayString()} _{member.Name}) {{ {member.Name} = _{member.Name}; return; }}");
                 sb.AppendLine($"                        throw new InvalidCastException($\"Cannot cast {{typeof(T).Name}} to {member.Type.ToDisplayString()}\");");
             }
 
             sb.AppendLine("                    default:");
             sb.AppendLine("                        throw new NotSupportedException($\"Property '{first.Name}' not found or not writable\");");
             sb.AppendLine("                }");
-            sb.AppendLine();
         }
 
         private void GenerateMultiPathSetterLogic(StringBuilder sb, List<AccessibleMemberInfo> members)
@@ -258,88 +253,75 @@ namespace TreeNodeSourceGenerator
             var multiPathMembers = members.Where(m => (m.HasNestedAccess || m.IsCollection) && m.CanWrite && !m.IsReadOnly).ToList();
             if (multiPathMembers.Count == 0) return;
 
-            sb.AppendLine("               switch (first.Name)");
-            sb.AppendLine("               {");
+            sb.AppendLine("            switch (first.Name)");
+            sb.AppendLine("            {");
 
             foreach (var member in multiPathMembers)
             {
-                sb.AppendLine($"                   case \"{member.Name}\":");
+                sb.AppendLine($"                case \"{member.Name}\":");
 
                 if (member.IsCollection)
                 {
-                    sb.AppendLine("                            if (path.Parts.Length > 1 && path.Parts[1].IsIndex)");
+                    sb.AppendLine("                    if (path.Parts.Length > 1 && path.Parts[1].IsIndex)");
+                    sb.AppendLine("                    {");
+                    sb.AppendLine($"                        if ({member.Name} != null && path.Parts[1].Index >= 0 && path.Parts[1].Index < {member.Name}.Count)");
+                    sb.AppendLine("                        {");
+                    sb.AppendLine("                            if (path.Parts.Length == 2)");
                     sb.AppendLine("                            {");
-                    sb.AppendLine($"                                if ({member.Name} != null && path.Parts[1].Index >= 0 && path.Parts[1].Index < {member.Name}.Count)");
+                    sb.AppendLine($"                                if (value is {member.ElementType.ToDisplayString()} itemValue)");
                     sb.AppendLine("                                {");
-                    sb.AppendLine("                                    if (path.Parts.Length == 2)");
-                    sb.AppendLine("                                    {");
-                    sb.AppendLine($"                                        if (value is {member.ElementType.ToDisplayString()} itemValue)");
-                    sb.AppendLine("                                        {");
-                    sb.AppendLine($"                                            {member.Name}[path.Parts[1].Index] = itemValue;");
-                    sb.AppendLine("                                            return;");
-                    sb.AppendLine("                                        }");
-                    sb.AppendLine($"                                        throw new InvalidCastException($\"Cannot cast {{typeof(T).Name}} to {member.ElementType.ToDisplayString()}\");");
-                    sb.AppendLine("                                    }");
-                    sb.AppendLine("                                    else");
-                    sb.AppendLine("                                    {");
-                    sb.AppendLine($"                                        var item = {member.Name}[path.Parts[1].Index];");
-                    sb.AppendLine("                                        if (item != null)");
-                    sb.AppendLine("                                        {");
-                    sb.AppendLine("                                            var remainingPath = new PAPath(path.Parts.Skip(2).ToArray());");
-
-                    if (member.ElementType != null && ImplementsIPropertyAccessor(member.ElementType))
-                    {
-                        sb.AppendLine("                                            ((IPropertyAccessor)item).SetValueInternal<T>(remainingPath, value);");
-                    }
-                    else
-                    {
-                        sb.AppendLine("                                            PropertyAccessor.SetValue(item, remainingPath.ToString(), value);");
-                    }
-
-                    sb.AppendLine("                                        }");
-                    sb.AppendLine("                                    }");
+                    sb.AppendLine($"                                    {member.Name}[path.Parts[1].Index] = itemValue;");
+                    sb.AppendLine("                                    return;");
                     sb.AppendLine("                                }");
+                    sb.AppendLine($"                                throw new InvalidCastException($\"Cannot cast {{typeof(T).Name}} to {member.ElementType.ToDisplayString()}\");");
                     sb.AppendLine("                            }");
                     sb.AppendLine("                            else");
                     sb.AppendLine("                            {");
-                    sb.AppendLine($"                                if ({member.Name} != null)");
+                    sb.AppendLine($"                                var item = {member.Name}[path.Parts[1].Index];");
+                    sb.AppendLine("                                if (item != null)");
                     sb.AppendLine("                                {");
-                    sb.AppendLine("                                    var remainingPath = new PAPath(path.Parts.Skip(1).ToArray());");
-                    sb.AppendLine($"                                    PropertyAccessor.SetValue({member.Name}, remainingPath.ToString(), value);");
-                    sb.AppendLine("                                }");
-                    sb.AppendLine("                            }");
-                }
-                else if (member.HasNestedAccess)
-                {
-                    if (!member.IsValueType)
+                    sb.AppendLine("                                    var remainingPath = new PAPath(path.Parts.Skip(2).ToArray());");
+
+                    if (member.ElementType != null && ImplementsIPropertyAccessor(member.ElementType))
                     {
-                        sb.AppendLine($"                       if ({member.Name} != null)");
-                        sb.AppendLine("                       {");
-                    }
-                    if (member.ImplementsIPropertyAccessor)
-                    {
-                        sb.AppendLine($"                           {member.Name}.SetValueInternal<T>(path.SkipFirst, value);");
+                        sb.AppendLine("                                    ((IPropertyAccessor)item).SetValueInternal<T>(remainingPath, value);");
                     }
                     else
                     {
-                        sb.AppendLine($"                           PropertyAccessor.SetValue({member.Name}, path.SkipFirst, value);");
+                        sb.AppendLine("                                    PropertyAccessor.SetValue(item, remainingPath.ToString(), value);");
                     }
-                    sb.AppendLine("                             return;");
+
+                    sb.AppendLine("                                }");
+                    sb.AppendLine("                            }");
+                    sb.AppendLine("                        }");
+                    sb.AppendLine("                    }");
+                    sb.AppendLine("                    else");
+                    sb.AppendLine("                    {");
+                    sb.AppendLine($"                        if ({member.Name} != null)");
+                    sb.AppendLine("                        {");
+                    sb.AppendLine("                            var remainingPath = new PAPath(path.Parts.Skip(1).ToArray());");
+                    sb.AppendLine($"                            PropertyAccessor.SetValue({member.Name}, remainingPath.ToString(), value);");
+                    sb.AppendLine("                        }");
+                    sb.AppendLine("                    }");
+                    sb.AppendLine("                    break;");
+                }
+                else if (member.HasNestedAccess)
+                {
+                    string content = member.ImplementsIPropertyAccessor?
+                    $"{member.Name}.SetValueInternal<T>(path.SkipFirst, value);return;" :
+                    $"PropertyAccessor.SetValue({member.Name}, path.SkipFirst, value);return;";
+                    string nullCheck = member.IsValueType ? content : $"if ({member.Name} != null) {{ {content} }}";
+                    sb.AppendLine($"                    {nullCheck}");
                     if (!member.IsValueType)
                     {
-                        sb.AppendLine("                       }");
-                        sb.AppendLine($"                        throw new NullReferenceException($\"{member.Name} is null\");");
+                        sb.AppendLine($"                    throw new NullReferenceException($\"{member.Name} is null\");");
                     }
-
                 }
-
-
             }
 
-            sb.AppendLine("                   default:");
-            sb.AppendLine("                       throw new NotSupportedException($\"Path starting with '{first.Name}' not supported or not writable\");");
-            sb.AppendLine("               }");
-            sb.AppendLine();
+            sb.AppendLine("                default:");
+            sb.AppendLine("                    throw new NotSupportedException($\"Path starting with '{first.Name}' not supported or not writable\");");
+            sb.AppendLine("            }");
         }
 
     }
