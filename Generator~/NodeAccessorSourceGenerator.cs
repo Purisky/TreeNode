@@ -10,42 +10,41 @@ namespace TreeNodeSourceGenerator
 {
     /// <summary>
     /// Unity源代码生成器 - 为JsonNode派生类生成高性能访问器
-    /// 编译时生成，零反射开销，完全内联访问
-    /// 支持FuncValue、TimeValue等嵌套结构
+    /// 重构优化: 将case 2和Length > 2合并为Length > 1，使用递归调用让下级处理路径
     /// </summary>
     [Generator]
-    public class NodeAccessorSourceGenerator : ISourceGenerator
+    public partial class NodeAccessorSourceGenerator : ISourceGenerator
     {
         public void Initialize(GeneratorInitializationContext context)
         {
-            // 注册语法接收器，用于收集JsonNode派生类
             context.RegisterForSyntaxNotifications(() => new JsonNodeSyntaxReceiver());
         }
 
         public void Execute(GeneratorExecutionContext context)
         {
-            // 获取语法接收器
             if (context.SyntaxReceiver is not JsonNodeSyntaxReceiver receiver)
                 return;
 
-            // 获取编译信息
             var compilation = context.Compilation;
-            
-            // 收集所有JsonNode派生类
             var jsonNodeTypes = new List<INamedTypeSymbol>();
+            var propertyAccessorTypes = new List<INamedTypeSymbol>();
             
             foreach (var candidateClass in receiver.CandidateClasses)
             {
                 var model = compilation.GetSemanticModel(candidateClass.SyntaxTree);
-
-                if (model.GetDeclaredSymbol(candidateClass) is INamedTypeSymbol typeSymbol && IsJsonNodeDerived(typeSymbol))
+                if (model.GetDeclaredSymbol(candidateClass) is INamedTypeSymbol typeSymbol)
                 {
-                    jsonNodeTypes.Add(typeSymbol);
+                    if (IsJsonNodeDerived(typeSymbol))
+                    {
+                        jsonNodeTypes.Add(typeSymbol);
+                    }
+                    
+                    if (IsEligibleForPropertyAccessor(typeSymbol))
+                    {
+                        propertyAccessorTypes.Add(typeSymbol);
+                    }
                 }
             }
-
-            if (jsonNodeTypes.Count == 0)
-                return;
 
             // 生成访问器类
             foreach (var nodeType in jsonNodeTypes)
@@ -54,14 +53,80 @@ namespace TreeNodeSourceGenerator
                 context.AddSource($"{nodeType.Name}Accessor.g.cs", SourceText.From(accessorSource, Encoding.UTF8));
             }
 
-            // 生成注册器类
-            var registrarSource = GenerateRegistrarClass(jsonNodeTypes);
-            context.AddSource("GeneratedAccessorRegistrar.g.cs", SourceText.From(registrarSource, Encoding.UTF8));
+            // 生成属性访问器partial类
+            foreach (var nodeType in propertyAccessorTypes)
+            {
+                var propertyAccessorSource = GeneratePropertyAccessorPartialClass(nodeType);
+                context.AddSource($"{nodeType.Name}.PropertyAccessor.g.cs", SourceText.From(propertyAccessorSource, Encoding.UTF8));
+            }
+
+            // 生成注册器
+            if (jsonNodeTypes.Count > 0)
+            {
+                var registrarSource = GenerateRegistrarClass(jsonNodeTypes);
+                context.AddSource("GeneratedAccessorRegistrar.g.cs", SourceText.From(registrarSource, Encoding.UTF8));
+            }
         }
 
-        /// <summary>
-        /// 检查类型是否派生自JsonNode
-        /// </summary>
+        private bool IsEligibleForPropertyAccessor(INamedTypeSymbol typeSymbol)
+        {
+            return IsJsonNodeDerived(typeSymbol) && !typeSymbol.IsAbstract && IsPartialClass(typeSymbol);
+        }
+
+        private bool IsPartialClass(INamedTypeSymbol typeSymbol)
+        {
+            return typeSymbol.DeclaringSyntaxReferences
+                .Select(r => r.GetSyntax())
+                .OfType<ClassDeclarationSyntax>()
+                .Any(syntax => syntax.Modifiers.Any(m => m.IsKind(SyntaxKind.PartialKeyword)));
+        }
+
+
+
+
+        // 辅助方法
+        private bool IsBuiltinValueType(ITypeSymbol type)
+        {
+            if (type == null) return false;
+            
+            switch (type.SpecialType)
+            {
+                case SpecialType.System_Boolean:
+                case SpecialType.System_Byte:
+                case SpecialType.System_SByte:
+                case SpecialType.System_Int16:
+                case SpecialType.System_UInt16:
+                case SpecialType.System_Int32:
+                case SpecialType.System_UInt32:
+                case SpecialType.System_Int64:
+                case SpecialType.System_UInt64:
+                case SpecialType.System_Single:
+                case SpecialType.System_Double:
+                case SpecialType.System_Decimal:
+                case SpecialType.System_Char:
+                case SpecialType.System_String:
+                case SpecialType.System_DateTime:
+                    return true;
+                default:
+                    break;
+            }
+            
+            if (type.OriginalDefinition?.SpecialType == SpecialType.System_Nullable_T)
+            {
+                if (type is INamedTypeSymbol namedType && namedType.TypeArguments.Length > 0)
+                {
+                    return IsBuiltinValueType(namedType.TypeArguments[0]);
+                }
+            }
+            
+            if (type.TypeKind == TypeKind.Enum)
+            {
+                return true;
+            }
+            
+            return false;
+        }
+
         private bool IsJsonNodeDerived(INamedTypeSymbol typeSymbol)
         {
             var current = typeSymbol.BaseType;
@@ -76,427 +141,6 @@ namespace TreeNodeSourceGenerator
             return false;
         }
 
-        /// <summary>
-        /// 生成特定类型的访问器类
-        /// </summary>
-        private string GenerateAccessorClass(INamedTypeSymbol nodeType)
-        {
-            var className = $"{nodeType.Name}Accessor";
-            var fullTypeName = nodeType.ToDisplayString();
-            
-            // 分析子节点成员
-            var childMembers = AnalyzeChildMembers(nodeType);
-            
-            var sb = new StringBuilder();
-            
-            sb.AppendLine("// <auto-generated />");
-            sb.AppendLine("using System;");
-            sb.AppendLine("using System.Collections.Generic;");
-            sb.AppendLine("using TreeNode.Runtime;");
-            sb.AppendLine("using TreeNode.Runtime.Generated;");
-            sb.AppendLine();
-            sb.AppendLine("namespace TreeNode.Runtime.Generated");
-            sb.AppendLine("{");
-            sb.AppendLine($"    /// <summary>");
-            sb.AppendLine($"    /// 自动生成的高性能访问器 for {nodeType.Name}");
-            sb.AppendLine($"    /// 编译时生成，零反射开销");
-            sb.AppendLine($"    /// 支持嵌套结构如FuncValue.Node访问");
-            sb.AppendLine($"    /// </summary>");
-            sb.AppendLine($"    public sealed class {className} : INodeAccessor");
-            sb.AppendLine("    {");
-            
-            // 类型信息
-            sb.AppendLine($"        private static readonly Type NodeType = typeof({fullTypeName});");
-            sb.AppendLine();
-            
-            // 渲染顺序映射
-            GenerateRenderOrderMap(sb, childMembers);
-            
-            // 实现接口方法
-            GenerateInterfaceMethods(sb, nodeType, fullTypeName, childMembers);
-            
-            sb.AppendLine("    }");
-            sb.AppendLine("}");
-            
-            return sb.ToString();
-        }
-
-        /// <summary>
-        /// 分析子节点成员
-        /// </summary>
-        private List<ChildMemberInfo> AnalyzeChildMembers(INamedTypeSymbol nodeType)
-        {
-            var childMembers = new List<ChildMemberInfo>();
-            
-            foreach (var member in nodeType.GetMembers())
-            {
-                if (member is IFieldSymbol field)
-                {
-                    var childAttr = GetAttribute(field, "ChildAttribute");
-                    var titlePortAttr = GetAttribute(field, "TitlePortAttribute");
-                    
-                    if (childAttr != null || titlePortAttr != null)
-                    {
-                        // 只处理直接是JsonNode类型或JsonNode集合的成员
-                        if (IsJsonNodeType(field.Type) || IsJsonNodeCollection(field.Type))
-                        {
-                            var memberInfo = new ChildMemberInfo
-                            {
-                                Name = field.Name,
-                                Type = field.Type,
-                                IsRequired = childAttr?.NamedArguments.FirstOrDefault(arg => arg.Key == "Require").Value.Value as bool? ?? false,
-                                RenderOrder = CalculateRenderOrder(field),
-                                IsCollection = IsJsonNodeCollection(field.Type),
-                                IsTitlePort = titlePortAttr != null,
-                                NestedPaths = AnalyzeNestedPaths(field.Type, field.Name)
-                            };
-                            childMembers.Add(memberInfo);
-                        }
-                    }
-                }
-                else if (member is IPropertySymbol property)
-                {
-                    var childAttr = GetAttribute(property, "ChildAttribute");
-                    var titlePortAttr = GetAttribute(property, "TitlePortAttribute");
-                    
-                    if (childAttr != null || titlePortAttr != null)
-                    {
-                        // 只处理直接是JsonNode类型或JsonNode集合的成员
-                        if (IsJsonNodeType(property.Type) || IsJsonNodeCollection(property.Type))
-                        {
-                            var memberInfo = new ChildMemberInfo
-                            {
-                                Name = property.Name,
-                                Type = property.Type,
-                                IsRequired = childAttr?.NamedArguments.FirstOrDefault(arg => arg.Key == "Require").Value.Value as bool? ?? false,
-                                RenderOrder = CalculateRenderOrder(property),
-                                IsCollection = IsJsonNodeCollection(property.Type),
-                                IsTitlePort = titlePortAttr != null,
-                                NestedPaths = AnalyzeNestedPaths(property.Type, property.Name)
-                            };
-                            childMembers.Add(memberInfo);
-                        }
-                    }
-                }
-            }
-            
-            return childMembers.OrderBy(m => m.RenderOrder).ToList();
-        }
-
-        /// <summary>
-        /// 分析嵌套JsonNode路径 - 专门针对FuncValue, TimeValue等结构
-        /// </summary>
-        private List<NestedPath> AnalyzeNestedPaths(ITypeSymbol memberType, string memberName)
-        {
-            var nestedPaths = new List<NestedPath>();
-            var visited = new HashSet<string>();
-            
-            AnalyzeNestedPathsRecursively(memberType, memberName, "", 0, nestedPaths, visited, 3);
-            
-            return nestedPaths;
-        }
-
-        /// <summary>
-        /// 递归分析嵌套路径
-        /// </summary>
-        private void AnalyzeNestedPathsRecursively(ITypeSymbol type, string basePath, string currentPath, 
-            int depth, List<NestedPath> paths, HashSet<string> visited, int maxDepth)
-        {
-            if (depth >= maxDepth || type == null)
-                return;
-
-            var typeKey = type.ToDisplayString();
-            if (visited.Contains(typeKey))
-                return;
-
-            visited.Add(typeKey);
-
-            try
-            {
-                // 检查是否是用户定义类型且不是系统类型
-                if (!IsUserDefinedType(type))
-                    return;
-
-                var members = type.GetMembers();
-                foreach (var member in members)
-                {
-                    if (member is IFieldSymbol field)
-                    {
-                        var memberPath = string.IsNullOrEmpty(currentPath) ? field.Name : $"{currentPath}.{field.Name}";
-                        var fullPath = $"{basePath}.{memberPath}";
-
-                        // 如果字段直接是JsonNode，添加路径
-                        if (IsJsonNodeType(field.Type))
-                        {
-                            paths.Add(new NestedPath
-                            {
-                                Path = memberPath,
-                                FullPath = fullPath,
-                                Depth = depth,
-                                ContainerType = type.ToDisplayString(),
-                                IsDirectJsonNode = true  // 标记为直接的JsonNode
-                            });
-                        }
-                        // 如果字段可能包含JsonNode，继续递归
-                        else if (IsUserDefinedType(field.Type) && ContainsJsonNodeRecursively(field.Type))
-                        {
-                            AnalyzeNestedPathsRecursively(field.Type, basePath, memberPath, depth + 1, paths, visited, maxDepth);
-                        }
-                    }
-                    else if (member is IPropertySymbol property && property.GetMethod != null)
-                    {
-                        var memberPath = string.IsNullOrEmpty(currentPath) ? property.Name : $"{currentPath}.{property.Name}";
-                        var fullPath = $"{basePath}.{memberPath}";
-
-                        // 如果属性直接是JsonNode，添加路径
-                        if (IsJsonNodeType(property.Type))
-                        {
-                            paths.Add(new NestedPath
-                            {
-                                Path = memberPath,
-                                FullPath = fullPath,
-                                Depth = depth,
-                                ContainerType = type.ToDisplayString(),
-                                IsDirectJsonNode = true  // 标记为直接的JsonNode
-                            });
-                        }
-                        // 如果属性可能包含JsonNode，继续递归
-                        else if (IsUserDefinedType(property.Type) && ContainsJsonNodeRecursively(property.Type))
-                        {
-                            AnalyzeNestedPathsRecursively(property.Type, basePath, memberPath, depth + 1, paths, visited, maxDepth);
-                        }
-                    }
-                }
-            }
-            finally
-            {
-                visited.Remove(typeKey);
-            }
-        }
-
-        /// <summary>
-        /// 检查是否是用户定义类型
-        /// </summary>
-        private bool IsUserDefinedType(ITypeSymbol type)
-        {
-            if (type == null || type.TypeKind == TypeKind.Enum || type.SpecialType != SpecialType.None)
-                return false;
-
-            var namespaceName = type.ContainingNamespace?.ToDisplayString() ?? "";
-            
-            // 排除系统和Unity命名空间
-            if (namespaceName.StartsWith("System") || 
-                namespaceName.StartsWith("Unity") || 
-                namespaceName.StartsWith("Microsoft") ||
-                namespaceName.StartsWith("Newtonsoft"))
-            {
-                return false;
-            }
-
-            return true;
-        }
-
-        /// <summary>
-        /// 递归检查类型是否包含JsonNode
-        /// </summary>
-        private bool ContainsJsonNodeRecursively(ITypeSymbol type)
-        {
-            var visited = new HashSet<string>();
-            return ContainsJsonNodeRecursivelyInternal(type, visited, 0, 3);
-        }
-
-        /// <summary>
-        /// 递归检查类型是否包含JsonNode的内部实现
-        /// </summary>
-        private bool ContainsJsonNodeRecursivelyInternal(ITypeSymbol type, HashSet<string> visited, int depth, int maxDepth)
-        {
-            if (type == null || depth >= maxDepth)
-                return false;
-
-            var typeKey = type.ToDisplayString();
-            if (visited.Contains(typeKey))
-                return false;
-
-            visited.Add(typeKey);
-
-            try
-            {
-                // 直接是JsonNode
-                if (IsJsonNodeType(type))
-                    return true;
-
-                if (!IsUserDefinedType(type))
-                    return false;
-
-                var members = type.GetMembers();
-                foreach (var member in members)
-                {
-                    ITypeSymbol memberType = null;
-                    
-                    if (member is IFieldSymbol field)
-                        memberType = field.Type;
-                    else if (member is IPropertySymbol property && property.GetMethod != null)
-                        memberType = property.Type;
-
-                    if (memberType != null)
-                    {
-                        // 检查成员类型
-                        if (IsJsonNodeType(memberType))
-                            return true;
-
-                        // 检查集合元素类型
-                        if (IsCollection(memberType))
-                        {
-                            var elementType = GetCollectionElementType(memberType);
-                            if (elementType != null && 
-                                (IsJsonNodeType(elementType) || 
-                                 (IsUserDefinedType(elementType) && ContainsJsonNodeRecursivelyInternal(elementType, visited, depth + 1, maxDepth))))
-                            {
-                                return true;
-                            }
-                        }
-
-                        // 递归检查用户定义的复杂类型
-                        if (IsUserDefinedType(memberType) && 
-                            ContainsJsonNodeRecursivelyInternal(memberType, visited, depth + 1, maxDepth))
-                        {
-                            return true;
-                        }
-                    }
-                }
-            }
-            finally
-            {
-                visited.Remove(typeKey);
-            }
-
-            return false;
-        }
-
-        /// <summary>
-        /// 检查是否是集合类型
-        /// </summary>
-        private bool IsCollection(ITypeSymbol type)
-        {
-            if (type.TypeKind == TypeKind.Array)
-                return true;
-
-            if (type is INamedTypeSymbol namedType)
-            {
-                // 检查是否实现IEnumerable，但排除string
-                if (type.SpecialType == SpecialType.System_String)
-                    return false;
-
-                var interfaces = type.AllInterfaces;
-                foreach (var interfaceType in interfaces)
-                {
-                    if (interfaceType.Name == "IEnumerable" && interfaceType.ContainingNamespace.ToDisplayString() == "System.Collections")
-                        return true;
-                }
-            }
-
-            return false;
-        }
-
-        /// <summary>
-        /// 获取集合元素类型
-        /// </summary>
-        private ITypeSymbol GetCollectionElementType(ITypeSymbol collectionType)
-        {
-            if (collectionType.TypeKind == TypeKind.Array && collectionType is IArrayTypeSymbol arrayType)
-                return arrayType.ElementType;
-
-            if (collectionType is INamedTypeSymbol namedType && namedType.IsGenericType)
-            {
-                var typeArgs = namedType.TypeArguments;
-                if (typeArgs.Length > 0)
-                    return typeArgs[0];
-            }
-
-            return null;
-        }
-
-        /// <summary>
-        /// 获取特性
-        /// </summary>
-        private AttributeData GetAttribute(ISymbol symbol, string attributeName)
-        {
-            return symbol.GetAttributes().FirstOrDefault(attr => 
-                attr.AttributeClass?.Name == attributeName);
-        }
-
-        /// <summary>
-        /// 计算渲染顺序
-        /// </summary>
-        private int CalculateRenderOrder(ISymbol member)
-        {
-            int order = 1000; // 默认顺序
-
-            // TitlePort具有最高优先级
-            if (GetAttribute(member, "TitlePortAttribute") != null)
-            {
-                order = 0;
-            }
-            // Child属性次之
-            else if (GetAttribute(member, "ChildAttribute") != null)
-            {
-                var childAttr = GetAttribute(member, "ChildAttribute");
-                var isRequired = childAttr?.NamedArguments.FirstOrDefault(arg => arg.Key == "Require").Value.Value as bool? ?? false;
-                order = isRequired ? 100 : 200;
-            }
-            // ShowInNode属性再次之
-            else if (GetAttribute(member, "ShowInNodeAttribute") != null)
-            {
-                order = 300;
-            }
-
-            // Group属性影响顺序
-            if (GetAttribute(member, "GroupAttribute") != null)
-            {
-                order += 50;
-            }
-
-            // 根据成员名称的字母顺序作为次要排序
-            order += System.Math.Abs(member.Name.GetHashCode()) % 100;
-
-            return order;
-        }
-
-        /// <summary>
-        /// 检查是否是JsonNode集合类型
-        /// </summary>
-        private bool IsJsonNodeCollection(ITypeSymbol type)
-        {
-            // 检查是否是可枚举类型
-            if (type.TypeKind == TypeKind.Array)
-            {
-                var arrayType = type as IArrayTypeSymbol;
-                return IsJsonNodeType(arrayType?.ElementType);
-            }
-            
-            // 检查是否是泛型集合类型
-            if (type is INamedTypeSymbol namedType)
-            {
-                if (namedType.IsGenericType)
-                {
-                    var genericTypeName = namedType.ConstructedFrom.ToDisplayString();
-                    if (genericTypeName.Contains("List<") || 
-                        genericTypeName.Contains("IList<") || 
-                        genericTypeName.Contains("ICollection<") || 
-                        genericTypeName.Contains("IEnumerable<"))
-                    {
-                        var elementType = namedType.TypeArguments.FirstOrDefault();
-                        return IsJsonNodeType(elementType);
-                    }
-                }
-            }
-            
-            return false;
-        }
-
-        /// <summary>
-        /// 检查是否是JsonNode类型
-        /// </summary>
         private bool IsJsonNodeType(ITypeSymbol type)
         {
             if (type == null) return false;
@@ -513,420 +157,92 @@ namespace TreeNodeSourceGenerator
             return false;
         }
 
-        /// <summary>
-        /// 生成渲染顺序映射
-        /// </summary>
-        private void GenerateRenderOrderMap(StringBuilder sb, List<ChildMemberInfo> childMembers)
+        private bool IsCollection(ITypeSymbol type)
         {
-            sb.AppendLine("        private static readonly Dictionary<string, int> RenderOrderMap = new Dictionary<string, int>");
-            sb.AppendLine("        {");
-            
-            foreach (var member in childMembers)
+            if (type.TypeKind == TypeKind.Array)
+                return true;
+
+            if (type is INamedTypeSymbol namedType)
             {
-                sb.AppendLine($"            [\"{member.Name}\"] = {member.RenderOrder},");
-                
-                // 为嵌套路径添加映射 - 只为直接的JsonNode路径添加映射
-                foreach (var nestedPath in member.NestedPaths.Where(p => p.IsDirectJsonNode))
+                if (type.SpecialType == SpecialType.System_String)
+                    return false;
+
+                var interfaces = type.AllInterfaces;
+                foreach (var interfaceType in interfaces)
                 {
-                    sb.AppendLine($"            [\"{nestedPath.FullPath}\"] = {member.RenderOrder + nestedPath.Depth},");
+                    if (interfaceType.Name == "IEnumerable" && interfaceType.ContainingNamespace.ToDisplayString() == "System.Collections")
+                        return true;
                 }
             }
-            
-            sb.AppendLine("        };");
-            sb.AppendLine();
+
+            return false;
         }
 
-        /// <summary>
-        /// 生成接口方法实现
-        /// </summary>
-        private void GenerateInterfaceMethods(StringBuilder sb, INamedTypeSymbol nodeType, string fullTypeName, List<ChildMemberInfo> childMembers)
+        private ITypeSymbol GetCollectionElementType(ITypeSymbol collectionType)
         {
-            // CollectChildren 方法
-            sb.AppendLine("        public void CollectChildren(JsonNode node, List<JsonNode> children)");
-            sb.AppendLine("        {");
-            sb.AppendLine($"            var typedNode = node as {fullTypeName};");
-            sb.AppendLine("            if (typedNode == null) return;");
-            sb.AppendLine();
-            
-            foreach (var member in childMembers)
+            if (collectionType.TypeKind == TypeKind.Array && collectionType is IArrayTypeSymbol arrayType)
+                return arrayType.ElementType;
+
+            if (collectionType is INamedTypeSymbol namedType && namedType.IsGenericType)
             {
-                GenerateChildCollectionLogic(sb, member, "children.Add");
+                var typeArgs = namedType.TypeArguments;
+                if (typeArgs.Length > 0)
+                    return typeArgs[0];
             }
-            
-            sb.AppendLine("        }");
-            sb.AppendLine();
 
-            // CollectChildrenWithMetadata 方法
-            GenerateCollectChildrenWithMetadata(sb, fullTypeName, childMembers);
-
-            // GetRenderOrder 方法
-            sb.AppendLine("        public int GetRenderOrder(string memberName)");
-            sb.AppendLine("        {");
-            sb.AppendLine("            return RenderOrderMap.TryGetValue(memberName, out var order) ? order : 1000;");
-            sb.AppendLine("        }");
-            sb.AppendLine();
-
-            // GetNodeType 方法
-            sb.AppendLine("        public Type GetNodeType()");
-            sb.AppendLine("        {");
-            sb.AppendLine("            return NodeType;");
-            sb.AppendLine("        }");
-            sb.AppendLine();
-
-            // CollectChildrenToBuffer 方法
-            GenerateCollectChildrenToBuffer(sb, fullTypeName, childMembers);
-
-            // HasChildren 方法
-            GenerateHasChildren(sb, fullTypeName, childMembers);
-
-            // GetChildCount 方法
-            GenerateGetChildCount(sb, fullTypeName, childMembers);
+            return null;
         }
 
-        /// <summary>
-        /// 生成子节点收集逻辑 - 支持嵌套结构
-        /// </summary>
-        private void GenerateChildCollectionLogic(StringBuilder sb, ChildMemberInfo member, string actionPrefix)
+        private bool IsUserDefinedType(ITypeSymbol type)
         {
-            if (member.IsCollection)
+            if (type == null || type.TypeKind == TypeKind.Enum || type.SpecialType != SpecialType.None)
+                return false;
+
+            var namespaceName = type.ContainingNamespace?.ToDisplayString() ?? "";
+            
+            if (namespaceName.StartsWith("System") || 
+                namespaceName.StartsWith("Unity") || 
+                namespaceName.StartsWith("Microsoft") ||
+                namespaceName.StartsWith("Newtonsoft"))
             {
-                sb.AppendLine($"            if (typedNode.{member.Name} != null)");
-                sb.AppendLine("            {");
-                sb.AppendLine($"                foreach (var item in typedNode.{member.Name})");
-                sb.AppendLine("                {");
-                sb.AppendLine($"                    if (item != null) {actionPrefix}(item);");
-                sb.AppendLine("                }");
-                sb.AppendLine("            }");
-            }
-            else
-            {
-                sb.AppendLine($"            if (typedNode.{member.Name} != null)");
-                sb.AppendLine($"                {actionPrefix}(typedNode.{member.Name});");
+                return false;
             }
 
-            // 处理嵌套路径 - 只处理直接的JsonNode路径
-            foreach (var nestedPath in member.NestedPaths.Where(p => p.IsDirectJsonNode))
-            {
-                sb.AppendLine($"            // 处理嵌套结构: {nestedPath.FullPath}");
-                sb.AppendLine($"            try");
-                sb.AppendLine("            {");
-                sb.AppendLine($"                if (typedNode.{member.Name} != null)");
-                sb.AppendLine("                {");
-                sb.AppendLine($"                    var nestedNode = PropertyAccessor.GetValue<JsonNode>(typedNode.{member.Name}, \"{nestedPath.Path}\");");
-                sb.AppendLine($"                    if (nestedNode != null) {actionPrefix}(nestedNode);");
-                sb.AppendLine("                }");
-                sb.AppendLine("            }");
-                sb.AppendLine("            catch { /* 跳过无法访问的嵌套路径 */ }");
-            }
-            
-            sb.AppendLine();
+            return true;
         }
 
-        /// <summary>
-        /// 生成 CollectChildrenWithMetadata 方法
-        /// </summary>
-        private void GenerateCollectChildrenWithMetadata(StringBuilder sb, string fullTypeName, List<ChildMemberInfo> childMembers)
+        private bool IsStructCollection(ITypeSymbol type)
         {
-            sb.AppendLine("        public void CollectChildrenWithMetadata(JsonNode node, List<(JsonNode, string, int)> children)");
-            sb.AppendLine("        {");
-            sb.AppendLine($"            var typedNode = node as {fullTypeName};");
-            sb.AppendLine("            if (typedNode == null) return;");
-            sb.AppendLine();
+            if (!IsCollection(type)) return false;
             
-            foreach (var member in childMembers)
-            {
-                if (member.IsCollection)
-                {
-                    sb.AppendLine($"            if (typedNode.{member.Name} != null)");
-                    sb.AppendLine("            {");
-                    sb.AppendLine("                int index = 0;");
-                    sb.AppendLine($"                foreach (var item in typedNode.{member.Name})");
-                    sb.AppendLine("                {");
-                    sb.AppendLine("                    if (item != null)");
-                    sb.AppendLine($"                        children.Add((item, $\"{member.Name}[{{index}}]\", {member.RenderOrder}));");
-                    sb.AppendLine("                    index++;");
-                    sb.AppendLine("                }");
-                    sb.AppendLine("            }");
-                }
-                else
-                {
-                    sb.AppendLine($"            if (typedNode.{member.Name} != null)");
-                    sb.AppendLine($"                children.Add((typedNode.{member.Name}, \"{member.Name}\", {member.RenderOrder}));");
-                }
-
-                // 处理嵌套路径 - 只处理直接的JsonNode路径
-                foreach (var nestedPath in member.NestedPaths.Where(p => p.IsDirectJsonNode))
-                {
-                    sb.AppendLine($"            // 处理嵌套结构: {nestedPath.FullPath}");
-                    sb.AppendLine($"            try");
-                    sb.AppendLine("            {");
-                    sb.AppendLine($"                if (typedNode.{member.Name} != null)");
-                    sb.AppendLine("                {");
-                    sb.AppendLine($"                    var nestedNode = PropertyAccessor.GetValue<JsonNode>(typedNode.{member.Name}, \"{nestedPath.Path}\");");
-                    sb.AppendLine($"                    if (nestedNode != null)");
-                    sb.AppendLine($"                        children.Add((nestedNode, \"{nestedPath.FullPath}\", {member.RenderOrder + nestedPath.Depth}));");
-                    sb.AppendLine("                }");
-                    sb.AppendLine("            }");
-                    sb.AppendLine("            catch { /* 跳过无法访问的嵌套路径 */ }");
-                }
-                
-                sb.AppendLine();
-            }
-            
-            sb.AppendLine("        }");
-            sb.AppendLine();
+            var elementType = GetCollectionElementType(type);
+            return elementType != null && elementType.IsValueType && !IsBuiltinValueType(elementType);
         }
 
-        /// <summary>
-        /// 生成 CollectChildrenToBuffer 方法
-        /// </summary>
-        private void GenerateCollectChildrenToBuffer(StringBuilder sb, string fullTypeName, List<ChildMemberInfo> childMembers)
+        private bool ImplementsIPropertyAccessor(ITypeSymbol type)
         {
-            sb.AppendLine("        public void CollectChildrenToBuffer(JsonNode node, JsonNode[] buffer, out int count)");
-            sb.AppendLine("        {");
-            sb.AppendLine("            count = 0;");
-            sb.AppendLine($"            var typedNode = node as {fullTypeName};");
-            sb.AppendLine("            if (typedNode == null) return;");
-            sb.AppendLine();
+            if (type == null) return false;
             
-            foreach (var member in childMembers)
-            {
-                if (member.IsCollection)
-                {
-                    sb.AppendLine($"            if (typedNode.{member.Name} != null)");
-                    sb.AppendLine("            {");
-                    sb.AppendLine($"                foreach (var item in typedNode.{member.Name})");
-                    sb.AppendLine("                {");
-                    sb.AppendLine("                    if (item != null && count < buffer.Length)");
-                    sb.AppendLine("                    {");
-                    sb.AppendLine("                        buffer[count] = item;");
-                    sb.AppendLine("                        count++;");
-                    sb.AppendLine("                    }");
-                    sb.AppendLine("                }");
-                    sb.AppendLine("            }");
-                }
-                else
-                {
-                    sb.AppendLine($"            if (typedNode.{member.Name} != null && count < buffer.Length)");
-                    sb.AppendLine("            {");
-                    sb.AppendLine($"                buffer[count] = typedNode.{member.Name};");
-                    sb.AppendLine("                count++;");
-                    sb.AppendLine("            }");
-                }
-
-                // 处理嵌套路径 - 只处理直接的JsonNode路径
-                foreach (var nestedPath in member.NestedPaths.Where(p => p.IsDirectJsonNode))
-                {
-                    sb.AppendLine($"            // 处理嵌套结构: {nestedPath.FullPath}");
-                    sb.AppendLine($"            try");
-                    sb.AppendLine("            {");
-                    sb.AppendLine($"                if (typedNode.{member.Name} != null && count < buffer.Length)");
-                    sb.AppendLine("                {");
-                    sb.AppendLine($"                    var nestedNode = PropertyAccessor.GetValue<JsonNode>(typedNode.{member.Name}, \"{nestedPath.Path}\");");
-                    sb.AppendLine($"                    if (nestedNode != null)");
-                    sb.AppendLine("                    {");
-                    sb.AppendLine("                        buffer[count] = nestedNode;");
-                    sb.AppendLine("                        count++;");
-                    sb.AppendLine("                    }");
-                    sb.AppendLine("                }");
-                    sb.AppendLine("            }");
-                    sb.AppendLine("            catch { /* 跳过无法访问的嵌套路径 */ }");
-                }
-                
-                sb.AppendLine();
-            }
-            
-            sb.AppendLine("        }");
-            sb.AppendLine();
+            var interfaces = type.AllInterfaces;
+            return interfaces.Any(i => i.Name == "IPropertyAccessor" && 
+                                      i.ContainingNamespace.ToDisplayString() == "TreeNode.Runtime");
         }
 
-        /// <summary>
-        /// 生成 HasChildren 方法
-        /// </summary>
-        private void GenerateHasChildren(StringBuilder sb, string fullTypeName, List<ChildMemberInfo> childMembers)
+        private bool HasNestedAccessCapability(ITypeSymbol type)
         {
-            sb.AppendLine("        public bool HasChildren(JsonNode node)");
-            sb.AppendLine("        {");
-            sb.AppendLine($"            var typedNode = node as {fullTypeName};");
-            sb.AppendLine("            if (typedNode == null) return false;");
-            sb.AppendLine();
-
-            if (childMembers.Count == 0)
-            {
-                sb.AppendLine("            return false;");
-            }
-            else
-            {
-                var conditions = new List<string>();
-                
-                foreach (var member in childMembers)
-                {
-                    if (member.IsCollection)
-                    {
-                        conditions.Add($"(typedNode.{member.Name} != null && typedNode.{member.Name}.Count > 0)");
-                    }
-                    else
-                    {
-                        conditions.Add($"typedNode.{member.Name} != null");
-                    }
-
-                    // 添加嵌套路径的检查 - 只检查直接的JsonNode路径
-                    foreach (var nestedPath in member.NestedPaths.Where(p => p.IsDirectJsonNode))
-                    {
-                        conditions.Add($"HasNestedNode(typedNode.{member.Name}, \"{nestedPath.Path}\")");
-                    }
-                }
-
-                sb.AppendLine($"            return {string.Join(" || ", conditions)};");
-            }
-            
-            sb.AppendLine("        }");
-            sb.AppendLine();
-
-            // 生成辅助方法 - 只有当存在直接JsonNode路径时才生成
-            if (childMembers.Any(m => m.NestedPaths.Any(p => p.IsDirectJsonNode)))
-            {
-                sb.AppendLine("        /// <summary>");
-                sb.AppendLine("        /// 检查嵌套路径是否包含JsonNode - 支持FuncValue.Node等结构");
-                sb.AppendLine("        /// </summary>");
-                sb.AppendLine("        private bool HasNestedNode(object container, string path)");
-                sb.AppendLine("        {");
-                sb.AppendLine("            if (container == null) return false;");
-                sb.AppendLine("            try");
-                sb.AppendLine("            {");
-                sb.AppendLine("                return PropertyAccessor.GetValue<JsonNode>(container, path) != null;");
-                sb.AppendLine("            }");
-                sb.AppendLine("            catch");
-                sb.AppendLine("            {");
-                sb.AppendLine("                return false;");
-                sb.AppendLine("            }");
-                sb.AppendLine("        }");
-                sb.AppendLine();
-            }
+            return IsJsonNodeType(type) || 
+                   ImplementsIPropertyAccessor(type) ||
+                   IsUserDefinedType(type);
         }
 
-        /// <summary>
-        /// 生成 GetChildCount 方法
-        /// </summary>
-        private void GenerateGetChildCount(StringBuilder sb, string fullTypeName, List<ChildMemberInfo> childMembers)
-        {
-            sb.AppendLine("        public int GetChildCount(JsonNode node)");
-            sb.AppendLine("        {");
-            sb.AppendLine($"            var typedNode = node as {fullTypeName};");
-            sb.AppendLine("            if (typedNode == null) return 0;");
-            sb.AppendLine();
-            
-            if (childMembers.Count == 0)
-            {
-                sb.AppendLine("            return 0;");
-            }
-            else
-            {
-                sb.AppendLine("            int count = 0;");
-                
-                foreach (var member in childMembers)
-                {
-                    if (member.IsCollection)
-                    {
-                        sb.AppendLine($"            if (typedNode.{member.Name} != null)");
-                        sb.AppendLine($"                count += typedNode.{member.Name}.Count;");
-                    }
-                    else
-                    {
-                        sb.AppendLine($"            if (typedNode.{member.Name} != null)");
-                        sb.AppendLine("                count++;");
-                    }
-
-                    // 处理嵌套路径 - 只处理直接的JsonNode路径
-                    foreach (var nestedPath in member.NestedPaths.Where(p => p.IsDirectJsonNode))
-                    {
-                        sb.AppendLine($"            // 检查嵌套结构: {nestedPath.FullPath}");
-                        sb.AppendLine($"            try");
-                        sb.AppendLine("            {");
-                        sb.AppendLine($"                if (typedNode.{member.Name} != null && PropertyAccessor.GetValue<JsonNode>(typedNode.{member.Name}, \"{nestedPath.Path}\") != null)");
-                        sb.AppendLine("                    count++;");
-                        sb.AppendLine("            }");
-                        sb.AppendLine("            catch { /* 跳过无法访问的嵌套路径 */ }");
-                    }
-                }
-                
-                sb.AppendLine("            return count;");
-            }
-            
-            sb.AppendLine("        }");
-        }
-
-        /// <summary>
-        /// 生成注册器类
-        /// </summary>
-        private string GenerateRegistrarClass(List<INamedTypeSymbol> nodeTypes)
-        {
-            var sb = new StringBuilder();
-            
-            sb.AppendLine("// <auto-generated />");
-            sb.AppendLine("using System;");
-            sb.AppendLine("using TreeNode.Runtime.Generated;");
-            sb.AppendLine();
-            sb.AppendLine("namespace TreeNode.Runtime.Generated");
-            sb.AppendLine("{");
-            sb.AppendLine("    /// <summary>");
-            sb.AppendLine("    /// 自动生成的访问器注册器");
-            sb.AppendLine("    /// 注册所有生成的高性能访问器");
-            sb.AppendLine("    /// 支持FuncValue、TimeValue等嵌套结构的访问器");
-            sb.AppendLine("    /// </summary>");
-            sb.AppendLine("    public static class GeneratedAccessorRegistrar");
-            sb.AppendLine("    {");
-            sb.AppendLine("        /// <summary>");
-            sb.AppendLine("        /// 注册所有生成的访问器到提供者");
-            sb.AppendLine("        /// </summary>");
-            sb.AppendLine("        public static void RegisterAll(INodeAccessorProvider provider)");
-            sb.AppendLine("        {");
-            sb.AppendLine("            if (provider == null) return;");
-            sb.AppendLine();
-            
-            foreach (var nodeType in nodeTypes)
-            {
-                var fullTypeName = nodeType.ToDisplayString();
-                var accessorClassName = $"{nodeType.Name}Accessor";
-                
-                sb.AppendLine($"            provider.RegisterAccessor(typeof({fullTypeName}), new {accessorClassName}());");
-            }
-            
-            sb.AppendLine("        }");
-            sb.AppendLine();
-            sb.AppendLine("        /// <summary>");
-            sb.AppendLine("        /// 获取支持的节点类型列表");
-            sb.AppendLine("        /// </summary>");
-            sb.AppendLine("        public static Type[] GetSupportedTypes()");
-            sb.AppendLine("        {");
-            sb.AppendLine("            return new Type[]");
-            sb.AppendLine("            {");
-            
-            foreach (var nodeType in nodeTypes)
-            {
-                var fullTypeName = nodeType.ToDisplayString();
-                sb.AppendLine($"                typeof({fullTypeName}),");
-            }
-            
-            sb.AppendLine("            };");
-            sb.AppendLine("        }");
-            sb.AppendLine("    }");
-            sb.AppendLine("}");
-            
-            return sb.ToString();
-        }
     }
 
-    /// <summary>
-    /// 语法接收器 - 收集JsonNode派生类
-    /// </summary>
     internal class JsonNodeSyntaxReceiver : ISyntaxReceiver
     {
         public List<ClassDeclarationSyntax> CandidateClasses { get; } = new List<ClassDeclarationSyntax>();
 
         public void OnVisitSyntaxNode(SyntaxNode syntaxNode)
         {
-            // 收集所有类声明
             if (syntaxNode is ClassDeclarationSyntax classDeclaration)
             {
                 CandidateClasses.Add(classDeclaration);
@@ -934,29 +250,18 @@ namespace TreeNodeSourceGenerator
         }
     }
 
-    /// <summary>
-    /// 子节点成员信息
-    /// </summary>
-    internal class ChildMemberInfo
+    internal class AccessibleMemberInfo
     {
         public string Name { get; set; }
         public ITypeSymbol Type { get; set; }
-        public bool IsRequired { get; set; }
-        public int RenderOrder { get; set; }
+        public bool IsValueType { get; set; }
+        public bool IsJsonNodeType { get; set; }
+        public bool ImplementsIPropertyAccessor { get; set; }
+        public bool HasNestedAccess { get; set; }
         public bool IsCollection { get; set; }
-        public bool IsTitlePort { get; set; }
-        public List<NestedPath> NestedPaths { get; set; } = new List<NestedPath>();
-    }
-
-    /// <summary>
-    /// 嵌套路径信息 - 专门用于FuncValue.Node、TimeValue.Value.Node等结构
-    /// </summary>
-    internal class NestedPath
-    {
-        public string Path { get; set; }           // 相对路径，如 "Node" 或 "Value.Node"
-        public string FullPath { get; set; }       // 完整路径，如 "Left.Node" 或 "Value.Node"
-        public int Depth { get; set; }             // 嵌套深度
-        public string ContainerType { get; set; }  // 容器类型名称
-        public bool IsDirectJsonNode { get; set; } // 是否是直接的JsonNode（新增字段）
+        public ITypeSymbol ElementType { get; set; }
+        public bool CanWrite { get; set; }
+        public bool IsReadOnly { get; set; }
+        public bool IsStructCollection { get; set; }
     }
 }
