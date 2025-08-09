@@ -11,8 +11,9 @@ using UnityEngine.UIElements;
 namespace TreeNode.Runtime
 {
     [Serializable, PortColor("#ffffff")]
-    public class JsonNode : IPropertyAccessor
+    public class JsonNode
     {
+
         [JsonProperty]
         public Vec2 Position;
         [JsonProperty]
@@ -55,10 +56,6 @@ namespace TreeNode.Runtime
         }
 
         public virtual string GetInfo() => GetType().Name;
-
-
-        public virtual T GetValueInternal<T>(PAPath path) => throw new NotImplementedException("GetValueInternal is not implemented for this JsonNode type.");
-        public virtual void SetValueInternal<T>(PAPath path, T value) => throw new NotImplementedException("SetValueInternal is not implemented for this JsonNode type.");
     }
 
 

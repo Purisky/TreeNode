@@ -8,7 +8,12 @@ namespace TreeNode.Runtime
     public interface IPropertyAccessor
     {
         T GetValueInternal<T>(PAPath path);
+        T GetValueInternal_Single<T>(PAPart part);
+        T GetValueInternal_Mult<T>(PAPath path);
         void SetValueInternal<T>(PAPath path, T value);
+        void SetValueInternal_Single<T>(PAPart path, T value);
+        void SetValueInternal_Mult<T>(PAPath path, T value);
+        //List<(PAPath, JsonNode)> CollectNodes();
     }
 
     public static class PropertyAccessorExtensions

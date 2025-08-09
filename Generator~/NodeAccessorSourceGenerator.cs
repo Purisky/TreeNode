@@ -2,33 +2,31 @@
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
+using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 
 namespace TreeNodeSourceGenerator
 {
-    /// <summary>
-    /// Unity源代码生成器 - 为JsonNode派生类生成高性能访问器
-    /// 重构优化: 将case 2和Length > 2合并为Length > 1，使用递归调用让下级处理路径
-    /// </summary>
     [Generator]
     public partial class NodeAccessorSourceGenerator : ISourceGenerator
     {
         public void Initialize(GeneratorInitializationContext context)
         {
             context.RegisterForSyntaxNotifications(() => new JsonNodeSyntaxReceiver());
+
         }
 
         public void Execute(GeneratorExecutionContext context)
         {
             if (context.SyntaxReceiver is not JsonNodeSyntaxReceiver receiver)
                 return;
-
             var compilation = context.Compilation;
             var jsonNodeTypes = new List<INamedTypeSymbol>();
             var propertyAccessorTypes = new List<INamedTypeSymbol>();
-            
+
             foreach (var candidateClass in receiver.CandidateClasses)
             {
                 var model = compilation.GetSemanticModel(candidateClass.SyntaxTree);
@@ -37,11 +35,10 @@ namespace TreeNodeSourceGenerator
                     if (IsJsonNodeDerived(typeSymbol))
                     {
                         jsonNodeTypes.Add(typeSymbol);
-                    }
-                    
-                    if (IsEligibleForPropertyAccessor(typeSymbol))
-                    {
-                        propertyAccessorTypes.Add(typeSymbol);
+                        if (IsEligibleForPropertyAccessor(typeSymbol))
+                        {
+                            propertyAccessorTypes.Add(typeSymbol);
+                        }
                     }
                 }
             }
@@ -53,13 +50,24 @@ namespace TreeNodeSourceGenerator
                 context.AddSource($"{nodeType.Name}Accessor.g.cs", SourceText.From(accessorSource, Encoding.UTF8));
             }
 
-            // 生成属性访问器partial类
+            HashSet<INamedTypeSymbol> typeSymbols = new();
             foreach (var nodeType in propertyAccessorTypes)
             {
-                var propertyAccessorSource = GeneratePropertyAccessorPartialClass(nodeType);
+                List<AccessibleMemberInfo> accessibleMembers = AnalyzeAccessibleMembers(nodeType, typeSymbols);
+                var propertyAccessorSource = GeneratePropertyAccessorPartialClass(nodeType, accessibleMembers);
                 context.AddSource($"{nodeType.Name}.PropertyAccessor.g.cs", SourceText.From(propertyAccessorSource, Encoding.UTF8));
+                
             }
-
+            int visited = 0;
+            while (visited < typeSymbols.Count)
+            {
+                var current = typeSymbols.ElementAt(visited);
+                visited++;
+                List<AccessibleMemberInfo> accessibleMembers = AnalyzeAccessibleMembers(current, typeSymbols);
+                var propertyAccessorSource = GeneratePropertyAccessorPartialClass(current, accessibleMembers);
+                context.AddSource($"{current.Name}.PropertyAccessor.g.cs", SourceText.From(propertyAccessorSource, Encoding.UTF8));
+                
+            }
             // 生成注册器
             if (jsonNodeTypes.Count > 0)
             {
@@ -70,15 +78,15 @@ namespace TreeNodeSourceGenerator
 
         private bool IsEligibleForPropertyAccessor(INamedTypeSymbol typeSymbol)
         {
-            return IsJsonNodeDerived(typeSymbol) && !typeSymbol.IsAbstract && IsPartialClass(typeSymbol);
+            return !typeSymbol.IsAbstract && IsPartial(typeSymbol);
         }
 
-        private bool IsPartialClass(INamedTypeSymbol typeSymbol)
+        private bool IsPartial(INamedTypeSymbol typeSymbol)
         {
             return typeSymbol.DeclaringSyntaxReferences
                 .Select(r => r.GetSyntax())
-                .OfType<ClassDeclarationSyntax>()
-                .Any(syntax => syntax.Modifiers.Any(m => m.IsKind(SyntaxKind.PartialKeyword)));
+                .Where(syntax => syntax is ClassDeclarationSyntax || syntax is StructDeclarationSyntax)
+                .Any(syntax => syntax.ChildTokens().Any(m => m.IsKind(SyntaxKind.PartialKeyword)));
         }
 
 
@@ -88,7 +96,7 @@ namespace TreeNodeSourceGenerator
         private bool IsBuiltinValueType(ITypeSymbol type)
         {
             if (type == null) return false;
-            
+
             switch (type.SpecialType)
             {
                 case SpecialType.System_Boolean:
@@ -110,7 +118,7 @@ namespace TreeNodeSourceGenerator
                 default:
                     break;
             }
-            
+
             if (type.OriginalDefinition?.SpecialType == SpecialType.System_Nullable_T)
             {
                 if (type is INamedTypeSymbol namedType && namedType.TypeArguments.Length > 0)
@@ -118,12 +126,12 @@ namespace TreeNodeSourceGenerator
                     return IsBuiltinValueType(namedType.TypeArguments[0]);
                 }
             }
-            
+
             if (type.TypeKind == TypeKind.Enum)
             {
                 return true;
             }
-            
+
             return false;
         }
 
@@ -144,7 +152,7 @@ namespace TreeNodeSourceGenerator
         private bool IsJsonNodeType(ITypeSymbol type)
         {
             if (type == null) return false;
-            
+
             var current = type;
             while (current != null)
             {
@@ -199,9 +207,9 @@ namespace TreeNodeSourceGenerator
                 return false;
 
             var namespaceName = type.ContainingNamespace?.ToDisplayString() ?? "";
-            
-            if (namespaceName.StartsWith("System") || 
-                namespaceName.StartsWith("Unity") || 
+
+            if (namespaceName.StartsWith("System") ||
+                namespaceName.StartsWith("Unity") ||
                 namespaceName.StartsWith("Microsoft") ||
                 namespaceName.StartsWith("Newtonsoft"))
             {
@@ -214,7 +222,7 @@ namespace TreeNodeSourceGenerator
         private bool IsStructCollection(ITypeSymbol type)
         {
             if (!IsCollection(type)) return false;
-            
+
             var elementType = GetCollectionElementType(type);
             return elementType != null && elementType.IsValueType && !IsBuiltinValueType(elementType);
         }
@@ -222,15 +230,15 @@ namespace TreeNodeSourceGenerator
         private bool ImplementsIPropertyAccessor(ITypeSymbol type)
         {
             if (type == null) return false;
-            
+
             var interfaces = type.AllInterfaces;
-            return interfaces.Any(i => i.Name == "IPropertyAccessor" && 
+            return interfaces.Any(i => i.Name == "IPropertyAccessor" &&
                                       i.ContainingNamespace.ToDisplayString() == "TreeNode.Runtime");
         }
 
         private bool HasNestedAccessCapability(ITypeSymbol type)
         {
-            return IsJsonNodeType(type) || 
+            return IsJsonNodeType(type) ||
                    ImplementsIPropertyAccessor(type) ||
                    IsUserDefinedType(type);
         }

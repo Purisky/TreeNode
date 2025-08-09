@@ -42,6 +42,7 @@ namespace TreeNode.Runtime
         {
             if (string.IsNullOrEmpty(path))
             {
+
                 Parts = new PAPart[0];
                 _originalPath = string.Empty;
                 _hashCode = 0;
@@ -69,6 +70,7 @@ namespace TreeNode.Runtime
             _originalPath = PartsToString(Parts);
             _hashCode = ComputeHashCode(_originalPath);
         }
+
 
 
 
