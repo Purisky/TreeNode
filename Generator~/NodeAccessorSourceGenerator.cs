@@ -17,16 +17,18 @@ namespace TreeNodeSourceGenerator
         {
             context.RegisterForSyntaxNotifications(() => new JsonNodeSyntaxReceiver());
 
-        }
 
+        }
+        static Dictionary<INamedTypeSymbol, List<AccessibleMemberInfo>> TypeDict;
         public void Execute(GeneratorExecutionContext context)
         {
+            Debug.debugLogs.Clear();
+            Debug.Log("NodeAccessorSourceGenerator.Execute called");
             if (context.SyntaxReceiver is not JsonNodeSyntaxReceiver receiver)
                 return;
             var compilation = context.Compilation;
             var jsonNodeTypes = new List<INamedTypeSymbol>();
             var propertyAccessorTypes = new List<INamedTypeSymbol>();
-
             foreach (var candidateClass in receiver.CandidateClasses)
             {
                 var model = compilation.GetSemanticModel(candidateClass.SyntaxTree);
@@ -50,23 +52,31 @@ namespace TreeNodeSourceGenerator
                 context.AddSource($"{nodeType.Name}Accessor.g.cs", SourceText.From(accessorSource, Encoding.UTF8));
             }
 
-            HashSet<INamedTypeSymbol> typeSymbols = new();
-            foreach (var nodeType in propertyAccessorTypes)
+            TypeDict = new();
+
+
+            List<INamedTypeSymbol> list = new(propertyAccessorTypes);
+            HashSet<INamedTypeSymbol> newTypes = new();
+            while (list.Count > 0)
             {
-                List<AccessibleMemberInfo> accessibleMembers = AnalyzeAccessibleMembers(nodeType, typeSymbols);
-                var propertyAccessorSource = GeneratePropertyAccessorPartialClass(nodeType, accessibleMembers);
-                context.AddSource($"{nodeType.Name}.PropertyAccessor.g.cs", SourceText.From(propertyAccessorSource, Encoding.UTF8));
-                
+                var current = list[0];
+                list.RemoveAt(0);
+                if (TypeDict.ContainsKey(current)) continue;
+                newTypes.Clear();
+                List<AccessibleMemberInfo> accessibleMembers = AnalyzeAccessibleMembers(current, newTypes);
+                TypeDict[current] = accessibleMembers;
+                foreach (var type in newTypes)
+                {
+                    if (!TypeDict.ContainsKey(type) && !list.Contains(type))
+                    { 
+                        list.Add(type);
+                    }
+                }
             }
-            int visited = 0;
-            while (visited < typeSymbols.Count)
+            foreach (var item in TypeDict)
             {
-                var current = typeSymbols.ElementAt(visited);
-                visited++;
-                List<AccessibleMemberInfo> accessibleMembers = AnalyzeAccessibleMembers(current, typeSymbols);
-                var propertyAccessorSource = GeneratePropertyAccessorPartialClass(current, accessibleMembers);
-                context.AddSource($"{current.Name}.PropertyAccessor.g.cs", SourceText.From(propertyAccessorSource, Encoding.UTF8));
-                
+                var propertyAccessorSource = GeneratePropertyAccessorPartialClass(item.Key, item.Value);
+                context.AddSource($"{item.Key.Name}.PropertyAccessor.g.cs", SourceText.From(propertyAccessorSource, Encoding.UTF8));
             }
             // 生成注册器
             if (jsonNodeTypes.Count > 0)
@@ -74,6 +84,7 @@ namespace TreeNodeSourceGenerator
                 var registrarSource = GenerateRegistrarClass(jsonNodeTypes);
                 context.AddSource("GeneratedAccessorRegistrar.g.cs", SourceText.From(registrarSource, Encoding.UTF8));
             }
+           Debug.GenerateDebugFile(context);
         }
 
         private bool IsEligibleForPropertyAccessor(INamedTypeSymbol typeSymbol)
@@ -227,13 +238,11 @@ namespace TreeNodeSourceGenerator
             return elementType != null && elementType.IsValueType && !IsBuiltinValueType(elementType);
         }
 
-        private bool ImplementsIPropertyAccessor(ITypeSymbol type)
+        public static bool ImplementsIPropertyAccessor(ITypeSymbol type)
         {
             if (type == null) return false;
-
             var interfaces = type.AllInterfaces;
-            return interfaces.Any(i => i.Name == "IPropertyAccessor" &&
-                                      i.ContainingNamespace.ToDisplayString() == "TreeNode.Runtime");
+            return interfaces.Any(i => i.Name == "IPropertyAccessor" &&i.ContainingNamespace.ToDisplayString() == "TreeNode.Runtime");
         }
 
         private bool HasNestedAccessCapability(ITypeSymbol type)
@@ -264,7 +273,7 @@ namespace TreeNodeSourceGenerator
         public ITypeSymbol Type { get; set; }
         public bool IsValueType { get; set; }
         public bool IsJsonNodeType { get; set; }
-        public bool ImplementsIPropertyAccessor { get; set; }
+        public bool ImplementsIPropertyAccessor => NodeAccessorSourceGenerator.ImplementsIPropertyAccessor(Type);
         public bool HasNestedAccess { get; set; }
         public bool IsCollection { get; set; }
         public ITypeSymbol ElementType { get; set; }

@@ -11,7 +11,7 @@ using UnityEngine.UIElements;
 namespace TreeNode.Runtime
 {
     [Serializable, PortColor("#ffffff")]
-    public class JsonNode
+    public class JsonNode:IPropertyAccessor
     {
 
         [JsonProperty]
@@ -20,7 +20,6 @@ namespace TreeNode.Runtime
         public PrefabData PrefabData;
         public virtual T GetValue<T>(string path) => PropertyAccessor.GetValue<T>(this, path);
         public virtual void SetValue<T>(string path, T value) => PropertyAccessor.SetValue<T>(this, path, value);
-
         public bool SetValue(Type type, string key, JToken value)
         {
             if (type == null || string.IsNullOrEmpty(key))
@@ -44,7 +43,6 @@ namespace TreeNode.Runtime
             }
             return true;
         }
-
         public object GetParent(string path)
         {
             string parentPath = PropertyAccessor.ExtractParentPath(path);
@@ -54,14 +52,29 @@ namespace TreeNode.Runtime
             }
             return GetValue<object>(parentPath);
         }
-
         public virtual string GetInfo() => GetType().Name;
+
+        public virtual T GetValueInternal<T>(PAPath path)
+        {
+            throw new NotImplementedException();
+        }
+
+        public virtual bool TryGetValueInternal<T>(ref PAPath path, int index, out T value)
+        {
+            throw new NotImplementedException();
+        }
+
+        public virtual void SetValueInternal<T>(PAPath path, T value)
+        {
+            throw new NotImplementedException();
+        }
     }
 
 
 
 
-    public struct Vec2: IEquatable<Vec2>
+
+    public partial struct Vec2: IEquatable<Vec2>
     {
         public int x;
         public int y;
