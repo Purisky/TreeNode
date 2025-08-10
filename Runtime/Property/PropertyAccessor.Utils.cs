@@ -1,4 +1,4 @@
-using Newtonsoft.Json.Linq;
+﻿using Newtonsoft.Json.Linq;
 using System;
 using System.Collections;
 using System.Collections.Concurrent;
@@ -13,97 +13,110 @@ namespace TreeNode.Runtime
 {
     public static partial class PropertyAccessor
     {
-
-        #region 验证方法
-
-        /// <summary>
-        /// 验证成员是否存在 - 使用PAPart
-        /// </summary>
-        private static bool ValidateMemberExists(object obj, PAPart part)
-        {
-            if (obj == null) return false;
-
-            var metadata = GetOrCreateMemberInfo(obj.GetType(), part);
-
-            if (metadata.IsIndexer)
-            {
-                return ValidateIndexerAccess(obj, part.Index, metadata);
-            }
-            else
-            {
-                return metadata.IsProperty && metadata.Property != null ||
-                       !metadata.IsProperty && metadata.Field != null;
-            }
-        }
+        #region 验证工具类
 
         /// <summary>
-        /// 验证索引器访问（增强Array验证）
+        /// 统一的验证策略
         /// </summary>
-        private static bool ValidateIndexerAccess(object obj, int index, MemberMetadata metadata)
+        private static class ValidationStrategy
         {
-            object collection = obj;
-            Type collectionType = obj.GetType();
+            /// <summary>
+            /// 验证成员是否存在
+            /// </summary>
+            public static bool ValidateMemberExists(object obj, PAPart part)
+            {
+                if (obj == null) return false;
 
-            if (collection == null) return false;
+                var metadata = GetOrCreateMemberInfo(obj.GetType(), part);
 
-            // 优先检查Array类型
-            if (collectionType.IsArray && collection is Array array)
-            {
-                return index >= 0 && index < array.Length;
+                if (metadata.IsIndexer)
+                {
+                    return IndexerStrategy.ValidateAccess(obj, part.Index);
+                }
+                else
+                {
+                    return metadata.IsProperty && metadata.Property != null ||
+                           !metadata.IsProperty && metadata.Field != null;
+                }
             }
-            // 然后检查IList类型
-            else if (collection is IList list)
+
+            /// <summary>
+            /// 验证成员是否可写
+            /// </summary>
+            public static bool CanWriteToMember(Type type, PAPart part)
             {
-                return index >= 0 && index < list.Count;
-            }
-            // 最后检查是否有索引器
-            else
-            {
-                return collectionType.GetProperty("Item") != null;
+                var metadata = GetOrCreateMemberInfo(type, part);
+
+                if (metadata.IsIndexer)
+                {
+                    // 数组和索引器通常可写
+                    return metadata.IsArray || type.GetProperty("Item")?.CanWrite == true;
+                }
+                else if (metadata.IsProperty)
+                {
+                    return metadata.Property?.CanWrite == true;
+                }
+                else
+                {
+                    // 字段通常可写，除非是readonly
+                    return metadata.Field != null && !metadata.Field.IsInitOnly;
+                }
             }
         }
 
         #endregion
-        #region 导航和错误处理
+
+        #region 导航工具类
 
         /// <summary>
-        /// 导航到下一个对象 - 使用PAPath和索引
+        /// 对象导航策略
         /// </summary>
-        private static object NavigateToNextObject(object rootObj, object currentObj, PAPath fullPath, int partIndex)
+        private static class NavigationStrategy
         {
-            var part = fullPath.Parts[partIndex];
-            var getter = GetOrCreateGetter<object>(currentObj.GetType(), part);
-            object nextObj = getter(currentObj);
-
-            // 如果对象为null，尝试自动创建
-            if (nextObj == null)
+            /// <summary>
+            /// 导航到下一个对象
+            /// </summary>
+            public static object NavigateToNext(object rootObj, object currentObj, PAPath fullPath, int partIndex)
             {
-                nextObj = TryCreateMissingObject(rootObj, fullPath, partIndex, currentObj.GetType());
+                var part = fullPath.Parts[partIndex];
+                var getter = GetOrCreateGetter<object>(currentObj.GetType(), part);
+                object nextObj = getter(currentObj);
+
+                // 如果对象为null，尝试自动创建
+                if (nextObj == null)
+                {
+                    nextObj = TryCreateMissingObject(rootObj, fullPath, partIndex, currentObj.GetType());
+                }
+
+                return nextObj;
             }
 
-            return nextObj;
-        }
-
-        /// <summary>
-        /// 尝试创建缺失的对象 - 使用PAPath
-        /// </summary>
-        private static object TryCreateMissingObject(object rootObj, PAPath fullPath, int partIndex, Type parentType)
-        {
-            var part = fullPath.Parts[partIndex];
-            var memberType = GetMemberType(parentType, part);
-
-            if (memberType != null &&
-                !IsJsonNodeType(memberType) &&
-                HasValidParameterlessConstructor(memberType))
+            /// <summary>
+            /// 尝试创建缺失的对象
+            /// </summary>
+            private static object TryCreateMissingObject(object rootObj, PAPath fullPath, int partIndex, Type parentType)
             {
-                var newObj = Activator.CreateInstance(memberType);
-                var parentPath = fullPath.GetSubPath(0, partIndex + 1);
-                SetValue(rootObj, parentPath, newObj);
-                return newObj;
-            }
+                var part = fullPath.Parts[partIndex];
+                var memberType = GetMemberType(parentType, part);
 
-            return null;
+                if (memberType != null &&
+                    !IsJsonNodeType(memberType) &&
+                    HasValidParameterlessConstructor(memberType))
+                {
+                    var newObj = Activator.CreateInstance(memberType);
+                    var parentPath = fullPath.GetSubPath(0, partIndex + 1);
+                    SetValue(rootObj, parentPath, newObj);
+                    return newObj;
+                }
+
+                return null;
+            }
         }
+
+        #endregion
+
+
+        #region 类型工具方法
 
         /// <summary>
         /// 获取成员类型 - 使用PAPart
@@ -115,9 +128,6 @@ namespace TreeNode.Runtime
                 ? metadata.Property.PropertyType
                 : metadata.Field?.FieldType;
         }
-
-        #endregion
-        #region 类型检查工具
 
         /// <summary>
         /// 检查类型是否有有效的无参构造函数
@@ -137,11 +147,25 @@ namespace TreeNode.Runtime
         /// 检查是否为JsonNode类型
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static bool IsJsonNodeType(Type type) =>
-            type == typeof(JsonNode);
+        private static bool IsJsonNodeType(Type type) => type == typeof(JsonNode);
+
+        /// <summary>
+        /// 检查是否为数值类型
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static bool IsNumericType(Type type)
+        {
+            return type == typeof(byte) || type == typeof(sbyte) ||
+                   type == typeof(short) || type == typeof(ushort) ||
+                   type == typeof(int) || type == typeof(uint) ||
+                   type == typeof(long) || type == typeof(ulong) ||
+                   type == typeof(float) || type == typeof(double) ||
+                   type == typeof(decimal);
+        }
 
         #endregion
-        #region 工具方法
+
+        #region 字符串转换工具
 
         /// <summary>
         /// 将深度转换为字符串长度

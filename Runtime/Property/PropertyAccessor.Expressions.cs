@@ -13,6 +13,68 @@ namespace TreeNode.Runtime
 {
     public static partial class PropertyAccessor
     { 
+        #region 索引器处理策略类
+
+        /// <summary>
+        /// 统一的索引器访问策略
+        /// </summary>
+        private static class IndexerStrategy
+        {
+            /// <summary>
+            /// 构建索引器访问表达式
+            /// </summary>
+            public static Expression BuildAccess(Expression target, int index, ref Type type)
+            {
+                if (type.IsArray)
+                {
+                    var result = Expression.ArrayAccess(target, Expression.Constant(index));
+                    type = type.GetElementType();
+                    return result;
+                }
+
+                var indexer = type.GetProperty("Item") 
+                    ?? throw PropertyAccessorErrors.CreateMemberNotFound(type, PAPart.FromIndex(index));
+                
+                var result2 = Expression.MakeIndex(target, indexer, new[] { Expression.Constant(index) });
+                type = indexer.PropertyType;
+                return result2;
+            }
+
+            /// <summary>
+            /// 创建索引器设置表达式
+            /// </summary>
+            public static Expression CreateSetExpression<T>(Type structType, int index,
+                ParameterExpression structVariable, ParameterExpression valueParam)
+            {
+                if (structType.IsArray)
+                {
+                    var indexAccess = Expression.ArrayAccess(structVariable, Expression.Constant(index));
+                    return Expression.Assign(indexAccess, TypeConverter.CreateConversion<T>(valueParam, indexAccess.Type));
+                }
+                else
+                {
+                    var indexer = structType.GetProperty("Item") 
+                        ?? throw PropertyAccessorErrors.CreateMemberNotFound(structType, PAPart.FromIndex(index));
+                    var indexAccess = Expression.MakeIndex(structVariable, indexer, new[] { Expression.Constant(index) });
+                    return Expression.Assign(indexAccess, TypeConverter.CreateConversion<T>(valueParam, indexAccess.Type));
+                }
+            }
+
+            /// <summary>
+            /// 验证索引器访问
+            /// </summary>
+            public static bool ValidateAccess(object obj, int index)
+            {
+                return obj switch
+                {
+                    Array array => index >= 0 && index < array.Length,
+                    IList list => index >= 0 && index < list.Count,
+                    _ => obj.GetType().GetProperty("Item") != null
+                };
+            }
+        }
+
+        #endregion
 
         #region 表达式构建
 
@@ -23,7 +85,7 @@ namespace TreeNode.Runtime
         {
             if (part.IsIndex)
             {
-                return BuildIndexerAccess(current, part.Index, ref type);
+                return IndexerStrategy.BuildAccess(current, part.Index, ref type);
             }
             else
             {
@@ -32,26 +94,12 @@ namespace TreeNode.Runtime
         }
 
         /// <summary>
-        /// 构建索引器访问表达式（增强Array支持）
+        /// 构建索引器访问表达式（已重构到IndexerStrategy）
         /// </summary>
+        [Obsolete("使用 IndexerStrategy.BuildAccess 替代")]
         private static Expression BuildIndexerAccess(Expression current, int index, ref Type type)
         {
-            // 优化：区分Array和普通索引器处理
-            if (type.IsArray)
-            {
-                // 对于数组类型，使用Expression.ArrayAccess，它支持读写操作
-                current = Expression.ArrayAccess(current, Expression.Constant(index));
-                type = type.GetElementType();
-            }
-            else
-            {
-                // 对于其他集合类型，使用索引器
-                var indexer = type.GetProperty("Item") ?? throw new ArgumentException($"类型 {type.Name} 不支持索引器访问");
-                current = Expression.MakeIndex(current, indexer, new[] { Expression.Constant(index) });
-                type = indexer.PropertyType;
-            }
-
-            return current;
+            return IndexerStrategy.BuildAccess(current, index, ref type);
         }
 
         /// <summary>
@@ -68,13 +116,14 @@ namespace TreeNode.Runtime
             }
 
             var field = type.GetField(memberName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                ?? throw new ArgumentException($"成员 {memberName} 在类型 {type.Name} 中未找到");
+                ?? throw PropertyAccessorErrors.CreateMemberNotFound(type, PAPart.FromString(memberName));
             current = Expression.Field(current, field);
             type = field.FieldType;
             return current;
         }
 
         #endregion
+
         #region 值类型处理
 
         /// <summary>
@@ -112,7 +161,7 @@ namespace TreeNode.Runtime
 
             if (part.IsIndex)
             {
-                setValueExpression = CreateIndexerSetExpression<T>(structType, part.Index, structVariable, valueParam);
+                setValueExpression = IndexerStrategy.CreateSetExpression<T>(structType, part.Index, structVariable, valueParam);
             }
             else
             {
@@ -132,24 +181,13 @@ namespace TreeNode.Runtime
         }
 
         /// <summary>
-        /// 创建索引器设置表达式（增强Array支持）
+        /// 创建索引器设置表达式（已重构到IndexerStrategy）
         /// </summary>
+        [Obsolete("使用 IndexerStrategy.CreateSetExpression 替代")]
         private static Expression CreateIndexerSetExpression<T>(Type structType, int index,
             ParameterExpression structVariable, ParameterExpression valueParam)
         {
-            if (structType.IsArray)
-            {
-                // 对数组使用ArrayIndex优化
-                var indexAccess = Expression.ArrayAccess(structVariable, Expression.Constant(index));
-                return Expression.Assign(indexAccess, Expression.Convert(valueParam, indexAccess.Type));
-            }
-            else
-            {
-                // 对其他集合使用索引器
-                var indexer = structType.GetProperty("Item") ?? throw new ArgumentException($"类型 {structType.Name} 不支持索引器");
-                var indexAccess = Expression.MakeIndex(structVariable, indexer, new[] { Expression.Constant(index) });
-                return Expression.Assign(indexAccess, Expression.Convert(valueParam, indexAccess.Type));
-            }
+            return IndexerStrategy.CreateSetExpression<T>(structType, index, structVariable, valueParam);
         }
 
         /// <summary>
@@ -162,21 +200,22 @@ namespace TreeNode.Runtime
             if (property != null && property.CanWrite)
             {
                 var propertyAccess = Expression.Property(structVariable, property);
-                return Expression.Assign(propertyAccess, Expression.Convert(valueParam, property.PropertyType));
+                return Expression.Assign(propertyAccess, TypeConverter.CreateConversion<T>(valueParam, property.PropertyType));
             }
 
             var field = structType.GetField(memberName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
             if (field != null)
             {
                 var fieldAccess = Expression.Field(structVariable, field);
-                return Expression.Assign(fieldAccess, Expression.Convert(valueParam, field.FieldType));
+                return Expression.Assign(fieldAccess, TypeConverter.CreateConversion<T>(valueParam, field.FieldType));
             }
 
-            throw new ArgumentException($"成员 {memberName} 在类型 {structType.Name} 中未找到或不可写");
+            throw PropertyAccessorErrors.CreateMemberNotFound(structType, PAPart.FromString(memberName));
         }
 
         #endregion
-                #region 私有核心方法
+
+        #region 私有核心方法
 
         /// <summary>
         /// 处理值类型的设置操作

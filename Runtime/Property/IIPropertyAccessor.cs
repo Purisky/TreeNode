@@ -12,7 +12,7 @@ namespace TreeNode.Runtime
         void RemoveValueInternal(ref PAPath path, ref int index);
         void ValidatePath(ref PAPath path, ref int index);
         //List<(int depth,T value)> GetAllInPath<T>(ref PAPath path, ref int index);
-        //List<(PAPath, JsonNode)> CollectNodes(List<(PAPath, JsonNode)> list);
+        List<(PAPath, JsonNode)> CollectNodes(List<(PAPath, JsonNode)> list,int depth = -1);
     }
 
     public static class PropertyAccessorExtensions

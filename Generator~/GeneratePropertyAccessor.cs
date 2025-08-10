@@ -15,6 +15,7 @@ namespace TreeNodeSourceGenerator
             Get,
             Set,
             Remove,
+            ValidatePath,
         }
         private string GeneratePropertyAccessorPartialClass(INamedTypeSymbol nodeType, List<AccessibleMemberInfo> accessibleMembers)
         {
@@ -39,6 +40,7 @@ namespace TreeNodeSourceGenerator
             GenerateAccessMethod(sb, nodeType, accessibleMembers, AccessOperation.Get);
             GenerateAccessMethod(sb, nodeType, accessibleMembers, AccessOperation.Set);
             GenerateAccessMethod(sb, nodeType, accessibleMembers, AccessOperation.Remove);
+            GenerateAccessMethod(sb, nodeType, accessibleMembers, AccessOperation.ValidatePath);
 
             sb.AppendLine("    }");
             sb.AppendLine("}");
@@ -53,6 +55,15 @@ namespace TreeNodeSourceGenerator
             sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
             sb.AppendLine($"        public {override_keyword}{methodInfo.ReturnType}");
             sb.AppendLine("        {");
+            
+            if (operation == AccessOperation.ValidatePath)
+            {
+                GenerateValidatePathMethod(sb, members);
+                sb.AppendLine("        }");
+                sb.AppendLine();
+                return;
+            }
+            
             if (members.Count == 0)
             {
                 sb.AppendLine($"            {methodInfo.EmptyHandling}");
@@ -93,6 +104,11 @@ namespace TreeNodeSourceGenerator
                     "void RemoveValueInternal(ref PAPath path,ref int index)",
                     "throw new NotSupportedException(\"No removable properties or fields available for removing value.\");",
                     $"throw new NotSupportedException($\"Index access not supported by {nodeTypeName}\");"
+                ),
+                AccessOperation.ValidatePath => (
+                    "void ValidatePath(ref PAPath path,ref int index)",
+                    "// No validation needed for empty type",
+                    "// Index access validation not needed for ValidatePath"
                 ),
                 _ => throw new ArgumentException($"Unknown operation: {operation}")
             };
@@ -326,6 +342,78 @@ namespace TreeNodeSourceGenerator
                 AccessOperation.Remove => "throw new NotSupportedException(\"No multi-path properties or fields available for removing value.\");",
                 _ => throw new ArgumentException($"Unknown operation: {operation}")
             };
+        }
+
+        private void GenerateValidatePathMethod(StringBuilder sb, List<AccessibleMemberInfo> members)
+        {
+            sb.AppendLine("            if (index >= path.Parts.Length)");
+            sb.AppendLine("            {");
+            sb.AppendLine("                return;");
+            sb.AppendLine("            }");
+            sb.AppendLine();
+            sb.AppendLine("            ref PAPart part = ref path.Parts[index];");
+            sb.AppendLine("            if (part.IsIndex)");
+            sb.AppendLine("            {");
+            sb.AppendLine("                return;");
+            sb.AppendLine("            }");
+            sb.AppendLine();
+            sb.AppendLine("            index++;");
+            sb.AppendLine();
+            
+            if (members.Count == 0)
+            {
+                return;
+            }
+
+            sb.AppendLine("            switch (part.Name)");
+            sb.AppendLine("            {");
+
+            foreach (var member in members)
+            {
+                sb.AppendLine($"                case \"{member.Name}\":");
+                
+                if (member.HasNestedAccess || member.IsCollection)
+                {
+                    // 在验证路径时也需要创建实例
+                    if (NeedCreateInstance(member))
+                    {
+                        sb.AppendLine($"                    {member.Name} ??= new();");
+                    }
+                    
+                    if (member.IsCollection)
+                    {
+                        sb.AppendLine($"                    {member.Name}?.ValidatePath(ref path, ref index);");
+                    }
+                    else if (member.ImplementsIPropertyAccessor || member.IsJsonNodeType || (member.Type is INamedTypeSymbol namedTypeSymbol && TypeDict.ContainsKey(namedTypeSymbol)))
+                    {
+                        if (member.IsValueType)
+                        {
+                            sb.AppendLine($"                    {member.Name}.ValidatePath(ref path, ref index);");
+                        }
+                        else
+                        {
+                            sb.AppendLine($"                    {member.Name}?.ValidatePath(ref path, ref index);");
+                        }
+                    }
+                    else
+                    {
+                        if (member.IsValueType)
+                        {
+                            sb.AppendLine($"                    PropertyAccessor.ValidatePath({member.Name}, ref path, ref index);");
+                        }
+                        else
+                        {
+                            sb.AppendLine($"                    if ({member.Name} != null)");
+                            sb.AppendLine($"                        PropertyAccessor.ValidatePath({member.Name}, ref path, ref index);");
+                        }
+                    }
+                }
+                sb.AppendLine("                    return;");
+            }
+
+            sb.AppendLine("                default:");
+            sb.AppendLine("                    return;");
+            sb.AppendLine("            }");
         }
     }
 }

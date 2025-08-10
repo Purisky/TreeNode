@@ -1,4 +1,4 @@
-using Newtonsoft.Json.Linq;
+﻿using Newtonsoft.Json.Linq;
 using System;
 using System.Collections;
 using System.Collections.Concurrent;
@@ -13,26 +13,11 @@ namespace TreeNode.Runtime
 {
     public static partial class PropertyAccessor//公共API - 保持向后兼容
     {
-
-        /// <summary>
-        /// 获取属性值
-        /// </summary>
-        /// <typeparam name="T">返回值类型</typeparam>
-        /// <param name="obj">目标对象</param>
-        /// <param name="path">属性路径</param>
-        /// <returns>属性值</returns>
         public static T GetValue<T>(object obj, string path)
         {
             return GetValue<T>(obj, PAPath.Create(path));
         }
 
-        /// <summary>
-        /// 获取属性值 - 使用PAPath
-        /// </summary>
-        /// <typeparam name="T">返回值类型</typeparam>
-        /// <param name="obj">目标对象</param>
-        /// <param name="path">PAPath路径</param>
-        /// <returns>属性值</returns>
         public static T GetValue<T>(object obj, PAPath path)
         {
             if (path.IsEmpty)
@@ -55,33 +40,10 @@ namespace TreeNode.Runtime
             var subPath = path.GetSubPath(index);
             return GetValue<T>(obj, subPath);
         }
-
-
-
-
-        /// <summary>
-        /// 设置属性值
-        /// </summary>
-        /// <typeparam name="T">值类型</typeparam>
-        /// <param name="obj">目标对象</param>
-        /// <param name="path">属性路径</param>
-        /// <param name="value">要设置的值</param>
         public static void SetValue<T>(object obj, string path, T value)
         {
             SetValue(obj, PAPath.Create(path), value);
         }
-
-
-
-
-
-        /// <summary>
-        /// 设置属性值 - 使用PAPath
-        /// </summary>
-        /// <typeparam name="T">值类型</typeparam>
-        /// <param name="obj">目标对象</param>
-        /// <param name="path">PAPath路径</param>
-        /// <param name="value">要设置的值</param>
         public static void SetValue<T>(object obj, PAPath path, T value)
         {
             if (path.IsEmpty)
@@ -120,22 +82,10 @@ namespace TreeNode.Runtime
             var subPath = path.GetSubPath(index);
             SetValue(obj, subPath, value);
         }
-
-        /// <summary>
-        /// 设置属性值为null或移除列表项
-        /// </summary>
-        /// <param name="obj">目标对象</param>
-        /// <param name="path">属性路径</param>
-        public static void SetValueNull(object obj, string path)
+        public static void RemoveValue(object obj, string path)
         {
             RemoveValue(obj, PAPath.Create(path));
         }
-
-        /// <summary>
-        /// 设置属性值为null或移除列表项 - 使用PAPath
-        /// </summary>
-        /// <param name="obj">目标对象</param>
-        /// <param name="path">PAPath路径</param>
         public static void RemoveValue(object obj, PAPath path)
         {
             var parent = GetParentObject(obj, path, out var lastPart);
@@ -169,13 +119,6 @@ namespace TreeNode.Runtime
                 setter(parent, null);
             }
         }
-        /// <summary>
-        /// 验证路径有效性
-        /// </summary>
-        /// <param name="obj">目标对象</param>
-        /// <param name="path">属性路径</param>
-        /// <param name="validLength">有效路径长度</param>
-        /// <returns>路径是否完全有效</returns>
         public static bool GetValidPath(object obj, string path, out int validLength)
         {
             obj.ThrowIfNull(nameof(obj));
@@ -189,14 +132,6 @@ namespace TreeNode.Runtime
 
             return isValid;
         }
-
-        /// <summary>
-        /// 验证路径有效性 - 使用PAPath
-        /// </summary>
-        /// <param name="obj">目标对象</param>
-        /// <param name="path">PAPath路径</param>
-        /// <param name="validDepth">有效路径深度</param>
-        /// <returns>路径是否完全有效</returns>
         public static bool GetValidPath(object obj, PAPath path, out int validDepth)
         {
             obj.ThrowIfNull(nameof(obj));
@@ -218,7 +153,7 @@ namespace TreeNode.Runtime
                     if (i == path.Depth - 1)
                     {
                         // 最后一个部分，验证成员存在性
-                        if (ValidateMemberExists(currentObj, part))
+                        if (ValidationStrategy.ValidateMemberExists(currentObj, part))
                         {
                             validDepth = path.Depth;
                             return true;
@@ -232,7 +167,7 @@ namespace TreeNode.Runtime
                     else
                     {
                         // 中间部分，尝试获取下一个对象
-                        currentObj = NavigateToNextObject(obj, currentObj, path, i);
+                        currentObj = NavigationStrategy.NavigateToNext(obj, currentObj, path, i);
                         if (currentObj == null)
                         {
                             validDepth = i;
@@ -251,30 +186,10 @@ namespace TreeNode.Runtime
             validDepth = path.Depth;
             return true;
         }
-
-        /// <summary>
-        /// 查找路径中最后出现指定类型的对象
-        /// </summary>
-        /// <typeparam name="T">目标类型</typeparam>
-        /// <param name="obj">根对象</param>
-        /// <param name="path">属性路径</param>
-        /// <param name="includeEnd">是否包含路径末尾</param>
-        /// <param name="index">找到对象时的路径索引</param>
-        /// <returns>找到的对象</returns>
         public static T GetLast<T>(object obj, string path, bool includeEnd, out int index)
         {
             return GetLast<T>(obj, PAPath.Create(path), includeEnd, out index);
         }
-
-        /// <summary>
-        /// 查找路径中最后出现指定类型的对象 - 使用PAPath
-        /// </summary>
-        /// <typeparam name="T">目标类型</typeparam>
-        /// <param name="obj">根对象</param>
-        /// <param name="path">PAPath路径</param>
-        /// <param name="includeEnd">是否包含路径末尾</param>
-        /// <param name="index">找到对象时的路径深度</param>
-        /// <returns>找到的对象</returns>
         public static T GetLast<T>(object obj, PAPath path, bool includeEnd, out int index)
         {
             obj.ThrowIfNull(nameof(obj));
@@ -299,10 +214,6 @@ namespace TreeNode.Runtime
 
             return result;
         }
-
-        /// <summary>
-        /// 获取父对象
-        /// </summary>
         public static object GetParentObject(object obj, string path, out string lastMember)
         {
             var paPath = PAPath.Create(path);
@@ -310,10 +221,6 @@ namespace TreeNode.Runtime
             lastMember = ConvertPartToString(lastPart);
             return parent;
         }
-
-        /// <summary>
-        /// 获取父对象 - 使用PAPath
-        /// </summary>
         public static object GetParentObject(object obj, PAPath path, out PAPart lastPart)
         {
             obj.ThrowIfNull(nameof(obj));
@@ -329,9 +236,6 @@ namespace TreeNode.Runtime
 
             return GetValue<object>(obj, parentPath);
         }
-        /// <summary>
-        /// 提取父路径
-        /// </summary>
         public static string ExtractParentPath(string path)
         {
             if (string.IsNullOrEmpty(path)) return path;
@@ -356,7 +260,7 @@ namespace TreeNode.Runtime
             ref PAPart part = ref path.Parts[index];
 
             // 验证当前部分是否有效
-            if (!ValidateMemberExists(obj, part))
+            if (!ValidationStrategy.ValidateMemberExists(obj, part))
             {
                 return;
             }
@@ -368,7 +272,7 @@ namespace TreeNode.Runtime
             {
                 try
                 {
-                    var nextObj = NavigateToNextObject(obj, obj, path, index - 1);
+                    var nextObj = NavigationStrategy.NavigateToNext(obj, obj, path, index - 1);
                     if (nextObj != null)
                     {
                         if (nextObj is IPropertyAccessor accessor)
