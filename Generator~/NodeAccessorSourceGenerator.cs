@@ -308,6 +308,7 @@ namespace TreeNodeSourceGenerator
     internal class AccessibleMemberInfo
     {
         public string Name { get; set; }
+        public bool IsProperty { get; set; }
         public ITypeSymbol Type { get; set; }
         public bool IsValueType { get; set; }
         public bool IsJsonNodeType { get; set; }

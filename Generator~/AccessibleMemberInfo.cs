@@ -24,6 +24,7 @@ namespace TreeNodeSourceGenerator
             {
                 Name = field.Name,
                 Type = field.Type,
+                IsProperty = false,
                 IsValueType = field.Type.IsValueType,
                 IsJsonNodeType = IsJsonNodeType(field.Type),
                 HasNestedAccess = HasNestedAccessCapability(field.Type),
@@ -41,6 +42,7 @@ namespace TreeNodeSourceGenerator
             {
                 Name = property.Name,
                 Type = property.Type,
+                IsProperty = true,
                 IsValueType = property.Type.IsValueType,
                 IsJsonNodeType = IsJsonNodeType(property.Type),
                 HasNestedAccess = HasNestedAccessCapability(property.Type),

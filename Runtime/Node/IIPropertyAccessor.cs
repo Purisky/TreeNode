@@ -9,7 +9,7 @@ namespace TreeNode.Runtime
     {
         T GetValueInternal<T>(ref PAPath path, ref int index);
         void SetValueInternal<T>(ref PAPath path, ref int index, T value);
-        void RemoveValue(ref PAPath path, ref int index);
+        void RemoveValueInternal(ref PAPath path, ref int index);
         //bool ValidatePath(PAPath path, out int validDepth);
         //(int depth,T value) GetAllInPath<T>(PAPath path);
         //List<(PAPath, JsonNode)> CollectNodes();
@@ -24,11 +24,6 @@ namespace TreeNode.Runtime
             if (first.Index < 0 || first.Index >= list.Count) { throw new IndexOutOfRangeException($"Index {first.Index} out of range for list of size {list.Count}"); }
             return ref first;
         }
-
-
-
-
-
         public static T GetValueInternal<T>(this IList list, ref PAPath path, ref int index)
         {
             ref PAPart first = ref list.ValidIndex(ref path, ref index);
@@ -98,7 +93,7 @@ namespace TreeNode.Runtime
             }
             if (list[first.Index] is IPropertyAccessor accessor)
             {
-                accessor.RemoveValue(ref path, ref index);
+                accessor.RemoveValueInternal(ref path, ref index);
                 return;
             }
             PropertyAccessor.RemoveValue(list[first.Index], ref path, ref index);
@@ -114,7 +109,7 @@ namespace TreeNode.Runtime
             TStruct @struct = list[first.Index];
             if (@struct is IPropertyAccessor accessor)
             {
-                accessor.RemoveValue(ref path, ref index);
+                accessor.RemoveValueInternal(ref path, ref index);
                 list[first.Index] = (TStruct)accessor; 
             }
             PropertyAccessor.RemoveValue(@struct, ref path, ref index);

@@ -15,7 +15,7 @@ namespace TreeNode.Runtime
     {
 
         [JsonProperty]
-        public Vec2 Position;
+        public Vec2 Position { get; set; }
         [JsonProperty]
         public PrefabData PrefabData;
         public virtual T GetValue<T>(string path) => PropertyAccessor.GetValue<T>(this, path);
@@ -56,7 +56,7 @@ namespace TreeNode.Runtime
 
         public virtual T GetValueInternal<T>(ref PAPath path, ref int index) => throw new NotImplementedException();
         public virtual void SetValueInternal<T>(ref PAPath path, ref int index, T value)=> throw new NotImplementedException();
-        public virtual void RemoveValue(ref PAPath path, ref int index)=> throw new NotImplementedException();
+        public virtual void RemoveValueInternal(ref PAPath path, ref int index)=> throw new NotImplementedException();
     }
 
 

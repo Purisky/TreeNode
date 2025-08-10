@@ -14,6 +14,7 @@ namespace TreeNodeSourceGenerator
         {
             Get,
             Set,
+            Remove,
         }
 
         private string GeneratePropertyAccessorPartialClass(INamedTypeSymbol nodeType, List<AccessibleMemberInfo> accessibleMembers)
@@ -38,6 +39,7 @@ namespace TreeNodeSourceGenerator
 
             GenerateAccessMethod(sb, nodeType, accessibleMembers, AccessOperation.Get);
             GenerateAccessMethod(sb, nodeType, accessibleMembers, AccessOperation.Set);
+            GenerateAccessMethod(sb, nodeType, accessibleMembers, AccessOperation.Remove);
 
             sb.AppendLine("    }");
             sb.AppendLine("}");
@@ -63,7 +65,7 @@ namespace TreeNodeSourceGenerator
 
             sb.AppendLine($"            if (first.IsIndex) {{ {methodInfo.IndexErrorHandling} }}");
 
-                sb.AppendLine("            if (path.Parts.Length == index)");
+            sb.AppendLine("            if (path.Parts.Length == index)");
 
             sb.AppendLine("            {");
             GenerateSinglePathLogic(sb, members, operation);
@@ -74,20 +76,23 @@ namespace TreeNodeSourceGenerator
             sb.AppendLine();
         }
 
-        private (string ReturnType, string MethodName, string EmptyHandling, string IndexErrorHandling) GetMethodInfo(AccessOperation operation, string nodeTypeName)
+        private (string ReturnType,  string EmptyHandling, string IndexErrorHandling) GetMethodInfo(AccessOperation operation, string nodeTypeName)
         {
             return operation switch
             {
                 AccessOperation.Get => (
                     "T GetValueInternal<T>(ref PAPath path,ref int index)",
-                    "GetValueInternal<T>",
                     "throw new NotSupportedException(\"No readable properties or fields available for getting value.\");",
                     $"throw new NotSupportedException($\"Index access not supported by {nodeTypeName}\");"
                 ),
                 AccessOperation.Set => (
                     "void SetValueInternal<T>(ref PAPath path,ref int index, T value)",
-                    "SetValueInternal<T>",
                     "throw new NotSupportedException(\"No writable properties or fields available for setting value.\");",
+                    $"throw new NotSupportedException($\"Index access not supported by {nodeTypeName}\");"
+                ),
+                AccessOperation.Remove => (
+                    "void RemoveValueInternal(ref PAPath path,ref int index)",
+                    "throw new NotSupportedException(\"No removable properties or fields available for removing value.\");",
                     $"throw new NotSupportedException($\"Index access not supported by {nodeTypeName}\");"
                 ),
                 _ => throw new ArgumentException($"Unknown operation: {operation}")
@@ -96,7 +101,7 @@ namespace TreeNodeSourceGenerator
 
         private void GenerateSinglePathLogic(StringBuilder sb, List<AccessibleMemberInfo> members, AccessOperation operation)
         {
-            var targetMembers = operation == AccessOperation.Set
+            var targetMembers = operation == AccessOperation.Set || operation == AccessOperation.Remove
                 ? members.Where(m => m.CanWrite && !m.IsReadOnly).ToList()
                 : members;
 
@@ -108,7 +113,10 @@ namespace TreeNodeSourceGenerator
             foreach (var member in targetMembers)
             {
                 sb.AppendLine($"                    case \"{member.Name}\":");
-                GenerateInstanceCreationIfNeeded(sb, member);
+                if (operation != AccessOperation.Remove)
+                {
+                    GenerateInstanceCreationIfNeeded(sb, member);
+                }
                 GenerateSinglePathMemberAccess(sb, member, operation);
             }
 
@@ -119,7 +127,7 @@ namespace TreeNodeSourceGenerator
 
         private void GenerateMultiPathLogic(StringBuilder sb, List<AccessibleMemberInfo> members, AccessOperation operation)
         {
-            var multiPathMembers = operation == AccessOperation.Set
+            var multiPathMembers = operation == AccessOperation.Set || operation == AccessOperation.Remove
                 ? members.Where(m => (m.HasNestedAccess || m.IsCollection) && m.CanWrite && !m.IsReadOnly).ToList()
                 : members.Where(m => m.HasNestedAccess || m.IsCollection).ToList();
 
@@ -165,6 +173,16 @@ namespace TreeNodeSourceGenerator
                     sb.AppendLine($"                        if (value is {member.Type.ToDisplayString()} _{member.Name}) {{ {member.Name} = _{member.Name}; return; }}");
                     sb.AppendLine($"                        throw new InvalidCastException($\"Cannot cast {{typeof(T).Name}} to {member.Type.ToDisplayString()}\");");
                     break;
+                case AccessOperation.Remove:
+                    if (member.IsValueType)
+                    {
+                        sb.AppendLine($"                        {member.Name} = default({member.Type.ToDisplayString()}); return;");
+                    }
+                    else
+                    {
+                        sb.AppendLine($"                        {member.Name} = null; return;");
+                    }
+                    break;
             }
         }
 
@@ -190,6 +208,10 @@ namespace TreeNodeSourceGenerator
                     $"{member.Name}.SetValueInternalStruct(ref path,ref index, value);return;",
                 AccessOperation.Set => 
                     $"{member.Name}.SetValueInternalClass(ref path,ref index, value);return;",
+                AccessOperation.Remove  when member.IsStructCollection =>
+                    $"{member.Name}.RemoveValueInternalStruct(ref path,ref index);return;",
+                AccessOperation.Remove =>
+                    $"{member.Name}.RemoveValueInternalClass(ref path,ref index);return;",
                 _ => throw new ArgumentException($"Unknown operation: {operation}")
             };
 
@@ -199,24 +221,37 @@ namespace TreeNodeSourceGenerator
         private void GenerateNestedAccess(StringBuilder sb, AccessibleMemberInfo member, AccessOperation operation)
         {
             bool needCreateInstance = NeedCreateInstance(member);
-            if (needCreateInstance)
+            if (needCreateInstance && operation != AccessOperation.Remove)
             {
                 sb.AppendLine($"                        {member.Name}??=new();");
             }
 
-            var accessMethod = GetNestedAccessMethod(member, operation);
-            string nullCheck = member.IsValueType || needCreateInstance 
-                ? accessMethod 
-                : $"if ({member.Name} != null) {{ {accessMethod} }}";
+            bool structProperty = member.IsValueType && member.IsProperty && (operation is AccessOperation.Set or AccessOperation.Remove);
 
-            sb.AppendLine($"                    {nullCheck}");
-
-
-            if (!member.IsValueType && !needCreateInstance)
+            if (structProperty)
             {
+                // 对于 struct 属性，需要通过临时变量进行操作
+                sb.AppendLine($"                    var temp_{member.Name} = {member.Name};");
 
-                sb.AppendLine($"                    throw new NullReferenceException($\"{member.Name} is null\");");
+                var accessMethod = GetNestedAccessMethodForStruct(member, operation, $"temp_{member.Name}");
+                sb.AppendLine($"                    {accessMethod}");
+                sb.AppendLine($"                    {member.Name} = temp_{member.Name};");
+                sb.AppendLine($"                    return;");
+            }
+            else
+            {
+                var accessMethod = GetNestedAccessMethod(member, operation);
 
+                string nullCheck = (member.IsValueType || needCreateInstance)
+                    ? accessMethod
+                    : $"if ({member.Name} != null) {{ {accessMethod} }}";
+
+                sb.AppendLine($"                    {nullCheck}");
+
+                if (!member.IsValueType && !needCreateInstance)
+                {
+                    sb.AppendLine($"                    throw new NullReferenceException($\"{member.Name} is null\");");
+                }
             }
         }
 
@@ -226,6 +261,7 @@ namespace TreeNodeSourceGenerator
             {
                 AccessOperation.Get => $"return {member.Name}.GetValueInternal<T>(ref path,ref index);",
                 AccessOperation.Set => $"{member.Name}.SetValueInternal<T>(ref path,ref index, value);return;",
+                AccessOperation.Remove => $"{member.Name}.RemoveValueInternal(ref path,ref index);return;",
                 _ => throw new ArgumentException($"Unknown operation: {operation}")
             };
 
@@ -233,8 +269,30 @@ namespace TreeNodeSourceGenerator
             {
                 AccessOperation.Get => $"return PropertyAccessor.GetValue<T>({member.Name}, ref path,ref index);",
                 AccessOperation.Set => $"PropertyAccessor.SetValue({member.Name},ref path,ref index, value);return;",
+                AccessOperation.Remove => $"PropertyAccessor.RemoveValue({member.Name},ref path,ref index);return;",
                 _ => throw new ArgumentException($"Unknown operation: {operation}")
             };
+            return member.ImplementsIPropertyAccessor||member.IsJsonNodeType||(member.Type is INamedTypeSymbol namedTypeSymbol&& TypeDict.ContainsKey(namedTypeSymbol)) ? directAccess : propertyAccessorAccess;
+        }
+
+        private string GetNestedAccessMethodForStruct(AccessibleMemberInfo member, AccessOperation operation, string tempVarName)
+        {
+            var directAccess = operation switch
+            {
+                AccessOperation.Get => $"return {tempVarName}.GetValueInternal<T>(ref path,ref index);",
+                AccessOperation.Set => $"{tempVarName}.SetValueInternal<T>(ref path,ref index, value);",
+                AccessOperation.Remove => $"{tempVarName}.RemoveValueInternal(ref path,ref index);",
+                _ => throw new ArgumentException($"Unknown operation: {operation}")
+            };
+
+            var propertyAccessorAccess = operation switch
+            {
+                AccessOperation.Get => $"return PropertyAccessor.GetValue<T>({tempVarName}, ref path,ref index);",
+                AccessOperation.Set => $"PropertyAccessor.SetValue({tempVarName},ref path,ref index, value);",
+                AccessOperation.Remove => $"PropertyAccessor.RemoveValue({tempVarName},ref path,ref index);",
+                _ => throw new ArgumentException($"Unknown operation: {operation}")
+            };
+            
             return member.ImplementsIPropertyAccessor||member.IsJsonNodeType||(member.Type is INamedTypeSymbol namedTypeSymbol&& TypeDict.ContainsKey(namedTypeSymbol)) ? directAccess : propertyAccessorAccess;
         }
 
@@ -244,6 +302,7 @@ namespace TreeNodeSourceGenerator
             {
                 AccessOperation.Get => "throw new NotSupportedException($\"Property '{first.Name}' not found\");",
                 AccessOperation.Set => "throw new NotSupportedException($\"Property '{first.Name}' not found or not writable\");",
+                AccessOperation.Remove => "throw new NotSupportedException($\"Property '{first.Name}' not found or not removable\");",
                 _ => throw new ArgumentException($"Unknown operation: {operation}")
             };
         }
@@ -254,6 +313,7 @@ namespace TreeNodeSourceGenerator
             {
                 AccessOperation.Get => "throw new NotSupportedException($\"Path starting with '{first.Name}' not supported\");",
                 AccessOperation.Set => "throw new NotSupportedException($\"Path starting with '{first.Name}' not supported or not writable\");",
+                AccessOperation.Remove => "throw new NotSupportedException($\"Path starting with '{first.Name}' not supported or not removable\");",
                 _ => throw new ArgumentException($"Unknown operation: {operation}")
             };
         }
@@ -264,6 +324,7 @@ namespace TreeNodeSourceGenerator
             {
                 AccessOperation.Get => "throw new NotSupportedException(\"No multi-path properties or fields available for getting value.\");",
                 AccessOperation.Set => "throw new NotSupportedException(\"No multi-path properties or fields available for setting value.\");",
+                AccessOperation.Remove => "throw new NotSupportedException(\"No multi-path properties or fields available for removing value.\");",
                 _ => throw new ArgumentException($"Unknown operation: {operation}")
             };
         }
