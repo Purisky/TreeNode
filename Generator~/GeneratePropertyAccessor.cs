@@ -16,7 +16,6 @@ namespace TreeNodeSourceGenerator
             Set,
             Remove,
         }
-
         private string GeneratePropertyAccessorPartialClass(INamedTypeSymbol nodeType, List<AccessibleMemberInfo> accessibleMembers)
         {
             var className = nodeType.Name;
