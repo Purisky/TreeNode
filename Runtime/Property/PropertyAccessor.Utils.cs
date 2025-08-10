@@ -83,10 +83,7 @@ namespace TreeNode.Runtime
                 object nextObj = getter(currentObj);
 
                 // 如果对象为null，尝试自动创建
-                if (nextObj == null)
-                {
-                    nextObj = TryCreateMissingObject(rootObj, fullPath, partIndex, currentObj.GetType());
-                }
+                nextObj ??= TryCreateMissingObject(rootObj, fullPath, partIndex, currentObj.GetType());
 
                 return nextObj;
             }

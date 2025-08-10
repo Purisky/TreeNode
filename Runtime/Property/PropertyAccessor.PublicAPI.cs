@@ -111,6 +111,7 @@ namespace TreeNode.Runtime
                     list.RemoveAt(lastPart.Index);
                     return;
                 }
+                index--;
                 throw new IndexOutOfRangeException($"索引 {lastPart.Index} 超出列表范围 (0-{list.Count - 1})");
             }
             else
@@ -252,49 +253,71 @@ namespace TreeNode.Runtime
 
         public static void ValidatePath(object obj, ref PAPath path, ref int index)
         {
-            if (obj == null || index >= path.Parts.Length)
+            try
             {
-                return;
-            }
-
-            ref PAPart part = ref path.Parts[index];
-
-            // 验证当前部分是否有效
-            if (!ValidationStrategy.ValidateMemberExists(obj, part))
-            {
-                return;
-            }
-
-            index++;
-
-            // 如果还有更多路径部分，继续递归验证
-            if (index < path.Parts.Length)
-            {
-                try
+                var nextObj = NavigationStrategy.NavigateToNext(obj, obj, path, index);
+                if (nextObj != null)
                 {
-                    var nextObj = NavigationStrategy.NavigateToNext(obj, obj, path, index - 1);
-                    if (nextObj != null)
+                    if (index == path.Parts.Length - 1)
                     {
-                        if (nextObj is IPropertyAccessor accessor)
-                        {
-                            accessor.ValidatePath(ref path, ref index);
-                        }
-                        else if (nextObj is IList list)
-                        {
-                            list.ValidatePath(ref path, ref index);
-                        }
-                        else
-                        {
-                            ValidatePath(nextObj, ref path, ref index);
-                        }
+                        return;
+                    }
+                    index++;
+                    if (nextObj is IPropertyAccessor accessor)
+                    {
+                        accessor.ValidatePath(ref path, ref index);
+                    }
+                    else if (nextObj is IList list)
+                    {
+                        list.ValidatePath(ref path, ref index);
+                    }
+                    else
+                    {
+                        ValidatePath(nextObj, ref path, ref index);
                     }
                 }
-                catch
-                {
-                    // 如果导航失败，保持当前索引不变
-                }
+            }
+            catch
+            {
+                index--;
             }
         }
 
+        public static void GetAllInPath<T>(object obj, ref PAPath path, ref int index, List<(int depth, T value)> list)
+        {
+            try
+            {
+                var nextObj = NavigationStrategy.NavigateToNext(obj, obj, path, index);
+                if (nextObj != null)
+                {
+                    if (nextObj is T value)
+                    {
+                        list.Add((index, value));
+                    }
+                    if (index == path.Parts.Length - 1)
+                    {
+                        // 如果已经到达路径的末尾，直接返回
+                        return;
+                    }
+                    index++;
+                    if (nextObj is IPropertyAccessor accessor)
+                    {
+                        accessor.GetAllInPath<T>(ref path, ref index, list);
+                    }
+                    else if (nextObj is IList listObj)
+                    {
+                        listObj.GetAllInPath<T>(ref path, ref index, list);
+                    }
+                    else
+                    {
+                        GetAllInPath<T>(nextObj, ref path, ref index, list);
+                    }
+                }
+            }
+            catch
+            {
+                index--;
+            }
+        }
     }
 }

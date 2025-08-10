@@ -71,15 +71,16 @@ namespace TreeNodeSourceGenerator
                 return;
             }
 
-            sb.AppendLine("            ref PAPart first =ref path.Parts[index++];");
+            sb.AppendLine("            ref PAPart first =ref path.Parts[index];");
 
             sb.AppendLine($"            if (first.IsIndex) {{ {methodInfo.IndexErrorHandling} }}");
 
-            sb.AppendLine("            if (path.Parts.Length == index)");
+            sb.AppendLine("            if (index == path.Parts.Length - 1)");
 
             sb.AppendLine("            {");
             GenerateSinglePathLogic(sb, members, operation);
             sb.AppendLine("            }");
+            sb.AppendLine("            index++;");
             GenerateMultiPathLogic(sb, members, operation);
 
             sb.AppendLine("        }");
@@ -346,72 +347,82 @@ namespace TreeNodeSourceGenerator
 
         private void GenerateValidatePathMethod(StringBuilder sb, List<AccessibleMemberInfo> members)
         {
-            sb.AppendLine("            if (index >= path.Parts.Length)");
-            sb.AppendLine("            {");
-            sb.AppendLine("                return;");
-            sb.AppendLine("            }");
-            sb.AppendLine();
             sb.AppendLine("            ref PAPart part = ref path.Parts[index];");
             sb.AppendLine("            if (part.IsIndex)");
             sb.AppendLine("            {");
+            sb.AppendLine("                index--;");
             sb.AppendLine("                return;");
             sb.AppendLine("            }");
-            sb.AppendLine();
-            sb.AppendLine("            index++;");
             sb.AppendLine();
             
             if (members.Count == 0)
             {
+                sb.AppendLine("            index--;");
+                sb.AppendLine("            return;");
                 return;
             }
 
             sb.AppendLine("            switch (part.Name)");
             sb.AppendLine("            {");
 
-            foreach (var member in members)
+            // 先处理终端字段（基础类型），无论单路径还是多路径都是有效的终点
+            var terminalMembers = members.Where(m => !(m.HasNestedAccess || m.IsCollection)).ToList();
+            if (terminalMembers.Any())
+            {
+                foreach (var member in terminalMembers)
+                {
+                    sb.AppendLine($"                case \"{member.Name}\":");
+                }
+                sb.AppendLine("                    return;");  // 终端字段，路径有效
+            }
+
+            // 处理需要null检查的嵌套类型字段
+            var nestedMembers = members.Where(m => m.HasNestedAccess || m.IsCollection).ToList();
+            foreach (var member in nestedMembers)
             {
                 sb.AppendLine($"                case \"{member.Name}\":");
                 
-                if (member.HasNestedAccess || member.IsCollection)
+                // 先进行null检查（对于不会自动创建且是引用类型的成员）
+                bool needCreateInstance = NeedCreateInstance(member);
+                if (!member.IsValueType && !needCreateInstance)
                 {
-                    // 在验证路径时也需要创建实例
-                    if (NeedCreateInstance(member))
+                    sb.AppendLine($"                    if ({member.Name} == null){{index--;return;}}");
+                }
+                
+                // 然后进行单路径判断
+                sb.AppendLine("                    if (index == path.Parts.Length - 1){return;}");
+                
+                // 最后是多路径递归验证
+                sb.AppendLine("                    index++;");
+                
+                if (member.IsCollection)
+                {
+                    if (member.ImplementsIPropertyAccessor || member.IsJsonNodeType || (member.Type is INamedTypeSymbol namedTypeSymbol && TypeDict.ContainsKey(namedTypeSymbol)))
                     {
-                        sb.AppendLine($"                    {member.Name} ??= new();");
-                    }
-                    
-                    if (member.IsCollection)
-                    {
-                        sb.AppendLine($"                    {member.Name}?.ValidatePath(ref path, ref index);");
-                    }
-                    else if (member.ImplementsIPropertyAccessor || member.IsJsonNodeType || (member.Type is INamedTypeSymbol namedTypeSymbol && TypeDict.ContainsKey(namedTypeSymbol)))
-                    {
-                        if (member.IsValueType)
-                        {
-                            sb.AppendLine($"                    {member.Name}.ValidatePath(ref path, ref index);");
-                        }
-                        else
-                        {
-                            sb.AppendLine($"                    {member.Name}?.ValidatePath(ref path, ref index);");
-                        }
+                        sb.AppendLine($"                    {member.Name}.ValidatePath(ref path, ref index);");
                     }
                     else
                     {
-                        if (member.IsValueType)
-                        {
-                            sb.AppendLine($"                    PropertyAccessor.ValidatePath({member.Name}, ref path, ref index);");
-                        }
-                        else
-                        {
-                            sb.AppendLine($"                    if ({member.Name} != null)");
-                            sb.AppendLine($"                        PropertyAccessor.ValidatePath({member.Name}, ref path, ref index);");
-                        }
+                        sb.AppendLine($"                    {member.Name}.ValidatePath(ref path, ref index);");
                     }
+                    sb.AppendLine("                    return;");
                 }
-                sb.AppendLine("                    return;");
+                else // member.HasNestedAccess
+                {
+                    if (member.ImplementsIPropertyAccessor || member.IsJsonNodeType || (member.Type is INamedTypeSymbol namedTypeSymbol2 && TypeDict.ContainsKey(namedTypeSymbol2)))
+                    {
+                        sb.AppendLine($"                    {member.Name}.ValidatePath(ref path, ref index);");
+                    }
+                    else
+                    {
+                        sb.AppendLine($"                    PropertyAccessor.ValidatePath({member.Name}, ref path, ref index);");
+                    }
+                    sb.AppendLine("                    return;");
+                }
             }
 
             sb.AppendLine("                default:");
+            sb.AppendLine("                    index--;");  // 属性不存在，路径无效
             sb.AppendLine("                    return;");
             sb.AppendLine("            }");
         }

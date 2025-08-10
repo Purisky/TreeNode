@@ -11,31 +11,33 @@ namespace TreeNode.Runtime
         void SetValueInternal<T>(ref PAPath path, ref int index, T value);
         void RemoveValueInternal(ref PAPath path, ref int index);
         void ValidatePath(ref PAPath path, ref int index);
-        //List<(int depth,T value)> GetAllInPath<T>(ref PAPath path, ref int index);
-        List<(PAPath, JsonNode)> CollectNodes(List<(PAPath, JsonNode)> list,int depth = -1);
+        void GetAllInPath<T>(ref PAPath path, ref int index, List<(int depth, T value)> list);
+        //List<(PAPath, JsonNode)> CollectNodes(List<(PAPath, JsonNode)> list,int depth = -1);
     }
 
     public static class PropertyAccessorExtensions
     {
         static ref PAPart ValidIndex(this IList list, ref PAPath path, ref int index)
         {
-            ref PAPart first = ref path.Parts[index++];
-            if (!first.IsIndex) { throw new NotSupportedException($"Non-index access not supported by {list.GetType().Name}"); }
-            if (first.Index < 0 || first.Index >= list.Count) { throw new IndexOutOfRangeException($"Index {first.Index} out of range for list of size {list.Count}"); }
+            ref PAPart first = ref path.Parts[index];
+            if (!first.IsIndex) { index--; throw new NotSupportedException($"Non-index access not supported by {list.GetType().Name}"); }
+            if (first.Index < 0 || first.Index >= list.Count) { index--; throw new IndexOutOfRangeException($"Index {first.Index} out of range for list of size {list.Count}"); }
             return ref first;
         }
         public static T GetValueInternal<T>(this IList list, ref PAPath path, ref int index)
         {
             ref PAPart first = ref list.ValidIndex(ref path, ref index);
             object element = list[first.Index];
-            if (path.Parts.Length == index)
+            if (index == path.Parts.Length - 1)
             {
                 if (element is T value)
                 {
                     return value;
                 }
+                index--;
                 throw new InvalidCastException($"Cannot cast element of type {element?.GetType().Name ?? "null"} to {typeof(T).Name}");
             }
+            index++;
             if (element is IPropertyAccessor accessor)
             {
                 return accessor.GetValueInternal<T>(ref path,ref index);
@@ -45,15 +47,17 @@ namespace TreeNode.Runtime
         public static void SetValueInternalClass<T, TClass>(this List<TClass> list, ref PAPath path, ref int index, T value) where TClass : class
         {
             ref PAPart first = ref list.ValidIndex(ref path, ref index);
-            if (path.Parts.Length == index)
+            if (index == path.Parts.Length - 1)
             {
                 if (value is TClass classValue)
                 {
                     list[first.Index] = classValue;
                     return;
                 }
+                index--;
                 throw new InvalidCastException($"Cannot cast value of type {value?.GetType().Name ?? "null"} to {typeof(TClass).Name}");
             }
+            index++;
             if (list[first.Index] is IPropertyAccessor accessor)
             {
                 accessor.SetValueInternal(ref path, ref index, value);
@@ -64,15 +68,17 @@ namespace TreeNode.Runtime
         public static void SetValueInternalStruct<T, TStruct>(this List<TStruct> list, ref PAPath path, ref int index, T value) where TStruct : struct
         {
             ref PAPart first = ref list.ValidIndex(ref path, ref index);
-            if (path.Parts.Length == index)
+            if (index == path.Parts.Length - 1)
             {
                 if (value is TStruct structValue)
                 {
                     list[first.Index] = structValue;
                     return;
                 }
+                index--;
                 throw new InvalidCastException($"Cannot cast value of type {value?.GetType().Name ?? "null"} to {typeof(TStruct).Name}");
             }
+            index++;
             TStruct @struct = list[first.Index];
             if (@struct is IPropertyAccessor accessor)
             {
@@ -86,11 +92,12 @@ namespace TreeNode.Runtime
         public static void RemoveValueInternalClass<TClass>(this List<TClass> list, ref PAPath path, ref int index) where TClass : class
         {
             ref PAPart first = ref list.ValidIndex(ref path, ref index);
-            if (path.Parts.Length == index)
+            if (index == path.Parts.Length - 1)
             {
                 list.RemoveAt(first.Index);
                 return;
             }
+            index++;
             if (list[first.Index] is IPropertyAccessor accessor)
             {
                 accessor.RemoveValueInternal(ref path, ref index);
@@ -101,11 +108,12 @@ namespace TreeNode.Runtime
         public static void RemoveValueInternalStruct<TStruct>(this List<TStruct> list, ref PAPath path, ref int index) where TStruct : struct
         {
             ref PAPart first = ref list.ValidIndex(ref path, ref index);
-            if (path.Parts.Length == index)
+            if (index == path.Parts.Length - 1)
             {
                 list.RemoveAt(first.Index);
                 return;
             }
+            index++;
             TStruct @struct = list[first.Index];
             if (@struct is IPropertyAccessor accessor)
             {
@@ -115,24 +123,12 @@ namespace TreeNode.Runtime
             PropertyAccessor.RemoveValue(@struct, ref path, ref index);
             list[first.Index] = @struct; 
         }
-
-        //递归向下查找,直到找不到合法的路径对象
         public static void ValidatePath(this IList list, ref PAPath path, ref int index)
         {
-            if (index >= path.Parts.Length)
-            {
-                return;
-            }
-            
-            ref PAPart part = ref path.Parts[index];
-            if (!part.IsIndex || part.Index < 0 || part.Index >= list.Count)
-            {
-                return;
-            }
-            
-            index++;
-            
+            ref PAPart part = ref list.ValidIndex(ref path, ref index);
             object element = list[part.Index];
+            if (index == path.Parts.Length - 1) { return; }
+            index++;
             if (element is IPropertyAccessor accessor)
             {
                 accessor.ValidatePath(ref path, ref index);
@@ -143,6 +139,26 @@ namespace TreeNode.Runtime
             }
         }
 
+        public static void GetAllInPath<T>(this IList list, ref PAPath path, ref int index, List<(int depth, T value)> listValues)
+        {
+            ref PAPart part = ref list.ValidIndex(ref path, ref index);
+            object element = list[part.Index];
+            if (element is T value)
+            {
+                listValues.Add((index, value));
+            }
+            if (index == path.Parts.Length - 1) { return; }
+            index++;
+            // 继续递归处理剩余路径
+            if (element is IPropertyAccessor accessor)
+            {
+                accessor.GetAllInPath(ref path, ref index, listValues);
+            }
+            else
+            {
+                PropertyAccessor.GetAllInPath<T>(element, ref path, ref index, listValues);
+            }
+        }
 
 
     }
