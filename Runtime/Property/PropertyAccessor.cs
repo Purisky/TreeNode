@@ -137,6 +137,14 @@ namespace TreeNode.Runtime
             var multiGetter = GetOrCreateGetter<T>(parent.GetType(), lastPart);
             return multiGetter(parent);
         }
+        public static T GetValue<T>(object obj, ref PAPath path, ref int index)
+        {
+            var subPath = path.GetSubPath(index);
+            return GetValue<T>(obj, subPath);
+        }
+
+
+
 
         /// <summary>
         /// 设置属性值
@@ -149,6 +157,10 @@ namespace TreeNode.Runtime
         {
             SetValue(obj, PAPath.Create(path), value);
         }
+
+
+
+
 
         /// <summary>
         /// 设置属性值 - 使用PAPath
@@ -190,39 +202,10 @@ namespace TreeNode.Runtime
             }
         }
 
-        /// <summary>
-        /// 尝试获取属性值
-        /// </summary>
-        /// <typeparam name="T">返回值类型</typeparam>
-        /// <param name="obj">目标对象</param>
-        /// <param name="path">属性路径</param>
-        /// <param name="result">输出结果</param>
-        /// <returns>是否成功获取</returns>
-        public static bool TryGetValue<T>(object obj, string path, out T result)
+        public static void SetValue<T>(object obj, ref PAPath path, ref int index, T value)
         {
-            return TryGetValue(obj, PAPath.Create(path), out result);
-        }
-
-        /// <summary>
-        /// 尝试获取属性值 - 使用PAPath
-        /// </summary>
-        /// <typeparam name="T">返回值类型</typeparam>
-        /// <param name="obj">目标对象</param>
-        /// <param name="path">PAPath路径</param>
-        /// <param name="result">输出结果</param>
-        /// <returns>是否成功获取</returns>
-        public static bool TryGetValue<T>(object obj, PAPath path, out T result)
-        {
-            try
-            {
-                result = GetValue<T>(obj, path);
-                return result != null;
-            }
-            catch
-            {
-                result = default;
-                return false;
-            }
+            var subPath = path.GetSubPath(index);
+            SetValue(obj, subPath, value);
         }
 
         /// <summary>
@@ -232,7 +215,7 @@ namespace TreeNode.Runtime
         /// <param name="path">属性路径</param>
         public static void SetValueNull(object obj, string path)
         {
-            SetValueNull(obj, PAPath.Create(path));
+            RemoveValue(obj, PAPath.Create(path));
         }
 
         /// <summary>
@@ -240,7 +223,7 @@ namespace TreeNode.Runtime
         /// </summary>
         /// <param name="obj">目标对象</param>
         /// <param name="path">PAPath路径</param>
-        public static void SetValueNull(object obj, PAPath path)
+        public static void RemoveValue(object obj, PAPath path)
         {
             var parent = GetParentObject(obj, path, out var lastPart);
             
@@ -248,13 +231,24 @@ namespace TreeNode.Runtime
             {
                 list.RemoveAt(lastPart.Index);
             }
-            // Array类型不支持RemoveAt操作，只能设置为null/default
-            else if (parent.GetType().IsArray && lastPart.IsIndex)
+            else
             {
-                var array = (Array)parent;
-                var elementType = array.GetType().GetElementType();
-                var defaultValue = elementType.IsValueType ? Activator.CreateInstance(elementType) : null;
-                array.SetValue(defaultValue, lastPart.Index);
+                var setter = GetOrCreateSetter<object>(parent.GetType(), lastPart);
+                setter(parent, null);
+            }
+        }
+        public static void RemoveValue(object obj, ref PAPath path, ref int index)
+        {
+            var subPath = path.GetSubPath(index);
+            var parent = GetParentObject(obj, subPath, out var lastPart);
+            if (parent is IList list && lastPart.IsIndex)
+            {
+                if (lastPart.Index >= 0 && lastPart.Index < list.Count)
+                {
+                    list.RemoveAt(lastPart.Index);
+                    return;
+                }
+                throw new IndexOutOfRangeException($"索引 {lastPart.Index} 超出列表范围 (0-{list.Count - 1})");
             }
             else
             {
@@ -262,7 +256,6 @@ namespace TreeNode.Runtime
                 setter(parent, null);
             }
         }
-
         /// <summary>
         /// 验证路径有效性
         /// </summary>

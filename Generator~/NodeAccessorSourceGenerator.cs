@@ -22,6 +22,8 @@ namespace TreeNodeSourceGenerator
         static Dictionary<INamedTypeSymbol, List<AccessibleMemberInfo>> TypeDict;
         public void Execute(GeneratorExecutionContext context)
         {
+            string assemblyName = context.Compilation.Assembly.Name;
+            if (assemblyName.StartsWith("Unity")) { return; }
             Debug.debugLogs.Clear();
             Debug.Log("NodeAccessorSourceGenerator.Execute called");
             if (context.SyntaxReceiver is not JsonNodeSyntaxReceiver receiver)
@@ -34,17 +36,45 @@ namespace TreeNodeSourceGenerator
                 var model = compilation.GetSemanticModel(candidateClass.SyntaxTree);
                 if (model.GetDeclaredSymbol(candidateClass) is INamedTypeSymbol typeSymbol)
                 {
+                    bool add = false;
                     if (IsJsonNodeDerived(typeSymbol))
                     {
                         jsonNodeTypes.Add(typeSymbol);
                         if (IsEligibleForPropertyAccessor(typeSymbol))
                         {
                             propertyAccessorTypes.Add(typeSymbol);
+                            add = true;
                         }
+                    }
+                    if (!add && typeSymbol.GetAttributes().Any(attr => attr.AttributeClass?.Name == "GenIPropertyAccessorAttribute"))
+                    {
+                        propertyAccessorTypes.Add(typeSymbol);
                     }
                 }
             }
-
+            foreach (var candidateClass in receiver.CandidateStructs)
+            {
+                var model = compilation.GetSemanticModel(candidateClass.SyntaxTree);
+                if (model.GetDeclaredSymbol(candidateClass) is INamedTypeSymbol typeSymbol)
+                {
+                    bool add = false;
+                    if (IsJsonNodeDerived(typeSymbol))
+                    {
+                        jsonNodeTypes.Add(typeSymbol);
+                        if (IsEligibleForPropertyAccessor(typeSymbol))
+                        {
+                            propertyAccessorTypes.Add(typeSymbol);
+                            add = true;
+                        }
+                    }
+                    if (!add && typeSymbol.GetAttributes().Any(attr => attr.AttributeClass?.Name == "GenIPropertyAccessorAttribute"))
+                    {
+                        propertyAccessorTypes.Add(typeSymbol);
+                    }
+                }
+            }
+            // 过滤类型，只处理本程序集的类型
+            var currentAssembly = context.Compilation.Assembly;
             // 生成访问器类
             foreach (var nodeType in jsonNodeTypes)
             {
@@ -53,7 +83,6 @@ namespace TreeNodeSourceGenerator
             }
 
             TypeDict = new();
-
 
             List<INamedTypeSymbol> list = new(propertyAccessorTypes);
             HashSet<INamedTypeSymbol> newTypes = new();
@@ -67,16 +96,21 @@ namespace TreeNodeSourceGenerator
                 TypeDict[current] = accessibleMembers;
                 foreach (var type in newTypes)
                 {
+                    // 确保新发现的类型也是本程序集的
                     if (!TypeDict.ContainsKey(type) && !list.Contains(type))
-                    { 
+                    {
+                        Debug.Log(type.ToDisplayString());
                         list.Add(type);
                     }
                 }
             }
             foreach (var item in TypeDict)
             {
-                var propertyAccessorSource = GeneratePropertyAccessorPartialClass(item.Key, item.Value);
-                context.AddSource($"{item.Key.Name}.PropertyAccessor.g.cs", SourceText.From(propertyAccessorSource, Encoding.UTF8));
+                if (SymbolEqualityComparer.Default.Equals(item.Key.ContainingAssembly, currentAssembly))
+                {
+                    var propertyAccessorSource = GeneratePropertyAccessorPartialClass(item.Key, item.Value);
+                    context.AddSource($"{item.Key.Name}.PropertyAccessor.g.cs", SourceText.From(propertyAccessorSource, Encoding.UTF8));
+                }
             }
             // 生成注册器
             if (jsonNodeTypes.Count > 0)
@@ -257,12 +291,16 @@ namespace TreeNodeSourceGenerator
     internal class JsonNodeSyntaxReceiver : ISyntaxReceiver
     {
         public List<ClassDeclarationSyntax> CandidateClasses { get; } = new List<ClassDeclarationSyntax>();
-
+        public List<StructDeclarationSyntax> CandidateStructs { get; } = new List<StructDeclarationSyntax>();
         public void OnVisitSyntaxNode(SyntaxNode syntaxNode)
         {
             if (syntaxNode is ClassDeclarationSyntax classDeclaration)
             {
                 CandidateClasses.Add(classDeclaration);
+            }
+            else if (syntaxNode is StructDeclarationSyntax structDeclaration)
+            {
+                CandidateStructs.Add(structDeclaration);
             }
         }
     }

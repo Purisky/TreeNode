@@ -142,7 +142,7 @@ namespace TreeNode.Runtime
         /// 第一个路径部分
         /// </summary>
         public readonly PAPart FirstPart => Valid ? Parts[0] : PAPart._;
-        public readonly PAPath SkipFirst => GetSubPath(1);
+        //public readonly PAPath SkipFirst => GetSubPath(1);
         #endregion
 
         #region 静态工厂方法

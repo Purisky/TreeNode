@@ -54,26 +54,15 @@ namespace TreeNode.Runtime
         }
         public virtual string GetInfo() => GetType().Name;
 
-        public virtual T GetValueInternal<T>(PAPath path)
-        {
-            throw new NotImplementedException();
-        }
-
-        public virtual bool TryGetValueInternal<T>(ref PAPath path, int index, out T value)
-        {
-            throw new NotImplementedException();
-        }
-
-        public virtual void SetValueInternal<T>(PAPath path, T value)
-        {
-            throw new NotImplementedException();
-        }
+        public virtual T GetValueInternal<T>(ref PAPath path, ref int index) => throw new NotImplementedException();
+        public virtual void SetValueInternal<T>(ref PAPath path, ref int index, T value)=> throw new NotImplementedException();
+        public virtual void RemoveValue(ref PAPath path, ref int index)=> throw new NotImplementedException();
     }
 
 
 
 
-
+    [GenIPropertyAccessor]
     public partial struct Vec2: IEquatable<Vec2>
     {
         public int x;

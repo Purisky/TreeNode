@@ -165,7 +165,7 @@ namespace TreeNode.Editor
             }
             else
             {
-                PropertyAccessor.SetValueNull(Nodes, path);
+                PropertyAccessor.RemoveValue(Nodes, path);
             }
         }
 

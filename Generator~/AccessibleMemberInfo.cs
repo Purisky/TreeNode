@@ -18,7 +18,6 @@ namespace TreeNodeSourceGenerator
                 attr.AttributeClass?.ToDisplayString() == "System.Text.Json.Serialization.JsonIgnoreAttribute" ||
                 attr.AttributeClass?.ToDisplayString() == "Newtonsoft.Json.JsonIgnoreAttribute");
         }
-
         private AccessibleMemberInfo AnalyzeFieldMember(IFieldSymbol field)
         {
             return new AccessibleMemberInfo
@@ -77,6 +76,7 @@ namespace TreeNodeSourceGenerator
         private List<AccessibleMemberInfo> AnalyzeAccessibleMembers(INamedTypeSymbol nodeType, HashSet<INamedTypeSymbol> propertyAccessorTypes)
         {
             Debug.Log($"-{nodeType.ToDisplayString()}");
+
             var currentType = nodeType;
             Dictionary<string, AccessibleMemberInfo> dic = new();
             while (currentType != null)
