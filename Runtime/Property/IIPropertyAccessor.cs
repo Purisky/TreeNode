@@ -10,9 +10,9 @@ namespace TreeNode.Runtime
         T GetValueInternal<T>(ref PAPath path, ref int index);
         void SetValueInternal<T>(ref PAPath path, ref int index, T value);
         void RemoveValueInternal(ref PAPath path, ref int index);
-        //bool ValidatePath(PAPath path, out int validDepth);
-        //(int depth,T value) GetAllInPath<T>(PAPath path);
-        //List<(PAPath, JsonNode)> CollectNodes();
+        void ValidatePath(ref PAPath path, ref int index);
+        //List<(int depth,T value)> GetAllInPath<T>(ref PAPath path, ref int index);
+        //List<(PAPath, JsonNode)> CollectNodes(List<(PAPath, JsonNode)> list);
     }
 
     public static class PropertyAccessorExtensions
@@ -115,6 +115,36 @@ namespace TreeNode.Runtime
             PropertyAccessor.RemoveValue(@struct, ref path, ref index);
             list[first.Index] = @struct; 
         }
+
+        //递归向下查找,直到找不到合法的路径对象
+        public static void ValidatePath(this IList list, ref PAPath path, ref int index)
+        {
+            if (index >= path.Parts.Length)
+            {
+                return;
+            }
+            
+            ref PAPart part = ref path.Parts[index];
+            if (!part.IsIndex || part.Index < 0 || part.Index >= list.Count)
+            {
+                return;
+            }
+            
+            index++;
+            
+            object element = list[part.Index];
+            if (element is IPropertyAccessor accessor)
+            {
+                accessor.ValidatePath(ref path, ref index);
+            }
+            else if (element != null)
+            {
+                PropertyAccessor.ValidatePath(element, ref path, ref index);
+            }
+        }
+
+
+
     }
 
 
