@@ -256,26 +256,12 @@ namespace TreeNode.Runtime
             try
             {
                 var nextObj = NavigationStrategy.NavigateToNext(obj, obj, path, index);
-                if (nextObj != null)
-                {
-                    if (index == path.Parts.Length - 1)
-                    {
-                        return;
-                    }
-                    index++;
-                    if (nextObj is IPropertyAccessor accessor)
-                    {
-                        accessor.ValidatePath(ref path, ref index);
-                    }
-                    else if (nextObj is IList list)
-                    {
-                        list.ValidatePath(ref path, ref index);
-                    }
-                    else
-                    {
-                        ValidatePath(nextObj, ref path, ref index);
-                    }
-                }
+                if (nextObj == null) { index--; return; }
+                if (index == path.Parts.Length - 1) { return; }
+                index++;
+                if (nextObj is IPropertyAccessor accessor) { accessor.ValidatePath(ref path, ref index); }
+                else if (nextObj is IList list) { list.ValidatePath(ref path, ref index); }
+                else { ValidatePath(nextObj, ref path, ref index); }
             }
             catch
             {
@@ -288,31 +274,13 @@ namespace TreeNode.Runtime
             try
             {
                 var nextObj = NavigationStrategy.NavigateToNext(obj, obj, path, index);
-                if (nextObj != null)
-                {
-                    if (nextObj is T value)
-                    {
-                        list.Add((index, value));
-                    }
-                    if (index == path.Parts.Length - 1)
-                    {
-                        // 如果已经到达路径的末尾，直接返回
-                        return;
-                    }
-                    index++;
-                    if (nextObj is IPropertyAccessor accessor)
-                    {
-                        accessor.GetAllInPath<T>(ref path, ref index, list);
-                    }
-                    else if (nextObj is IList listObj)
-                    {
-                        listObj.GetAllInPath<T>(ref path, ref index, list);
-                    }
-                    else
-                    {
-                        GetAllInPath<T>(nextObj, ref path, ref index, list);
-                    }
-                }
+                if (nextObj == null) { index--; return; }
+                if (nextObj is T value) { list.Add((index, value)); }
+                if (index == path.Parts.Length - 1) { return; }
+                index++;
+                if (nextObj is IPropertyAccessor accessor){accessor.GetAllInPath<T>(ref path, ref index, list);}
+                else if (nextObj is IList listObj){listObj.GetAllInPath<T>(ref path, ref index, list);}
+                else{GetAllInPath<T>(nextObj, ref path, ref index, list);}
             }
             catch
             {

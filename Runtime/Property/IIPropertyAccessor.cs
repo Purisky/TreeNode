@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
-using UnityEngine;
+using System.Xml.Linq;
+using TreeNode.Runtime.Property.Exceptions;
+using IndexOutOfRangeException = TreeNode.Runtime.Property.Exceptions.IndexOutOfRangeException;
 
 namespace TreeNode.Runtime
 {
@@ -21,7 +23,7 @@ namespace TreeNode.Runtime
         {
             ref PAPart first = ref path.Parts[index];
             if (!first.IsIndex) { index--; throw new NotSupportedException($"Non-index access not supported by {list.GetType().Name}"); }
-            if (first.Index < 0 || first.Index >= list.Count) { index--; throw new IndexOutOfRangeException($"Index {first.Index} out of range for list of size {list.Count}"); }
+            if (first.Index < 0 || first.Index >= list.Count) { index--; throw new IndexOutOfRangeException(path, list.GetType(), first.Index, list.Count); }
             return ref first;
         }
         public static T GetValueInternal<T>(this IList list, ref PAPath path, ref int index)
@@ -40,8 +42,9 @@ namespace TreeNode.Runtime
             index++;
             if (element is IPropertyAccessor accessor)
             {
-                return accessor.GetValueInternal<T>(ref path,ref index);
+                return accessor.GetValueInternal<T>(ref path, ref index);
             }
+            else if (element is IList || element is Array) { throw new NestedCollectionException(path.GetSubPath(0, index), list.GetType()); }
             return PropertyAccessor.GetValue<T>(element, ref path, ref index);
         }
         public static void SetValueInternalClass<T, TClass>(this List<TClass> list, ref PAPath path, ref int index, T value) where TClass : class
@@ -63,6 +66,7 @@ namespace TreeNode.Runtime
                 accessor.SetValueInternal(ref path, ref index, value);
                 return;
             }
+            else if (list[first.Index] is IList || list[first.Index] is Array) { throw new NestedCollectionException(path.GetSubPath(0, index), list.GetType()); }
             PropertyAccessor.SetValue(list[first.Index], ref path, ref index, value);
         }
         public static void SetValueInternalStruct<T, TStruct>(this List<TStruct> list, ref PAPath path, ref int index, T value) where TStruct : struct
@@ -103,6 +107,7 @@ namespace TreeNode.Runtime
                 accessor.RemoveValueInternal(ref path, ref index);
                 return;
             }
+            else if (list[first.Index] is IList || list[first.Index] is Array) { throw new NestedCollectionException(path.GetSubPath(0, index), list.GetType()); }
             PropertyAccessor.RemoveValue(list[first.Index], ref path, ref index);
         }
         public static void RemoveValueInternalStruct<TStruct>(this List<TStruct> list, ref PAPath path, ref int index) where TStruct : struct
@@ -118,10 +123,11 @@ namespace TreeNode.Runtime
             if (@struct is IPropertyAccessor accessor)
             {
                 accessor.RemoveValueInternal(ref path, ref index);
-                list[first.Index] = (TStruct)accessor; 
+                list[first.Index] = (TStruct)accessor;
             }
+
             PropertyAccessor.RemoveValue(@struct, ref path, ref index);
-            list[first.Index] = @struct; 
+            list[first.Index] = @struct;
         }
         public static void ValidatePath(this IList list, ref PAPath path, ref int index)
         {
@@ -129,35 +135,21 @@ namespace TreeNode.Runtime
             object element = list[part.Index];
             if (index == path.Parts.Length - 1) { return; }
             index++;
-            if (element is IPropertyAccessor accessor)
-            {
-                accessor.ValidatePath(ref path, ref index);
-            }
-            else if (element != null)
-            {
-                PropertyAccessor.ValidatePath(element, ref path, ref index);
-            }
+            if (element is IPropertyAccessor accessor) { accessor.ValidatePath(ref path, ref index); }
+            else if (element is IList || element is Array) { throw new NestedCollectionException(path.GetSubPath(0, index), list.GetType()); }
+            else if (element != null) { PropertyAccessor.ValidatePath(element, ref path, ref index); }
         }
 
         public static void GetAllInPath<T>(this IList list, ref PAPath path, ref int index, List<(int depth, T value)> listValues)
         {
             ref PAPart part = ref list.ValidIndex(ref path, ref index);
             object element = list[part.Index];
-            if (element is T value)
-            {
-                listValues.Add((index, value));
-            }
+            if (element is T value) { listValues.Add((index, value)); }
             if (index == path.Parts.Length - 1) { return; }
             index++;
-            // 继续递归处理剩余路径
-            if (element is IPropertyAccessor accessor)
-            {
-                accessor.GetAllInPath(ref path, ref index, listValues);
-            }
-            else
-            {
-                PropertyAccessor.GetAllInPath<T>(element, ref path, ref index, listValues);
-            }
+            if (element is IPropertyAccessor accessor) { accessor.GetAllInPath(ref path, ref index, listValues); }
+            else if (element is IList || element is Array) { throw new NestedCollectionException(path.GetSubPath(0,index), list.GetType()); }
+            else { PropertyAccessor.GetAllInPath<T>(element, ref path, ref index, listValues); }
         }
 
 

@@ -84,4 +84,13 @@ namespace TreeNode.Runtime.Property.Exceptions
             CollectionSize = collectionSize;
         }
     }
+
+    public class NestedCollectionException : PropertyAccessException
+    {
+        public NestedCollectionException(string propertyPath, Type targetType)
+            : base($"嵌套集合在路径 '{propertyPath}' 中不被支持,使用List<JsonNode>替代", propertyPath, targetType)
+        {
+        }
+    }
+
 }
