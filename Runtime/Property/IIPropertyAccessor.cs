@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using System.Xml.Linq;
 using TreeNode.Runtime.Property.Exceptions;
 using IndexOutOfRangeException = TreeNode.Runtime.Property.Exceptions.IndexOutOfRangeException;
@@ -14,7 +15,7 @@ namespace TreeNode.Runtime
         void RemoveValueInternal(ref PAPath path, ref int index);
         void ValidatePath(ref PAPath path, ref int index);
         void GetAllInPath<T>(ref PAPath path, ref int index, List<(int depth, T value)> list) where T : class;
-        //List<(PAPath, JsonNode)> CollectNodes(List<(PAPath, JsonNode)> list,int depth = -1);
+        void CollectNodes(List<(PAPath, JsonNode)> list,PAPath parent,int depth = -1);
     }
 
     public static class PropertyAccessorExtensions
@@ -139,9 +140,6 @@ namespace TreeNode.Runtime
             else if (element is IList || element is Array) { throw new NestedCollectionException(path.GetSubPath(0, index), list.GetType()); }
             else if (element != null) { PropertyAccessor.ValidatePath(element, ref path, ref index); }
         }
-
-
-
         public static void GetAllInPath<T>(this IList list, ref PAPath path, ref int index, List<(int depth, T value)> listValues) where T : class
         {
             ref PAPart part = ref list.ValidIndex(ref path, ref index);
@@ -150,11 +148,26 @@ namespace TreeNode.Runtime
             if (index == path.Parts.Length - 1) { return; }
             index++;
             if (element is IPropertyAccessor accessor) { accessor.GetAllInPath(ref path, ref index, listValues); }
-            else if (element is IList || element is Array) { throw new NestedCollectionException(path.GetSubPath(0,index), list.GetType()); }
+            else if (element is IList || element is Array) { throw new NestedCollectionException(path.GetSubPath(0, index), list.GetType()); }
             else { PropertyAccessor.GetAllInPath<T>(element, ref path, ref index, listValues); }
         }
 
-
+        public static void CollectNodes(this IList list, List<(PAPath, JsonNode)> listNodes, PAPath parent, int depth = -1)
+        {
+            if (depth == 0) { return; }
+            if (depth > 0) { depth--; }
+            for (int i = 0; i < list.Count; i++)
+            {
+                PAPath next = parent.AppendIndex(i);
+                if (list[i] is JsonNode node)
+                {
+                    listNodes.Add((next, node));
+                }
+                if (list[i] is IPropertyAccessor accessor) { accessor.CollectNodes(listNodes, next, depth); }
+                else if (list[i] is IList || list[i] is Array) { throw new NestedCollectionException(parent, list.GetType()); }
+                else { PropertyAccessor.CollectNodes(list[i], listNodes, next, depth); }
+            }
+        }
     }
 
 

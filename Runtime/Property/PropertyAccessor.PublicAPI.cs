@@ -3,11 +3,14 @@ using System;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using TreeNode.Runtime.Property.Exceptions;
 using TreeNode.Utility;
 using UnityEngine;
+using IndexOutOfRangeException = TreeNode.Runtime.Property.Exceptions.IndexOutOfRangeException;
 
 namespace TreeNode.Runtime
 {
@@ -112,7 +115,7 @@ namespace TreeNode.Runtime
                     return;
                 }
                 index--;
-                throw new IndexOutOfRangeException($"索引 {lastPart.Index} 超出列表范围 (0-{list.Count - 1})");
+                throw new IndexOutOfRangeException(path, list.GetType(), lastPart.Index, list.Count);
             }
             else
             {
@@ -286,6 +289,67 @@ namespace TreeNode.Runtime
             {
                 index--;
             }
+        }
+        public static void CollectNodes(object obj, List<(PAPath, JsonNode)> listNodes, PAPath parent, int depth = -1)
+        {
+            if (depth == 0) { return; }
+            if (depth > 0) { depth--; }
+            var type = obj.GetType();
+
+            // 使用反射获取所有公共字段和属性
+            var members = type.GetMembers(BindingFlags.Public | System.Reflection.BindingFlags.Instance)
+                .Where(m => m.MemberType == MemberTypes.Property ||
+                           m.MemberType == MemberTypes.Field)
+                .ToList();
+
+            foreach (var member in members)
+            {
+                try
+                {
+                    object value = null;
+
+                    // 获取成员值
+                    if (member is PropertyInfo prop)
+                    {
+                        if (prop.CanRead && prop.GetIndexParameters().Length == 0)
+                        {
+                            value = prop.GetValue(obj);
+                        }
+                    }
+                    else if (member is FieldInfo field)
+                    {
+                        value = field.GetValue(obj);
+                    }
+
+                    if (value == null)
+                    {
+                        continue;
+                    }
+                    var memberPath = parent.AppendField(member.Name);
+                    if (value is JsonNode jsonNode) { listNodes.Add((memberPath, jsonNode)); }
+                    if (value is IPropertyAccessor accessor) { accessor.CollectNodes(listNodes, memberPath, depth); }
+                    else if (value is IList list) { list.CollectNodes(listNodes, memberPath, depth); }
+                    else if (!IsSystemType(value.GetType())) { CollectNodes(value, listNodes, memberPath, depth); }
+                }
+                catch
+                {
+                    // 跳过无法访问的成员
+                    continue;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 判断是否为系统类型（不需要进一步遍历的类型）
+        /// </summary>
+        private static bool IsSystemType(Type type)
+        {
+            return type.IsPrimitive || 
+                   type == typeof(string) || 
+                   type == typeof(decimal) || 
+                   type == typeof(DateTime) || 
+                   type.Namespace?.StartsWith("System") == true ||
+                   type.Namespace?.StartsWith("UnityEngine") == true;
         }
     }
 }

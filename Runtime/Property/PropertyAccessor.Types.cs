@@ -1,4 +1,4 @@
-using Newtonsoft.Json.Linq;
+﻿using Newtonsoft.Json.Linq;
 using System;
 using System.Collections;
 using System.Collections.Concurrent;
@@ -14,10 +14,6 @@ namespace TreeNode.Runtime
     public static partial class PropertyAccessor
     {
         #region 内部数据结构
-
-        /// <summary>
-        /// 优化的缓存键结构 - 使用PAPath替代字符串路径
-        /// </summary>
         private readonly struct CacheKey : IEquatable<CacheKey>
         {
             public readonly Type ObjectType;
