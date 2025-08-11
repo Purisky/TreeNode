@@ -269,7 +269,7 @@ namespace TreeNode.Runtime
             }
         }
 
-        public static void GetAllInPath<T>(object obj, ref PAPath path, ref int index, List<(int depth, T value)> list)
+        public static void GetAllInPath<T>(object obj, ref PAPath path, ref int index, List<(int depth, T value)> list) where T : class
         {
             try
             {

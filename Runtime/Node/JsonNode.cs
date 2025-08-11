@@ -11,7 +11,7 @@ using UnityEngine.UIElements;
 namespace TreeNode.Runtime
 {
     [Serializable, PortColor("#ffffff")]
-    public partial class JsonNode//:IPropertyAccessor
+    public partial class JsonNode
     {
 
         [JsonProperty]

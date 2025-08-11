@@ -83,7 +83,6 @@ namespace TreeNodeSourceGenerator
             Dictionary<string, AccessibleMemberInfo> dic = new();
             while (currentType != null)
             {
-                
                 Debug.Log($"  {currentType.ToDisplayString()}");
                 foreach (var member in currentType.GetMembers())
                 {

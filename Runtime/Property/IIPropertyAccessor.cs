@@ -13,7 +13,7 @@ namespace TreeNode.Runtime
         void SetValueInternal<T>(ref PAPath path, ref int index, T value);
         void RemoveValueInternal(ref PAPath path, ref int index);
         void ValidatePath(ref PAPath path, ref int index);
-        void GetAllInPath<T>(ref PAPath path, ref int index, List<(int depth, T value)> list);
+        void GetAllInPath<T>(ref PAPath path, ref int index, List<(int depth, T value)> list) where T : class;
         //List<(PAPath, JsonNode)> CollectNodes(List<(PAPath, JsonNode)> list,int depth = -1);
     }
 
@@ -140,7 +140,9 @@ namespace TreeNode.Runtime
             else if (element != null) { PropertyAccessor.ValidatePath(element, ref path, ref index); }
         }
 
-        public static void GetAllInPath<T>(this IList list, ref PAPath path, ref int index, List<(int depth, T value)> listValues)
+
+
+        public static void GetAllInPath<T>(this IList list, ref PAPath path, ref int index, List<(int depth, T value)> listValues) where T : class
         {
             ref PAPart part = ref list.ValidIndex(ref path, ref index);
             object element = list[part.Index];
