@@ -360,13 +360,23 @@ namespace TreeNode.Runtime
         #region 层次关系构建
 
         /// <summary>
-        /// 基于路径信息建立层次关系
+        /// 基于路径信息建立层次关系 - 优化版 O(n log n)
         /// </summary>
         private void BuildHierarchyFromPaths()
         {
-            // 按路径深度排序处理
+            // 性能优化：创建路径到元数据的映射表，避免 O(n²) 查找
+            var pathToMetadata = new Dictionary<PAPath, NodeMetadata>(_nodeMetadataMap.Count);
+            
+            // 步骤1：构建路径映射表 O(n)
+            foreach (var metadata in _nodeMetadataMap.Values)
+            {
+                pathToMetadata[metadata.Path] = metadata;
+            }
+            
+            // 步骤2：按深度排序处理 O(n log n)
             var sortedMetadata = _nodeMetadataMap.Values.OrderBy(m => m.Depth).ToList();
             
+            // 步骤3：建立层次关系 O(n)
             foreach (var metadata in sortedMetadata)
             {
                 if (metadata.Depth == 0)
@@ -377,37 +387,25 @@ namespace TreeNode.Runtime
                 }
                 else
                 {
-                    // 查找父节点
+                    // 优化：通过路径映射表直接查找父节点
                     var parentPath = metadata.Path.GetParent();
-                    if (!parentPath.IsEmpty)
+                    if (!parentPath.IsEmpty && pathToMetadata.TryGetValue(parentPath, out var parentMetadata))
                     {
-                        try
+                        var lastPart = metadata.Path.GetLastPart();
+                        
+                        metadata.Parent = parentMetadata;
+                        
+                        // 设置 LocalPath - 创建包含最后一部分的路径
+                        metadata.LocalPath = new PAPath(new[] { lastPart });
+                        metadata.IsMultiPort = metadata.Path.IsMultiPortPath();
+                        
+                        // 设置 ListIndex（如果是集合中的项）
+                        if (lastPart.IsIndex)
                         {
-                            var parentNode = PropertyAccessor.GetValue<JsonNode>(_asset, parentPath);
-                            
-                            if (parentNode != null && _nodeMetadataMap.TryGetValue(parentNode, out var parentMetadata))
-                            {
-                                var lastPart = metadata.Path.GetLastPart();
-                                
-                                metadata.Parent = parentMetadata;
-                                
-                                // 设置 LocalPath - 创建包含最后一部分的路径
-                                metadata.LocalPath = new PAPath(new[] { lastPart });
-                                metadata.IsMultiPort = metadata.Path.IsMultiPortPath();
-                                
-                                // 设置 ListIndex（如果是集合中的项）
-                                if (lastPart.IsIndex)
-                                {
-                                    metadata.ListIndex = lastPart.Index;
-                                }
-                                
-                                parentMetadata.Children.Add(metadata);
-                            }
+                            metadata.ListIndex = lastPart.Index;
                         }
-                        catch
-                        {
-                            // 跳过无法访问的父节点
-                        }
+                        
+                        parentMetadata.Children.Add(metadata);
                     }
                 }
             }
@@ -999,6 +997,103 @@ namespace TreeNode.Runtime
             }
         }
         
+        #endregion
+
+        #region 性能优化方法
+
+        /// <summary>
+        /// 高性能重建 - 适用于大型树结构
+        /// </summary>
+        public void RebuildTreeOptimized()
+        {
+            const int PARALLEL_THRESHOLD = 100; // 节点数量阈值
+            
+            _nodeMetadataMap.Clear();
+            _rootNodes.Clear();
+            
+            if (_asset?.Nodes == null || _asset.Nodes.Count == 0)
+                return;
+
+            // 预热缓存以提升性能
+            TypeCacheSystem.WarmupJsonNodeTypes(typeof(TreeNodeAsset));
+
+            // 步骤1：使用批量收集
+            var nodeList = new List<(PAPath path, JsonNode node)>();
+            PropertyAccessor.CollectNodes(_asset, nodeList, PAPath.Empty, depth: -1);
+            
+            // 步骤2：并行创建元数据（当节点数量足够大时）
+            if (nodeList.Count >= PARALLEL_THRESHOLD)
+            {
+                CreateMetadataParallel(nodeList);
+            }
+            else
+            {
+                CreateMetadataSequential(nodeList);
+            }
+            
+            // 步骤3：建立层次关系（已优化为 O(n log n)）
+            BuildHierarchyFromPaths();
+        }
+
+        /// <summary>
+        /// 并行创建元数据
+        /// </summary>
+        private void CreateMetadataParallel(List<(PAPath path, JsonNode node)> nodeList)
+        {
+            var metadataArray = new NodeMetadata[nodeList.Count];
+            
+            System.Threading.Tasks.Parallel.For(0, nodeList.Count, i =>
+            {
+                var (path, node) = nodeList[i];
+                metadataArray[i] = new NodeMetadata
+                {
+                    Node = node,
+                    Path = path,
+                    Depth = path.Depth,
+                    RenderOrder = path.GetRenderOrder()
+                };
+            });
+            
+            // 合并到主映射表
+            for (int i = 0; i < metadataArray.Length; i++)
+            {
+                _nodeMetadataMap[metadataArray[i].Node] = metadataArray[i];
+            }
+        }
+
+        /// <summary>
+        /// 顺序创建元数据
+        /// </summary>
+        private void CreateMetadataSequential(List<(PAPath path, JsonNode node)> nodeList)
+        {
+            foreach (var (path, node) in nodeList)
+            {
+                var metadata = new NodeMetadata
+                {
+                    Node = node,
+                    Path = path,
+                    Depth = path.Depth,
+                    RenderOrder = path.GetRenderOrder()
+                };
+                
+                _nodeMetadataMap[node] = metadata;
+            }
+        }
+
+        /// <summary>
+        /// 获取构建性能统计信息
+        /// </summary>
+        public string GetPerformanceStats()
+        {
+            var stats = TypeCacheSystem.GetJsonNodeCacheStats();
+            var totalNodes = _nodeMetadataMap.Count;
+            var avgDepth = totalNodes > 0 ? _nodeMetadataMap.Values.Average(m => m.Depth) : 0;
+            var maxDepth = totalNodes > 0 ? _nodeMetadataMap.Values.Max(m => m.Depth) : 0;
+            
+            return $"Tree Stats: {totalNodes} nodes, Avg Depth: {avgDepth:F1}, Max Depth: {maxDepth}\n" +
+                   $"Cache Stats: {stats}";
+        }
+
         #endregion
     }
 }
