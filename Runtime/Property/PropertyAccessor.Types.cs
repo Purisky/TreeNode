@@ -40,31 +40,6 @@ namespace TreeNode.Runtime
         }
 
         /// <summary>
-        /// 成员信息缓存结构
-        /// </summary>
-        private readonly struct MemberMetadata
-        {
-            public readonly PropertyInfo Property;
-            public readonly FieldInfo Field;
-            public readonly bool IsProperty;
-            public readonly bool IsIndexer;
-            public readonly bool IsArray;
-            public readonly string CollectionName;
-            public readonly bool HasCollectionName;
-
-            public MemberMetadata(PropertyInfo property, FieldInfo field, bool isIndexer, bool isArray, string collectionName)
-            {
-                Property = property;
-                Field = field;
-                IsProperty = property != null;
-                IsIndexer = isIndexer;
-                IsArray = isArray;
-                CollectionName = collectionName;
-                HasCollectionName = !string.IsNullOrEmpty(collectionName);
-            }
-        }
-
-        /// <summary>
         /// 值类型Setter委托
         /// </summary>
         private delegate object StructSetter<T>(object structObj, T value);

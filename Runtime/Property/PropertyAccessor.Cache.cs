@@ -142,21 +142,15 @@ namespace TreeNode.Runtime
 
         #endregion
 
-        #region 缓存字段
+        #region 缓存字段 - 部分迁移到 TypeCacheSystem
 
-        // 获取器缓存 - 使用PAPath作为键
+        // 获取器缓存 - 保留用于索引访问
         private static readonly ConcurrentDictionary<CacheKey, object> GetterCache = new();
 
-        // 设置器缓存 - 使用PAPath作为键
+        // 设置器缓存 - 保留用于索引访问
         private static readonly ConcurrentDictionary<CacheKey, object> SetterCache = new();
 
-        // 无参构造函数检查缓存
-        private static readonly ConcurrentDictionary<Type, bool> ConstructorCache = new();
-
-        // 成员信息缓存 - 使用PAPath作为键
-        private static readonly ConcurrentDictionary<CacheKey, MemberMetadata> MemberCache = new();
-
-        // 值类型setter缓存 - 使用PAPath作为键
+        // 值类型setter缓存 - 保留用于复杂值类型操作
         private static readonly ConcurrentDictionary<CacheKey, object> StructSetterCache = new();
 
         #endregion
@@ -164,21 +158,59 @@ namespace TreeNode.Runtime
         #region 缓存和创建方法
 
         /// <summary>
-        /// 获取或创建Getter - 使用PAPart
+        /// 获取或创建Getter - 使用TypeCacheSystem
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static Func<object, T> GetOrCreateGetter<T>(Type type, PAPart part)
         {
-            return CacheManager.GetOrCreateGetter<T>(type, part);
+            // 对于索引访问，仍使用原有机制
+            if (part.IsIndex)
+            {
+                return CacheManager.GetOrCreateGetter<T>(type, part);
+            }
+
+            // 对于成员访问，使用TypeCacheSystem的预编译委托
+            var typeInfo = TypeCacheSystem.GetTypeInfo(type);
+            var memberInfo = typeInfo.GetMember(part.Name);
+            
+            if (memberInfo?.Getter == null)
+            {
+                // 如果成员不存在或没有Getter，回退到原有机制
+                return CacheManager.GetOrCreateGetter<T>(type, part);
+            }
+
+            // 包装TypeCacheSystem的Getter
+            return obj =>
+            {
+                var value = memberInfo.Getter(obj);
+                return (T)value;
+            };
         }
 
         /// <summary>
-        /// 获取或创建Setter - 使用PAPart
+        /// 获取或创建Setter - 使用TypeCacheSystem
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static Action<object, T> GetOrCreateSetter<T>(Type type, PAPart part)
         {
-            return CacheManager.GetOrCreateSetter<T>(type, part);
+            // 对于索引访问，仍使用原有机制
+            if (part.IsIndex)
+            {
+                return CacheManager.GetOrCreateSetter<T>(type, part);
+            }
+
+            // 对于成员访问，使用TypeCacheSystem的预编译委托
+            var typeInfo = TypeCacheSystem.GetTypeInfo(type);
+            var memberInfo = typeInfo.GetMember(part.Name);
+            
+            if (memberInfo?.Setter == null)
+            {
+                // 如果成员不存在或没有Setter，回退到原有机制
+                return CacheManager.GetOrCreateSetter<T>(type, part);
+            }
+
+            // 包装TypeCacheSystem的Setter
+            return (obj, value) => memberInfo.Setter(obj, value);
         }
 
         /// <summary>
@@ -258,78 +290,95 @@ namespace TreeNode.Runtime
         }
 
         /// <summary>
-        /// 创建无参构造函数
+        /// 创建无参构造函数 - 使用TypeCacheSystem
         /// </summary>
         public static T CreateInstance<T>()
         {
             var type = typeof(T);
-            if (!ConstructorCache.TryGetValue(type, out var hasConstructor))
+            var typeInfo = TypeCacheSystem.GetTypeInfo(type);
+            
+            if (!typeInfo.HasParameterlessConstructor || typeInfo.Constructor == null)
             {
-                hasConstructor = !type.IsAbstract && type.GetConstructor(Type.EmptyTypes) != null;
-                ConstructorCache[type] = hasConstructor;
+                throw new InvalidOperationException($"类型 {type.Name} 没有无参构造函数");
             }
 
-            if (!hasConstructor)
-                throw new InvalidOperationException($"类型 {type.Name} 没有无参构造函数");
-
-            return (T)Activator.CreateInstance(type);
+            return (T)typeInfo.Constructor();
         }
 
         #endregion
 
-        #region 成员信息管理 - 过渡到 TypeCacheSystem
+        #region 成员信息管理 - 使用 TypeCacheSystem
 
         /// <summary>
-        /// 获取或创建成员信息 - 使用 TypeCacheSystem
+        /// 获取成员信息 - 直接使用 TypeCacheSystem
         /// </summary>
-        private static MemberMetadata GetOrCreateMemberInfo(Type type, PAPart part)
+        private static TypeCacheSystem.UnifiedMemberInfo GetMemberInfo(Type type, PAPart part)
         {
-            var key = new CacheKey(type, new PAPath(part), typeof(object));
-            if (MemberCache.TryGetValue(key, out var cached))
-                return cached;
+            if (part.IsIndex)
+            {
+                // 索引访问不使用 TypeCacheSystem
+                return null;
+            }
 
-            var metadata = CreateMemberMetadata(type, part);
-            MemberCache[key] = metadata;
-            return metadata;
+            var typeInfo = TypeCacheSystem.GetTypeInfo(type);
+            return typeInfo.GetMember(part.Name);
+        }
+
+        #endregion
+
+        #region 缓存管理方法
+
+        /// <summary>
+        /// 清理指定类型的缓存 - 与 TypeCacheSystem 保持同步
+        /// </summary>
+        public static void ClearTypeCache(Type type)
+        {
+            // 清理 TypeCacheSystem 缓存
+            TypeCacheSystem.ClearTypeInfo(type);
+            
+            // 清理本地缓存中相关的条目
+            var keysToRemove = new List<CacheKey>();
+            
+            foreach (var key in GetterCache.Keys)
+            {
+                if (key.ObjectType == type)
+                    keysToRemove.Add(key);
+            }
+            
+            foreach (var key in keysToRemove)
+            {
+                GetterCache.TryRemove(key, out _);
+                SetterCache.TryRemove(key, out _);
+                StructSetterCache.TryRemove(key, out _);
+            }
         }
 
         /// <summary>
-        /// 创建成员元数据 - 使用 TypeCacheSystem
+        /// 清理所有缓存 - 与 TypeCacheSystem 保持同步
         /// </summary>
-        private static MemberMetadata CreateMemberMetadata(Type type, PAPart part)
+        public static void ClearAllCache()
         {
-            PropertyInfo property = null;
-            FieldInfo field = null;
-            bool isIndexer = part.IsIndex;
-            bool isArray = false;
-            string collectionName = null;
+            // 清理 TypeCacheSystem 缓存
+            TypeCacheSystem.ClearAllCache();
+            
+            // 清理本地缓存
+            GetterCache.Clear();
+            SetterCache.Clear();
+            StructSetterCache.Clear();
+        }
 
-            if (part.IsIndex)
-            {
-                // 直接对当前对象进行索引访问
-                isArray = type.IsArray;
-            }
-            else
-            {
-                // 使用 TypeCacheSystem 查找成员
-                var typeInfo = TypeCacheSystem.GetTypeInfo(type);
-                var memberInfo = typeInfo.GetMember(part.Name);
-                
-                if (memberInfo != null)
-                {
-                    switch (memberInfo.MemberType)
-                    {
-                        case TypeCacheSystem.MemberType.Property:
-                            property = (PropertyInfo)memberInfo.Member;
-                            break;
-                        case TypeCacheSystem.MemberType.Field:
-                            field = (FieldInfo)memberInfo.Member;
-                            break;
-                    }
-                }
-            }
-
-            return new MemberMetadata(property, field, isIndexer, isArray, collectionName);
+        /// <summary>
+        /// 获取缓存统计信息
+        /// </summary>
+        public static (int getter, int setter, int struct_setter, int type_cache_count, int type_member_count) GetCacheStats()
+        {
+            return (
+                GetterCache.Count,
+                SetterCache.Count,
+                StructSetterCache.Count,
+                TypeCacheSystem.CacheStats.CachedTypeCount,
+                TypeCacheSystem.CacheStats.TotalMemberCount
+            );
         }
 
         #endregion

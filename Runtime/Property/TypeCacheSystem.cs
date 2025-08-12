@@ -266,6 +266,25 @@ namespace TreeNode.Runtime
             }
         }
 
+        /// <summary>
+        /// 清理指定类型的缓存信息
+        /// </summary>
+        public static void ClearTypeInfo(Type type)
+        {
+            if (type != null)
+            {
+                _typeInfoCache.TryRemove(type, out _);
+            }
+        }
+
+        /// <summary>
+        /// 清理所有缓存信息
+        /// </summary>
+        public static void ClearAllCache()
+        {
+            _typeInfoCache.Clear();
+        }
+
         #endregion
 
         #region 内部构建方法

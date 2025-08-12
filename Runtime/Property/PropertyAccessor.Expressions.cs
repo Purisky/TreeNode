@@ -94,15 +94,6 @@ namespace TreeNode.Runtime
         }
 
         /// <summary>
-        /// 构建索引器访问表达式（已重构到IndexerStrategy）
-        /// </summary>
-        [Obsolete("使用 IndexerStrategy.BuildAccess 替代")]
-        private static Expression BuildIndexerAccess(Expression current, int index, ref Type type)
-        {
-            return IndexerStrategy.BuildAccess(current, index, ref type);
-        }
-
-        /// <summary>
         /// 构建属性或字段访问表达式 - 使用 TypeCacheSystem
         /// </summary>
         private static Expression BuildPropertyOrFieldAccess(Expression current, string memberName, ref Type type)
@@ -194,16 +185,6 @@ namespace TreeNode.Runtime
             );
 
             return Expression.Lambda<StructSetter<T>>(blockExpression, structParam, valueParam).Compile();
-        }
-
-        /// <summary>
-        /// 创建索引器设置表达式（已重构到IndexerStrategy）
-        /// </summary>
-        [Obsolete("使用 IndexerStrategy.CreateSetExpression 替代")]
-        private static Expression CreateIndexerSetExpression<T>(Type structType, int index,
-            ParameterExpression structVariable, ParameterExpression valueParam)
-        {
-            return IndexerStrategy.CreateSetExpression<T>(structType, index, structVariable, valueParam);
         }
 
         /// <summary>
