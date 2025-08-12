@@ -294,42 +294,47 @@ namespace TreeNode.Runtime
         {
             if (depth == 0) { return; }
             if (depth > 0) { depth--; }
+            
             var type = obj.GetType();
-
-            // 使用反射获取所有公共字段和属性
-            var members = type.GetMembers(BindingFlags.Public | System.Reflection.BindingFlags.Instance)
-                .Where(m => m.MemberType == MemberTypes.Property ||
-                           m.MemberType == MemberTypes.Field)
-                .ToList();
-
-            foreach (var member in members)
+            
+            // 使用TypeCacheSystem获取缓存的类型信息
+            var typeInfo = TypeCacheSystem.GetTypeInfo(type);
+            
+            // 遍历所有可读成员
+            foreach (var memberInfo in typeInfo.AllMembers.Where(n=>n.MayContainNestedStructure))
             {
                 try
                 {
-                    object value = null;
-
-                    // 获取成员值
-                    if (member is PropertyInfo prop)
-                    {
-                        if (prop.CanRead && prop.GetIndexParameters().Length == 0)
-                        {
-                            value = prop.GetValue(obj);
-                        }
-                    }
-                    else if (member is FieldInfo field)
-                    {
-                        value = field.GetValue(obj);
-                    }
-
+                    // 使用预编译的Getter委托获取成员值，性能更高
+                    var value = memberInfo.Getter(obj);
+                    
                     if (value == null)
                     {
                         continue;
                     }
-                    var memberPath = parent.AppendField(member.Name);
-                    if (value is JsonNode jsonNode) { listNodes.Add((memberPath, jsonNode)); }
-                    if (value is IPropertyAccessor accessor) { accessor.CollectNodes(listNodes, memberPath, depth); }
-                    else if (value is IList list) { list.CollectNodes(listNodes, memberPath, depth); }
-                    else if (!IsSystemType(value.GetType())) { CollectNodes(value, listNodes, memberPath, depth); }
+                    
+                    var memberPath = parent.AppendField(memberInfo.Name);
+                    
+                    // 优先处理JsonNode类型成员
+                    if (memberInfo.Category == TypeCacheSystem.MemberCategory.JsonNode && value is JsonNode jsonNode)
+                    {
+                        listNodes.Add((memberPath, jsonNode));
+                    }
+                    
+                    // 处理特殊接口类型
+                    if (value is IPropertyAccessor accessor) 
+                    { 
+                        accessor.CollectNodes(listNodes, memberPath, depth); 
+                    }
+                    else if (value is IList list) 
+                    { 
+                        list.CollectNodes(listNodes, memberPath, depth); 
+                    }
+                    // 只对可能包含嵌套结构的成员进行递归
+                    else if (memberInfo.MayContainNestedStructure) 
+                    { 
+                        CollectNodes(value, listNodes, memberPath, depth); 
+                    }
                 }
                 catch
                 {
@@ -337,19 +342,6 @@ namespace TreeNode.Runtime
                     continue;
                 }
             }
-        }
-
-        /// <summary>
-        /// 判断是否为系统类型（不需要进一步遍历的类型）
-        /// </summary>
-        private static bool IsSystemType(Type type)
-        {
-            return type.IsPrimitive || 
-                   type == typeof(string) || 
-                   type == typeof(decimal) || 
-                   type == typeof(DateTime) || 
-                   type.Namespace?.StartsWith("System") == true ||
-                   type.Namespace?.StartsWith("UnityEngine") == true;
         }
     }
 }

@@ -710,18 +710,9 @@ namespace TreeNode.Runtime
                 return false;
 
             // Unity特定的基本值类型不包含嵌套结构
-            if (type.Namespace?.StartsWith("UnityEngine") == true && type.IsValueType)
+            if (type.Namespace?.StartsWith("UnityEngine") == true)
             {
-                // 只排除明确知道不会包含嵌套结构的Unity基本类型
-                if (type == typeof(Vector2) || type == typeof(Vector3) || type == typeof(Vector4) ||
-                    type == typeof(Quaternion) || type == typeof(Color) || type == typeof(Color32) ||
-                    type == typeof(Rect) || type == typeof(Bounds) || type == typeof(Matrix4x4) ||
-                    type == typeof(LayerMask) || type == typeof(AnimationCurve))
-                {
-                    return false;
-                }
-                
-                // 其他Unity值类型可能包含嵌套结构，所以不排除
+                return false;
             }
 
             // JsonNode类型本身可能包含嵌套结构
