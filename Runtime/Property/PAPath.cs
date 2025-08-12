@@ -293,6 +293,95 @@ namespace TreeNode.Runtime
             return new PAPath(subParts);
         }
 
+        /// <summary>
+        /// 获取最后一部分路径
+        /// </summary>
+        /// <returns>最后一个路径部分，如果路径为空则返回默认值</returns>
+        public readonly PAPart GetLastPart()
+        {
+            return Depth > 0 ? Parts[Depth - 1] : default(PAPart);
+        }
+
+        /// <summary>
+        /// 追加字符串成员路径
+        /// </summary>
+        /// <param name="memberName">成员名称</param>
+        /// <returns>新的路径</returns>
+        public readonly PAPath Append(string memberName)
+        {
+            if (string.IsNullOrEmpty(memberName))
+            {
+                return this;
+            }
+
+            var newParts = new PAPart[Depth + 1];
+            if (Parts != null && Parts.Length > 0)
+            {
+                Array.Copy(Parts, newParts, Parts.Length);
+            }
+            newParts[Depth] = PAPart.FromString(memberName);
+            return new PAPath(newParts);
+        }
+
+        /// <summary>
+        /// 追加索引路径
+        /// </summary>
+        /// <param name="index">索引值</param>
+        /// <returns>新的路径</returns>
+        public readonly PAPath Append(int index)
+        {
+            var newParts = new PAPart[Depth + 1];
+            if (Parts != null && Parts.Length > 0)
+            {
+                Array.Copy(Parts, newParts, Parts.Length);
+            }
+            newParts[Depth] = PAPart.FromIndex(index);
+            return new PAPath(newParts);
+        }
+
+        /// <summary>
+        /// 检查是否为多端口路径（包含索引）
+        /// </summary>
+        /// <returns>如果路径中包含索引部分则返回true</returns>
+        public readonly bool IsMultiPortPath()
+        {
+            if (Parts == null) return false;
+            
+            for (int i = 0; i < Parts.Length; i++)
+            {
+                if (Parts[i].IsIndex)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 获取渲染顺序（基于路径结构）
+        /// </summary>
+        /// <returns>用于排序的渲染顺序值</returns>
+        public readonly int GetRenderOrder()
+        {
+            if (Parts == null) return 0;
+
+            // 基于路径计算渲染顺序的逻辑
+            int order = 0;
+            foreach (var part in Parts)
+            {
+                if (part.IsIndex)
+                {
+                    order += part.Index;
+                }
+                else if (!string.IsNullOrEmpty(part.Name))
+                {
+                    // 基于成员名称计算顺序，使用简单的字符串哈希
+                    order += part.Name.GetHashCode() & 0x7FFFFFFF;
+                }
+            }
+            return order;
+        }
+
         #endregion
 
         #region 性能优化方法

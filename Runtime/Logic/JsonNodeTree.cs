@@ -129,7 +129,7 @@ namespace TreeNode.Runtime
         #region 树构建核心逻辑
 
         /// <summary>
-        /// 重新构建整个树结构
+        /// 重新构建整个树结构 - 基于 PropertyAccessor
         /// </summary>
         public void RebuildTree()
         {
@@ -139,38 +139,38 @@ namespace TreeNode.Runtime
             if (_asset?.Nodes == null || _asset.Nodes.Count == 0)
                 return;
 
-            // 步骤1：收集所有节点
-            var allNodes = CollectAllNodes();
+            // 步骤1：使用现有的 PropertyAccessor.CollectNodes 收集所有节点
+            var nodeList = new List<(PAPath path, JsonNode node)>();
+            PropertyAccessor.CollectNodes(_asset, nodeList, PAPath.Empty, depth: -1);
             
-            // 步骤2：为每个节点创建元数据
-            foreach (var node in allNodes)
+            // 步骤2：创建元数据映射
+            foreach (var (path, node) in nodeList)
             {
-                _nodeMetadataMap[node] = new NodeMetadata { Node = node };
+                var metadata = new NodeMetadata
+                {
+                    Node = node,
+                    Path = path,
+                    Depth = path.Depth,
+                    RenderOrder = path.GetRenderOrder()
+                };
+                
+                _nodeMetadataMap[node] = metadata;
             }
             
-            // 步骤3：建立层次关系
-            BuildHierarchy();
-            
-            // 步骤4：计算路径和深度
-            CalculatePathsAndDepths();
+            // 步骤3：建立层次关系（简化版）
+            BuildHierarchyFromPaths();
         }
 
         /// <summary>
-        /// 递归收集所有JsonNode（包括嵌套的）- 高性能版本
+        /// 收集所有JsonNode - 基于 PropertyAccessor（保持向后兼容）
         /// </summary>
+        [Obsolete("Use PropertyAccessor.CollectNodes instead")]
         private HashSet<JsonNode> CollectAllNodes()
         {
-            var allNodes = new HashSet<JsonNode>();
-            
-            foreach (var rootNode in _asset.Nodes)
-            {
-                if (rootNode != null)
-                {
-                    CollectNodesRecursively(rootNode, allNodes);
-                }
-            }
-            
-            return allNodes;
+            // 临时实现，直接使用 PropertyAccessor.CollectNodes
+            var nodeList = new List<(PAPath path, JsonNode node)>();
+            PropertyAccessor.CollectNodes(_asset, nodeList, PAPath.Empty, depth: -1);
+            return new HashSet<JsonNode>(nodeList.Select(item => item.node));
         }
 
         /// <summary>
@@ -358,6 +358,72 @@ namespace TreeNode.Runtime
         #endregion
 
         #region 层次关系构建
+
+        /// <summary>
+        /// 基于路径信息建立层次关系
+        /// </summary>
+        private void BuildHierarchyFromPaths()
+        {
+            // 按路径深度排序处理
+            var sortedMetadata = _nodeMetadataMap.Values.OrderBy(m => m.Depth).ToList();
+            
+            foreach (var metadata in sortedMetadata)
+            {
+                if (metadata.Depth == 0)
+                {
+                    // 根节点
+                    metadata.RootIndex = _asset.Nodes.IndexOf(metadata.Node);
+                    _rootNodes.Add(metadata);
+                }
+                else
+                {
+                    // 查找父节点
+                    var parentPath = metadata.Path.GetParent();
+                    if (!parentPath.IsEmpty)
+                    {
+                        try
+                        {
+                            var parentNode = PropertyAccessor.GetValue<JsonNode>(_asset, parentPath);
+                            
+                            if (parentNode != null && _nodeMetadataMap.TryGetValue(parentNode, out var parentMetadata))
+                            {
+                                var lastPart = metadata.Path.GetLastPart();
+                                
+                                metadata.Parent = parentMetadata;
+                                
+                                // 设置 LocalPath - 创建包含最后一部分的路径
+                                metadata.LocalPath = new PAPath(new[] { lastPart });
+                                metadata.IsMultiPort = metadata.Path.IsMultiPortPath();
+                                
+                                // 设置 ListIndex（如果是集合中的项）
+                                if (lastPart.IsIndex)
+                                {
+                                    metadata.ListIndex = lastPart.Index;
+                                }
+                                
+                                parentMetadata.Children.Add(metadata);
+                            }
+                        }
+                        catch
+                        {
+                            // 跳过无法访问的父节点
+                        }
+                    }
+                }
+            }
+            
+            // 排序子节点
+            foreach (var metadata in _nodeMetadataMap.Values)
+            {
+                if (metadata.Children.Count > 0)
+                {
+                    metadata.Children = metadata.Children
+                        .OrderBy(c => c.RenderOrder)
+                        .ThenBy(c => c.ListIndex)
+                        .ToList();
+                }
+            }
+        }
 
         /// <summary>
         /// 建立节点间的层次关系 - 使用缓存和UI渲染顺序
@@ -705,6 +771,92 @@ namespace TreeNode.Runtime
             }
             
             return sb.ToString();
+        }
+
+        #endregion
+        
+        #region PropertyAccessor Integration Methods
+        
+        /// <summary>
+        /// 使用 PropertyAccessor 收集所有 JsonNode
+        /// </summary>
+        /// <returns>所有 JsonNode 的集合</returns>
+        public HashSet<JsonNode> GetAllJsonNodes()
+        {
+            var nodeList = new List<(PAPath path, JsonNode node)>();
+            PropertyAccessor.CollectNodes(_asset, nodeList, PAPath.Empty, depth: -1);
+            return new HashSet<JsonNode>(nodeList.Select(item => item.node));
+        }
+        
+        /// <summary>
+        /// 获取带路径信息的所有 JsonNode
+        /// </summary>
+        /// <returns>包含路径信息的 JsonNode 枚举</returns>
+        public IEnumerable<(JsonNode node, PAPath path, int depth)> GetJsonNodeHierarchy()
+        {
+            var nodeList = new List<(PAPath path, JsonNode node)>();
+            PropertyAccessor.CollectNodes(_asset, nodeList, PAPath.Empty, depth: -1);
+            
+            foreach (var item in nodeList)
+            {
+                yield return (item.node, item.path, item.path.Depth);
+            }
+        }
+        
+        /// <summary>
+        /// 通过路径获取 JsonNode
+        /// </summary>
+        /// <param name="path">节点路径</param>
+        /// <returns>找到的 JsonNode，如果不存在则返回 null</returns>
+        public JsonNode GetNodeByPath(PAPath path)
+        {
+            try
+            {
+                return PropertyAccessor.GetValue<JsonNode>(_asset, path);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+        
+        /// <summary>
+        /// 通过字符串路径获取 JsonNode
+        /// </summary>
+        /// <param name="pathString">字符串路径</param>
+        /// <returns>找到的 JsonNode，如果不存在则返回 null</returns>
+        public JsonNode GetNodeByPath(string pathString)
+        {
+            try
+            {
+                var path = PAPath.Create(pathString);
+                return PropertyAccessor.GetValue<JsonNode>(_asset, path);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+        
+        /// <summary>
+        /// 批量获取指定路径的 JsonNode
+        /// </summary>
+        /// <param name="paths">路径集合</param>
+        /// <returns>路径到 JsonNode 的映射</returns>
+        public Dictionary<PAPath, JsonNode> GetNodesByPaths(IEnumerable<PAPath> paths)
+        {
+            var result = new Dictionary<PAPath, JsonNode>();
+            
+            foreach (var path in paths)
+            {
+                var node = GetNodeByPath(path);
+                if (node != null)
+                {
+                    result[path] = node;
+                }
+            }
+            
+            return result;
         }
 
         #endregion
