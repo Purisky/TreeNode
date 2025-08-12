@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using TreeNode.Utility;
@@ -30,74 +30,6 @@ namespace TreeNode.Runtime
             
             return new HashSet<JsonNode>(nodeList.Select(item => item.node));
         }
-
-        /// <summary>
-        /// 遍历所有 JsonNode 并提供路径信息（基于现有的 PropertyAccessor.CollectNodes）
-        /// </summary>
-        /// <param name="root">要搜索的根对象</param>
-        /// <returns>包含 JsonNode、路径和深度信息的枚举</returns>
-        public static IEnumerable<(JsonNode node, PAPath path, int depth)> TraverseJsonNodeHierarchy(object root)
-        {
-            if (root == null)
-            {
-                yield break;
-            }
-
-            var nodeList = new List<(PAPath path, JsonNode node)>();
-            CollectNodes(root, nodeList, PAPath.Empty, depth: -1);
-            
-            foreach (var item in nodeList)
-            {
-                yield return (item.node, item.path, item.path.Depth);
-            }
-        }
-
-        /// <summary>
-        /// 获取指定对象的直接 JsonNode 子节点路径（基于现有的 TypeCacheSystem）
-        /// </summary>
-        /// <param name="obj">要分析的对象</param>
-        /// <returns>直接子节点的路径枚举</returns>
-        public static IEnumerable<PAPath> GetDirectJsonNodePaths(object obj)
-        {
-            if (obj == null)
-            {
-                yield break;
-            }
-
-            var typeInfo = TypeCacheSystem.GetTypeInfo(obj.GetType());
-            
-            // 直接 JsonNode 成员
-            foreach (var member in typeInfo.GetJsonNodeMembers())
-            {
-                yield return PAPath.Create(member.Name);
-            }
-
-            // 集合中的 JsonNode（只获取直接子节点）
-            foreach (var member in typeInfo.GetCollectionMembers())
-            {
-                try
-                {
-                    var collection = member.Getter(obj);
-                    if (collection is System.Collections.IEnumerable enumerable)
-                    {
-                        int index = 0;
-                        foreach (var item in enumerable)
-                        {
-                            if (item is JsonNode)
-                            {
-                                yield return PAPath.Create(member.Name).AppendIndex(index);
-                            }
-                            index++;
-                        }
-                    }
-                }
-                catch
-                {
-                    // 跳过无法访问的成员
-                }
-            }
-        }
-
         /// <summary>
         /// 批量获取 JsonNode 及其路径信息（使用现有的 PropertyAccessor.GetValue）
         /// 优化版本：减少重复的路径解析开销
@@ -198,45 +130,6 @@ namespace TreeNode.Runtime
             
             return result;
         }
-
-        /// <summary>
-        /// 智能批量路径验证 - 预先验证路径有效性
-        /// </summary>
-        /// <param name="root">根对象</param>
-        /// <param name="paths">要验证的路径集合</param>
-        /// <returns>有效路径的集合</returns>
-        public static HashSet<PAPath> ValidatePaths(object root, IEnumerable<PAPath> paths)
-        {
-            var validPaths = new HashSet<PAPath>();
-            
-            if (root == null || paths == null)
-            {
-                return validPaths;
-            }
-
-            // 按路径深度分组，提高验证效率
-            var pathsByDepth = paths.GroupBy(p => p.Depth).OrderBy(g => g.Key);
-            
-            foreach (var group in pathsByDepth)
-            {
-                foreach (var path in group)
-                {
-                    try
-                    {
-                        // 使用轻量级验证，只检查路径是否可访问，不获取实际值
-                        PropertyAccessor.ValidatePath(root, path);
-                        validPaths.Add(path);
-                    }
-                    catch
-                    {
-                        // 路径无效，跳过
-                    }
-                }
-            }
-            
-            return validPaths;
-        }
-
         /// <summary>
         /// 优化的层次遍历 - 使用深度优先搜索减少内存分配
         /// </summary>

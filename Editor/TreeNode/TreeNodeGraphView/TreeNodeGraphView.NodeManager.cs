@@ -25,7 +25,7 @@ namespace TreeNode.Editor
         public virtual void AddNode(JsonNode node)
         {
             Asset.Data.Nodes.Add(node);
-            var createOperation =  NodeOperation.Create(node,$"[{Asset.Data.Nodes.Count-1}]" , this);
+            var createOperation =  NodeOperation.Create(node,$"[{Asset.Data.Nodes.Count-1}]" , this.Asset);
             Window.History.Record(createOperation);
 
             NodeTree.OnNodeAdded(node);
@@ -37,7 +37,7 @@ namespace TreeNode.Editor
             if (string.IsNullOrEmpty(path))
             {
                 Asset.Data.Nodes.Add(node);
-                var createOperation = NodeOperation.Create(node, $"[{Asset.Data.Nodes.Count-1}]", this);
+                var createOperation = NodeOperation.Create(node, $"[{Asset.Data.Nodes.Count-1}]", this.Asset);
                 Window.History.Record(createOperation);
 
                 NodeTree.OnNodeAdded(node);
@@ -68,7 +68,7 @@ namespace TreeNode.Editor
                 {
                     PropertyAccessor.SetValue(parent, last, node);
                 }
-                var moveOperation = NodeOperation.Create(node, path, this);
+                var moveOperation = NodeOperation.Create(node, path, this.Asset);
                 Window.History.Record(moveOperation);
                 NodeTree.OnNodeAdded(node, path);
                 return true;
@@ -84,7 +84,7 @@ namespace TreeNode.Editor
         {
             // 记录节点删除操作
             int index = Asset.Data.Nodes.IndexOf(node);
-            var deleteOperation = NodeOperation.Delete(node,$"[{index}]", this);
+            var deleteOperation = NodeOperation.Delete(node,$"[{index}]", this.Asset);
             Window.History.Record(deleteOperation);
             
             Asset.Data.Nodes.Remove(node);
@@ -331,7 +331,7 @@ namespace TreeNode.Editor
             Asset.Data.Nodes.Remove(childNode.Data);
             ChildPort childPortOfParentNode = edge.ChildPort();
             PAPath to = parentNode.GetNodePath().Combine(childPortOfParentNode.SetNodeValue(childNode.Data, false));
-            Window.History.Record(NodeOperation.Move(childNode.Data, from, to, this));
+            Window.History.Record(NodeOperation.Move(childNode.Data, from, to, this.Asset));
             edge.ParentPort().Connect(edge);
             childPortOfParentNode.Connect(edge);
             childPortOfParentNode.OnAddEdge(edge);
@@ -348,7 +348,7 @@ namespace TreeNode.Editor
             ChildPort childPortOfParent = edge.ChildPort();
             childPortOfParent.SetNodeValue(child.Data);
             Asset.Data.Nodes.Add(child.Data);
-            Window.History.Record(NodeOperation.Move(child.Data, from, PAPath.Index(Asset.Data.Nodes.Count - 1), this));
+            Window.History.Record(NodeOperation.Move(child.Data, from, PAPath.Index(Asset.Data.Nodes.Count - 1), this.Asset));
             edge.ParentPort().DisconnectAll();
             childPortOfParent.OnRemoveEdge(edge);
         }
@@ -607,7 +607,7 @@ namespace TreeNode.Editor
                     viewNode.Data.Position += (Vec2)delta;
                     Vec2 to = viewNode.Data.Position;
                     // 记录节点移动操作
-                    var moveOperation = new FieldModifyOperation<Vec2>(viewNode.Data, PAPath.Position, from, to, this);
+                    var moveOperation = new FieldModifyOperation<Vec2>(viewNode.Data, PAPath.Position, from, to);
                     Window.History.Record(moveOperation);
                 }
                 catch (Exception e)

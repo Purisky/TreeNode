@@ -22,16 +22,16 @@ namespace TreeNode.Editor
         public PAPath? From;
         public PAPath? To;
         public JsonNode Node;
-        public TreeNodeGraphView GraphView;
-        public List<JsonNode> Nodes => GraphView.Asset.Data.Nodes;
+        public JsonAsset Asset;
+        public List<JsonNode> Nodes => Asset.Data.Nodes;
 
 
 
 
 
-        public static NodeOperation Create(JsonNode node, PAPath path, TreeNodeGraphView graphView)
+        public static NodeOperation Create(JsonNode node, PAPath path, JsonAsset  asset)
         {
-            if (node == null || graphView == null)
+            if (node == null || asset == null)
             {
                 return null;
             }
@@ -40,12 +40,12 @@ namespace TreeNode.Editor
             {
                 Node = node,
                 To = path,
-                GraphView = graphView
+                Asset = asset
             };
         }
-        public static NodeOperation Delete(JsonNode node, PAPath path, TreeNodeGraphView graphView)
+        public static NodeOperation Delete(JsonNode node, PAPath path, JsonAsset asset)
         {
-            if (node == null || graphView == null)
+            if (node == null || asset == null)
             {
                 return null;
             }
@@ -54,12 +54,12 @@ namespace TreeNode.Editor
             {
                 Node = node,
                 From = path,
-                GraphView = graphView
+                Asset = asset
             };
         }
-        public static NodeOperation Move(JsonNode node, PAPath from, PAPath to, TreeNodeGraphView graphView)
+        public static NodeOperation Move(JsonNode node, PAPath from, PAPath to, JsonAsset asset)
         {
-            if (from == to|| node==null|| graphView==null)
+            if (from == to|| node==null|| asset == null)
             {
                 return null;
             }
@@ -68,7 +68,7 @@ namespace TreeNode.Editor
                 Node = node,
                 From = from,
                 To = to,
-                GraphView = graphView
+                Asset = asset
             };
         }
 

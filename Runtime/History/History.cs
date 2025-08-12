@@ -12,7 +12,8 @@ namespace TreeNode.Editor
     /// </summary>
     public partial class History
     {
-        TreeNodeGraphWindow Window;
+        public Action MakeDirty;
+
         List<HistoryStep> Steps = new();
         Stack<HistoryStep> RedoSteps = new();
 
@@ -20,17 +21,14 @@ namespace TreeNode.Editor
         private HistoryStep _currentBatch;
         private bool _isBatchMode = false;
 
-        public History(TreeNodeGraphWindow window)
+        public History(Action action)
         {
-            Window = window;
-            //AddStep(false);
+            MakeDirty = action;
         }
 
         public void Clear()
         {
-            //HistoryStep historyStep = Steps[0];
             Steps.Clear();
-            //Steps.Add(historyStep);
             RedoSteps.Clear();
             
             _currentBatch = null;
@@ -44,7 +42,7 @@ namespace TreeNode.Editor
         {
             if (dirty)
             {
-                Window.MakeDirty();
+                MakeDirty?.Invoke();
             }
 
             // 如果在批量模式中，不创建新步骤
@@ -91,7 +89,7 @@ namespace TreeNode.Editor
                 //Debug.Log($"[新建步骤] 创建新步骤");
             }
 
-            Window.MakeDirty();
+            MakeDirty?.Invoke();
         }
 
         /// <summary>
@@ -125,7 +123,7 @@ namespace TreeNode.Editor
                 }
                 
                 RedoSteps.Clear();
-                Window.MakeDirty();
+                MakeDirty?.Invoke();
             }
             _currentBatch = null;
             _isBatchMode = false;

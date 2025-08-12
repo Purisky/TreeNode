@@ -1772,7 +1772,7 @@ namespace TreeNode.Editor
                     PAPath from = ViewNode.View.NodeTree.GetNodeMetadata(removeNodes[i]).Path;
                     PAPath to = PAPath.Index(nodes.Count);
                     nodes.Add(removeNodes[i]);
-                    NodeOperation nodeOperation = NodeOperation.Move(removeNodes[i], from, to, ViewNode.View);
+                    NodeOperation nodeOperation = NodeOperation.Move(removeNodes[i], from, to, ViewNode.View.Asset);
                     //Debug.Log(nodeOperation);
                     ViewNode.View.Window.History.Record(nodeOperation);
                 }

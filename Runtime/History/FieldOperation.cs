@@ -10,7 +10,6 @@ namespace TreeNode.Editor
     {
         public PAPath FieldPath;
         public JsonNode Node;
-        public TreeNodeGraphView GraphView;
         public abstract List<ViewChange> Execute();
         public abstract List<ViewChange> Undo();
     }
@@ -18,13 +17,12 @@ namespace TreeNode.Editor
     {
         public T OldValue;
         public T NewValue;
-        public FieldModifyOperation(JsonNode node, PAPath fieldPath, T oldValue, T newValue, TreeNodeGraphView graphView)
+        public FieldModifyOperation(JsonNode node, PAPath fieldPath, T oldValue, T newValue)
         {
             Node = node;
             FieldPath = fieldPath;
             OldValue = oldValue;
             NewValue = newValue;
-            GraphView = graphView;
         }
         public override List<ViewChange> Execute()=> ApplyFieldValue(NewValue);
         public override List<ViewChange> Undo()=> ApplyFieldValue(OldValue);
@@ -70,14 +68,13 @@ namespace TreeNode.Editor
                 return ItemModifyType.Move;
             }
         }
-        public ListItemModifyOperation(JsonNode node, PAPath listFieldPath, int fromIndex,int toIndex, object value, TreeNodeGraphView graphView)
+        public ListItemModifyOperation(JsonNode node, PAPath listFieldPath, int fromIndex,int toIndex, object value)
         {
             Node = node;
             FieldPath = listFieldPath;
             FromIndex = fromIndex;
             ToIndex = toIndex;
             Value = value;
-            GraphView = graphView;
         }
         public override List<ViewChange> Execute()
         {

@@ -120,7 +120,7 @@ namespace TreeNode.Editor
                     }
                     JsonAsset = jsonAsset;
                 }
-                History = new(this);
+                History = new(()=>this.MakeDirty());
                 titleContent = new(Title, JsonAssetHelper.GetIcon(JsonAsset.Data.GetType().Name), Path);
 
                 rootView = rootVisualElement;

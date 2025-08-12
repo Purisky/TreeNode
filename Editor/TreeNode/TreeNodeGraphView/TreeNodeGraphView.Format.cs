@@ -98,7 +98,7 @@ namespace TreeNode.Editor
             viewNode.SetPosition(rect);
             if (newPosition != viewNode.Data.Position)
             {
-                Window.History.Record(new FieldModifyOperation<Vec2>(viewNode.Data, PAPath.Position, viewNode.Data.Position, newPosition, this));
+                Window.History.Record(new FieldModifyOperation<Vec2>(viewNode.Data, PAPath.Position, viewNode.Data.Position, newPosition));
                 viewNode.Data.Position = newPosition;
             }
 
