@@ -86,12 +86,6 @@ namespace TreeNodeSourceGenerator
             }
             // 过滤类型，只处理本程序集的类型
             var currentAssembly = context.Compilation.Assembly;
-            // 生成访问器类
-            foreach (var nodeType in jsonNodeTypes)
-            {
-                var accessorSource = GenerateAccessorClass(nodeType);
-                context.AddSource($"{nodeType.Name}Accessor.g.cs", SourceText.From(accessorSource, Encoding.UTF8));
-            }
 
             TypeDict = new();
 
@@ -122,12 +116,6 @@ namespace TreeNodeSourceGenerator
                     var propertyAccessorSource = GeneratePropertyAccessorPartialClass(item.Key, item.Value);
                     context.AddSource($"{item.Key.Name}.PropertyAccessor.g.cs", SourceText.From(propertyAccessorSource, Encoding.UTF8));
                 }
-            }
-            // 生成注册器
-            if (jsonNodeTypes.Count > 0)
-            {
-                var registrarSource = GenerateRegistrarClass(jsonNodeTypes);
-                context.AddSource("GeneratedAccessorRegistrar.g.cs", SourceText.From(registrarSource, Encoding.UTF8));
             }
             
             // 生成JsonNode的IPropertyAccessor实现

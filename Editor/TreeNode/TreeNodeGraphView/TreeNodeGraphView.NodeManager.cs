@@ -434,7 +434,7 @@ namespace TreeNode.Editor
         /// </summary>
         public virtual string Validate()
         {
-            return NodeTree.ValidateTree();
+            return NodeTree.ValidateTree() ? null : "Tree validation failed";
         }
 
         /// <summary>

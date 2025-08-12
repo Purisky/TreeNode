@@ -154,6 +154,7 @@ namespace TreeNode.Runtime
 
         public static void CollectNodes(this IList list, List<(PAPath, JsonNode)> listNodes, PAPath parent, int depth = -1)
         {
+
             if (depth == 0) { return; }
             if (depth > 0) { depth--; }
             for (int i = 0; i < list.Count; i++)
