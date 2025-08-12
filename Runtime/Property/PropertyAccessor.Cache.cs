@@ -198,7 +198,7 @@ namespace TreeNode.Runtime
         }
 
         /// <summary>
-        /// 创建Setter表达式 - 重构后的简化版本
+        /// 创建Setter表达式
         /// </summary>
         private static Action<object, T> CreateSetter<T>(Type type, PAPart part)
         {
