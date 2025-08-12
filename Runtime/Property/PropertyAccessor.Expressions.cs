@@ -103,22 +103,38 @@ namespace TreeNode.Runtime
         }
 
         /// <summary>
-        /// 构建属性或字段访问表达式
+        /// 构建属性或字段访问表达式 - 使用 TypeCacheSystem
         /// </summary>
         private static Expression BuildPropertyOrFieldAccess(Expression current, string memberName, ref Type type)
         {
-            var property = type.GetProperty(memberName);
-            if (property != null)
+            // 使用 TypeCacheSystem 获取统一的成员信息
+            var typeInfo = TypeCacheSystem.GetTypeInfo(type);
+            var memberInfo = typeInfo.GetMember(memberName);
+            
+            if (memberInfo == null)
             {
-                current = Expression.Property(current, property);
-                type = property.PropertyType;
-                return current;
+                throw PropertyAccessorErrors.CreateMemberNotFound(type, PAPart.FromString(memberName));
             }
 
-            var field = type.GetField(memberName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                ?? throw PropertyAccessorErrors.CreateMemberNotFound(type, PAPart.FromString(memberName));
-            current = Expression.Field(current, field);
-            type = field.FieldType;
+            // 根据成员类型选择对应的访问方式
+            switch (memberInfo.MemberType)
+            {
+                case TypeCacheSystem.MemberType.Property:
+                    var property = (PropertyInfo)memberInfo.Member;
+                    current = Expression.Property(current, property);
+                    type = property.PropertyType;
+                    break;
+
+                case TypeCacheSystem.MemberType.Field:
+                    var field = (FieldInfo)memberInfo.Member;
+                    current = Expression.Field(current, field);
+                    type = field.FieldType;
+                    break;
+
+                default:
+                    throw PropertyAccessorErrors.CreateMemberNotFound(type, PAPart.FromString(memberName));
+            }
+
             return current;
         }
 

@@ -17,6 +17,7 @@ namespace TreeNodeSourceGenerator
             Remove,
             ValidatePath,
             GetAllInPath,
+            CollectNodes,
         }
         private string GeneratePropertyAccessorPartialClass(INamedTypeSymbol nodeType, List<AccessibleMemberInfo> accessibleMembers)
         {
@@ -44,6 +45,7 @@ namespace TreeNodeSourceGenerator
             GenerateAccessMethod(sb, nodeType, accessibleMembers, AccessOperation.Remove);
             GenerateAccessMethod(sb, nodeType, accessibleMembers, AccessOperation.ValidatePath);
             GenerateAccessMethod(sb, nodeType, accessibleMembers, AccessOperation.GetAllInPath);
+            GenerateAccessMethod(sb, nodeType, accessibleMembers, AccessOperation.CollectNodes);
 
             sb.AppendLine("    }");
             sb.AppendLine("}");
@@ -70,6 +72,14 @@ namespace TreeNodeSourceGenerator
             if (operation == AccessOperation.GetAllInPath)
             {
                 GenerateGetAllInPathMethod(sb, members);
+                sb.AppendLine("        }");
+                sb.AppendLine();
+                return;
+            }
+
+            if (operation == AccessOperation.CollectNodes)
+            {
+                GenerateCollectNodesMethod(sb, members);
                 sb.AppendLine("        }");
                 sb.AppendLine();
                 return;
@@ -124,6 +134,11 @@ namespace TreeNodeSourceGenerator
                 ),
                 AccessOperation.GetAllInPath => (
                     "void GetAllInPath<T>(ref PAPath path,ref int index, List<(int depth, T value)> list)  where T : class",
+                    "// No handling needed for empty type",
+                    $"throw new NotSupportedException($\"Index access not supported by {nodeTypeName}\");"
+                ),
+                AccessOperation.CollectNodes => (
+                    "void CollectNodes(List<(PAPath, JsonNode)> list, PAPath parent, int depth = -1)",
                     "// No handling needed for empty type",
                     $"throw new NotSupportedException($\"Index access not supported by {nodeTypeName}\");"
                 ),
@@ -517,6 +532,14 @@ namespace TreeNodeSourceGenerator
             sb.AppendLine("                    index--;");  // 属性不存在，路径无效
             sb.AppendLine("                    return;");  // 属性不存在，直接返回
             sb.AppendLine("            }");
+        }
+
+        /// <summary>
+        /// 生成 CollectNodes 方法
+        /// </summary>
+        private void GenerateCollectNodesMethod(StringBuilder sb, List<AccessibleMemberInfo> members)
+        {
+            sb.AppendLine("            // TODO: 实现收集逻辑");
         }
     }
 }

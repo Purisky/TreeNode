@@ -21,45 +21,50 @@ namespace TreeNode.Runtime
         private static class ValidationStrategy
         {
             /// <summary>
-            /// 验证成员是否存在
+            /// 验证成员是否存在 - 使用 TypeCacheSystem
             /// </summary>
             public static bool ValidateMemberExists(object obj, PAPart part)
             {
                 if (obj == null) return false;
 
-                var metadata = GetOrCreateMemberInfo(obj.GetType(), part);
-
-                if (metadata.IsIndexer)
+                if (part.IsIndex)
                 {
                     return IndexerStrategy.ValidateAccess(obj, part.Index);
                 }
                 else
                 {
-                    return metadata.IsProperty && metadata.Property != null ||
-                           !metadata.IsProperty && metadata.Field != null;
+                    // 使用 TypeCacheSystem 查找成员
+                    var typeInfo = TypeCacheSystem.GetTypeInfo(obj.GetType());
+                    var memberInfo = typeInfo.GetMember(part.Name);
+                    
+                    return memberInfo != null;
                 }
             }
 
             /// <summary>
-            /// 验证成员是否可写
+            /// 验证成员是否可写 - 使用 TypeCacheSystem
             /// </summary>
             public static bool CanWriteToMember(Type type, PAPart part)
             {
-                var metadata = GetOrCreateMemberInfo(type, part);
-
-                if (metadata.IsIndexer)
+                if (part.IsIndex)
                 {
                     // 数组和索引器通常可写
-                    return metadata.IsArray || type.GetProperty("Item")?.CanWrite == true;
-                }
-                else if (metadata.IsProperty)
-                {
-                    return metadata.Property?.CanWrite == true;
+                    return type.IsArray || type.GetProperty("Item")?.CanWrite == true;
                 }
                 else
                 {
-                    // 字段通常可写，除非是readonly
-                    return metadata.Field != null && !metadata.Field.IsInitOnly;
+                    // 使用 TypeCacheSystem 查找成员
+                    var typeInfo = TypeCacheSystem.GetTypeInfo(type);
+                    var memberInfo = typeInfo.GetMember(part.Name);
+                    
+                    if (memberInfo == null) return false;
+                    
+                    return memberInfo.MemberType switch
+                    {
+                        TypeCacheSystem.MemberType.Property => ((PropertyInfo)memberInfo.Member).CanWrite,
+                        TypeCacheSystem.MemberType.Field => !((FieldInfo)memberInfo.Member).IsInitOnly,
+                        _ => false
+                    };
                 }
             }
         }
@@ -116,28 +121,34 @@ namespace TreeNode.Runtime
         #region 类型工具方法
 
         /// <summary>
-        /// 获取成员类型 - 使用PAPart
+        /// 获取成员类型 - 使用 TypeCacheSystem
         /// </summary>
         private static Type GetMemberType(Type type, PAPart part)
         {
-            var metadata = GetOrCreateMemberInfo(type, part);
-            return metadata.IsProperty && metadata.Property != null
-                ? metadata.Property.PropertyType
-                : metadata.Field?.FieldType;
+            if (part.IsIndex)
+            {
+                // 对于索引访问，返回元素类型
+                return type.IsArray ? type.GetElementType() : 
+                       type.GetProperty("Item")?.PropertyType;
+            }
+            else
+            {
+                // 使用 TypeCacheSystem 查找成员
+                var typeInfo = TypeCacheSystem.GetTypeInfo(type);
+                var memberInfo = typeInfo.GetMember(part.Name);
+                
+                return memberInfo?.ValueType;
+            }
         }
 
         /// <summary>
-        /// 检查类型是否有有效的无参构造函数
+        /// 检查类型是否有有效的无参构造函数 - 使用 TypeCacheSystem
         /// </summary>
         private static bool HasValidParameterlessConstructor(Type type)
         {
-            if (ConstructorCache.TryGetValue(type, out bool hasConstructor))
-                return hasConstructor;
-
-            hasConstructor = !type.IsAbstract && type.GetConstructor(Type.EmptyTypes) != null;
-            ConstructorCache[type] = hasConstructor;
-
-            return hasConstructor;
+            // 使用 TypeCacheSystem 获取构造函数信息
+            var typeInfo = TypeCacheSystem.GetTypeInfo(type);
+            return typeInfo.HasParameterlessConstructor;
         }
 
         /// <summary>

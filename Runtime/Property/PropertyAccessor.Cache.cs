@@ -277,10 +277,10 @@ namespace TreeNode.Runtime
 
         #endregion
 
-        #region 成员信息管理
+        #region 成员信息管理 - 过渡到 TypeCacheSystem
 
         /// <summary>
-        /// 获取或创建成员信息 - 使用PAPart
+        /// 获取或创建成员信息 - 使用 TypeCacheSystem
         /// </summary>
         private static MemberMetadata GetOrCreateMemberInfo(Type type, PAPart part)
         {
@@ -294,7 +294,7 @@ namespace TreeNode.Runtime
         }
 
         /// <summary>
-        /// 创建成员元数据（增强Array检测）- 使用PAPart
+        /// 创建成员元数据 - 使用 TypeCacheSystem
         /// </summary>
         private static MemberMetadata CreateMemberMetadata(Type type, PAPart part)
         {
@@ -311,10 +311,21 @@ namespace TreeNode.Runtime
             }
             else
             {
-                property = type.GetProperty(part.Name);
-                if (property == null)
+                // 使用 TypeCacheSystem 查找成员
+                var typeInfo = TypeCacheSystem.GetTypeInfo(type);
+                var memberInfo = typeInfo.GetMember(part.Name);
+                
+                if (memberInfo != null)
                 {
-                    field = type.GetField(part.Name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    switch (memberInfo.MemberType)
+                    {
+                        case TypeCacheSystem.MemberType.Property:
+                            property = (PropertyInfo)memberInfo.Member;
+                            break;
+                        case TypeCacheSystem.MemberType.Field:
+                            field = (FieldInfo)memberInfo.Member;
+                            break;
+                    }
                 }
             }
 
