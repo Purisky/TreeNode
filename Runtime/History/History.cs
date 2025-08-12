@@ -14,7 +14,7 @@ namespace TreeNode.Editor
     {
         public Action MakeDirty;
 
-        List<HistoryStep> Steps = new();
+        public List<HistoryStep> Steps = new();
         Stack<HistoryStep> RedoSteps = new();
 
         // 批量操作管理

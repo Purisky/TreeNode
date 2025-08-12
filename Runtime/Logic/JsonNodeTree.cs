@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using TreeNode.Utility;
+using TreeNode.Editor;
 using UnityEngine;
 
 namespace TreeNode.Runtime
@@ -874,7 +875,7 @@ namespace TreeNode.Runtime
         }
         
         /// <summary>
-        /// 通知有新节点被添加到指定路径
+        /// 通知有节点被添加到指定路径
         /// </summary>
         /// <param name="node">添加的节点</param>
         /// <param name="path">节点路径</param>
@@ -882,7 +883,15 @@ namespace TreeNode.Runtime
         {
             if (node != null && !_nodeMetadataMap.ContainsKey(node))
             {
-                RebuildTree();
+                if (IsIncrementalModeEnabled)
+                {
+                    // 增量更新模式（将来实现）
+                    MarkDirty();
+                }
+                else
+                {
+                    RebuildTree();
+                }
             }
         }
         
@@ -894,9 +903,58 @@ namespace TreeNode.Runtime
         {
             if (node != null && _nodeMetadataMap.ContainsKey(node))
             {
-                RebuildTree();
+                if (IsIncrementalModeEnabled)
+                {
+                    // 增量更新模式（将来实现）
+                    MarkDirty();
+                }
+                else
+                {
+                    RebuildTree();
+                }
             }
         }
+        
+        /// <summary>
+        /// 启用增量更新模式
+        /// </summary>
+        public void EnableIncrementalMode()
+        {
+            if (IsIncrementalModeEnabled)
+            {
+                return;
+            }
+
+            try
+            {
+                IsIncrementalModeEnabled = true;
+                Debug.Log("JsonNodeTree: 增量更新模式已启用");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"启用增量更新模式失败: {ex.Message}");
+                IsIncrementalModeEnabled = false;
+            }
+        }
+        
+        /// <summary>
+        /// 禁用增量更新模式
+        /// </summary>
+        public void DisableIncrementalMode()
+        {
+            if (!IsIncrementalModeEnabled)
+            {
+                return;
+            }
+
+            IsIncrementalModeEnabled = false;
+            Debug.Log("JsonNodeTree: 增量更新模式已禁用，回退到全量更新");
+        }
+        
+        /// <summary>
+        /// 增量更新是否启用
+        /// </summary>
+        public bool IsIncrementalModeEnabled { get; private set; } = false;
         
         /// <summary>
         /// 获取排序后的节点列表

@@ -648,6 +648,23 @@ namespace TreeNode.Runtime
         }
 
         /// <summary>
+        /// 检查当前路径是否是指定路径的子路径（即当前路径以指定路径开头且深度更大）
+        /// </summary>
+        /// <param name="parent">可能的父路径</param>
+        /// <returns>如果当前路径是指定路径的子路径则返回true</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly bool IsChildOf(PAPath parent)
+        {
+            // 空路径或无效路径处理
+            if (parent.IsEmpty) return !IsEmpty; // 任何非空路径都是空路径的子路径
+            if (IsEmpty) return false; // 空路径不是任何路径的子路径
+            if (parent.Depth >= Depth) return false; // 子路径必须比父路径更深
+
+            // 检查当前路径是否以父路径开头
+            return StartsWith(parent);
+        }
+
+        /// <summary>
         /// 检查当前路径是否以指定路径结尾
         /// </summary>
         /// <param name="suffix">后缀路径</param>
