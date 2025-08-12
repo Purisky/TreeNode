@@ -55,10 +55,10 @@ namespace TreeNodeSourceGenerator
 
         private void GenerateAccessMethod(StringBuilder sb, INamedTypeSymbol nodeType, List<AccessibleMemberInfo> members, AccessOperation operation)
         {
-            var methodInfo = GetMethodInfo(operation, nodeType.Name);
+            var (ReturnType, EmptyHandling, IndexErrorHandling) = GetMethodInfo(operation, nodeType.Name);
             string override_keyword = ImplementsIPropertyAccessor(nodeType) ? "override " : "";
             sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
-            sb.AppendLine($"        public {override_keyword}{methodInfo.ReturnType}");
+            sb.AppendLine($"        public {override_keyword}{ReturnType}");
             sb.AppendLine("        {");
 
             if (operation == AccessOperation.ValidatePath)
@@ -87,14 +87,14 @@ namespace TreeNodeSourceGenerator
 
             if (members.Count == 0)
             {
-                sb.AppendLine($"            {methodInfo.EmptyHandling}");
+                sb.AppendLine($"            {EmptyHandling}");
                 sb.AppendLine("        }");
                 return;
             }
 
             sb.AppendLine("            ref PAPart first =ref path.Parts[index];");
 
-            sb.AppendLine($"            if (first.IsIndex) {{ {methodInfo.IndexErrorHandling} }}");
+            sb.AppendLine($"            if (first.IsIndex) {{ {IndexErrorHandling} }}");
 
             sb.AppendLine("            if (index == path.Parts.Length - 1)");
 
