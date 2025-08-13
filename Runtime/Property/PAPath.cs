@@ -19,9 +19,6 @@ namespace TreeNode.Runtime
         private readonly int _hashCode;
 
         #endregion
-
-
-
         #region 静态缓存
 
         // 路径解析缓存

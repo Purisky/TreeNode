@@ -13,6 +13,11 @@ namespace TreeNode.Runtime
         T GetValueInternal<T>(ref PAPath path, ref int index);
         void SetValueInternal<T>(ref PAPath path, ref int index, T value);
         void RemoveValueInternal(ref PAPath path, ref int index);
+        /// <summary>
+        /// 判断路径是否存在,末端可能为空
+        /// </summary>
+        /// <param name="path"></param>
+        /// <param name="index"></param>
         void ValidatePath(ref PAPath path, ref int index);
         void GetAllInPath<T>(ref PAPath path, ref int index, List<(int depth, T value)> list) where T : class;
         void CollectNodes(List<(PAPath, JsonNode)> list, PAPath parent, int depth = -1);

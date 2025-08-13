@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -160,18 +160,6 @@ namespace TreeNode.Runtime
             
             // 步骤3：建立层次关系（简化版）
             BuildHierarchyFromPaths();
-        }
-
-        /// <summary>
-        /// 收集所有JsonNode - 基于 PropertyAccessor（保持向后兼容）
-        /// </summary>
-        [Obsolete("Use PropertyAccessor.CollectNodes instead")]
-        private HashSet<JsonNode> CollectAllNodes()
-        {
-            // 临时实现，直接使用 PropertyAccessor.CollectNodes
-            var nodeList = new List<(PAPath path, JsonNode node)>();
-            PropertyAccessor.CollectNodes(_asset, nodeList, PAPath.Empty, depth: -1);
-            return new HashSet<JsonNode>(nodeList.Select(item => item.node));
         }
 
         /// <summary>
@@ -773,20 +761,9 @@ namespace TreeNode.Runtime
         }
 
         #endregion
-        
+
         #region PropertyAccessor Integration Methods
-        
-        /// <summary>
-        /// 使用 PropertyAccessor 收集所有 JsonNode
-        /// </summary>
-        /// <returns>所有 JsonNode 的集合</returns>
-        public HashSet<JsonNode> GetAllJsonNodes()
-        {
-            var nodeList = new List<(PAPath path, JsonNode node)>();
-            PropertyAccessor.CollectNodes(_asset, nodeList, PAPath.Empty, depth: -1);
-            return new HashSet<JsonNode>(nodeList.Select(item => item.node));
-        }
-        
+
         /// <summary>
         /// 获取带路径信息的所有 JsonNode
         /// </summary>
@@ -794,70 +771,13 @@ namespace TreeNode.Runtime
         public IEnumerable<(JsonNode node, PAPath path, int depth)> GetJsonNodeHierarchy()
         {
             var nodeList = new List<(PAPath path, JsonNode node)>();
-            PropertyAccessor.CollectNodes(_asset, nodeList, PAPath.Empty, depth: -1);
-            
+            _asset.Nodes.CollectNodes(nodeList, PAPath.Empty, depth: -1);
+
             foreach (var item in nodeList)
             {
                 yield return (item.node, item.path, item.path.Depth);
             }
         }
-        
-        /// <summary>
-        /// 通过路径获取 JsonNode
-        /// </summary>
-        /// <param name="path">节点路径</param>
-        /// <returns>找到的 JsonNode，如果不存在则返回 null</returns>
-        public JsonNode GetNodeByPath(PAPath path)
-        {
-            try
-            {
-                return PropertyAccessor.GetValue<JsonNode>(_asset, path);
-            }
-            catch
-            {
-                return null;
-            }
-        }
-        
-        /// <summary>
-        /// 通过字符串路径获取 JsonNode
-        /// </summary>
-        /// <param name="pathString">字符串路径</param>
-        /// <returns>找到的 JsonNode，如果不存在则返回 null</returns>
-        public JsonNode GetNodeByPath(string pathString)
-        {
-            try
-            {
-                var path = PAPath.Create(pathString);
-                return PropertyAccessor.GetValue<JsonNode>(_asset, path);
-            }
-            catch
-            {
-                return null;
-            }
-        }
-        
-        /// <summary>
-        /// 批量获取指定路径的 JsonNode
-        /// </summary>
-        /// <param name="paths">路径集合</param>
-        /// <returns>路径到 JsonNode 的映射</returns>
-        public Dictionary<PAPath, JsonNode> GetNodesByPaths(IEnumerable<PAPath> paths)
-        {
-            var result = new Dictionary<PAPath, JsonNode>();
-            
-            foreach (var path in paths)
-            {
-                var node = GetNodeByPath(path);
-                if (node != null)
-                {
-                    result[path] = node;
-                }
-            }
-            
-            return result;
-        }
-
         #endregion
         
         #region Editor Support Methods
@@ -879,7 +799,7 @@ namespace TreeNode.Runtime
         /// </summary>
         /// <param name="node">添加的节点</param>
         /// <param name="path">节点路径</param>
-        public void OnNodeAdded(JsonNode node, string path)
+        public void OnNodeAdded(JsonNode node, PAPath path)
         {
             if (node != null && !_nodeMetadataMap.ContainsKey(node))
             {

@@ -32,9 +32,9 @@ namespace TreeNode.Editor
             AddViewNode(node);
         }
 
-        public bool SetNodeByPath(JsonNode node, string path)
+        public bool SetNodeByPath(JsonNode node, PAPath path)
         {
-            if (string.IsNullOrEmpty(path))
+            if (path.IsEmpty)
             {
                 Asset.Data.Nodes.Add(node);
                 var createOperation = NodeOperation.Create(node, $"[{Asset.Data.Nodes.Count-1}]", this.Asset);
@@ -45,13 +45,13 @@ namespace TreeNode.Editor
             }
             try
             {
-                string path_ = path;
-                object parent = PropertyAccessor.GetParentObject(Asset.Data.Nodes, path, out string last);
+                PAPath path_ = path;
+                object parent = PropertyAccessor.GetParentObject(Asset.Data.Nodes, path, out PAPart last);
                 object oldValue = PropertyAccessor.GetValue<object>(parent, last);
                 if (oldValue is null)
                 {
                     Type parentType = parent.GetType();
-                    Type valueType = parentType.GetMember(last).First().GetValueType();
+                    Type valueType = parentType.GetMember(last.Name).First().GetValueType();
                     if (valueType.Inherited(typeof(IList)))
                     {
                         oldValue = Activator.CreateInstance(valueType);

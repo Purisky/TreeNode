@@ -417,7 +417,7 @@ namespace TreeNodeSourceGenerator
                 bool needCreateInstance = NeedCreateInstance(member);
                 if (!member.IsValueType && !needCreateInstance)
                 {
-                    sb.AppendLine($"                    if ({member.Name} == null){{index--;return;}}");
+                    sb.AppendLine($"                    if ({member.Name} == null){{return;}}");
                 }
 
                 // 然后进行单路径判断

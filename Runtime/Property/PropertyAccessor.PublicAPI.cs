@@ -3,6 +3,7 @@ using System;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -20,6 +21,15 @@ namespace TreeNode.Runtime
         {
             return GetValue<T>(obj, PAPath.Create(path));
         }
+        public static T GetValue<T>(object obj, PAPart part)
+        {
+            if (!part.Valid) { return (T)obj; }
+            var singleGetter = GetOrCreateGetter<T>(obj.GetType(), part);
+            return singleGetter(obj);
+        }
+
+
+
 
         public static T GetValue<T>(object obj, PAPath path)
         {
@@ -28,11 +38,8 @@ namespace TreeNode.Runtime
 
             if (path.Depth == 1)
             {
-                // 单层路径直接访问，性能优化
-                var singleGetter = GetOrCreateGetter<T>(obj.GetType(), path.FirstPart);
-                return singleGetter(obj);
+                return GetValue<T>(obj, path.FirstPart);
             }
-
             // 多层路径访问
             var parent = GetParentObject(obj, path, out var lastPart);
             var multiGetter = GetOrCreateGetter<T>(parent.GetType(), lastPart);
@@ -42,6 +49,16 @@ namespace TreeNode.Runtime
         {
             var subPath = path.GetSubPath(index);
             return GetValue<T>(obj, subPath);
+        }
+        public static void SetValue<T>(object obj, PAPart part, T value)
+        {
+            if (obj.GetType().IsValueType)
+            {
+                throw new InvalidOperationException("无法修改值类型的根对象");
+            }
+            var setter = GetOrCreateSetter<T>(obj.GetType(), part);
+            setter(obj, value);
+            return;
         }
         public static void SetValue<T>(object obj, string path, T value)
         {
@@ -54,14 +71,7 @@ namespace TreeNode.Runtime
 
             if (path.Depth == 1)
             {
-                // 单层路径直接设置，性能优化
-                if (obj.GetType().IsValueType)
-                {
-                    throw new InvalidOperationException("无法修改值类型的根对象");
-                }
-
-                var setter = GetOrCreateSetter<T>(obj.GetType(), path.FirstPart);
-                setter(obj, value);
+                SetValue(obj, path.FirstPart, value);
                 return;
             }
 
@@ -218,13 +228,6 @@ namespace TreeNode.Runtime
 
             return result;
         }
-        public static object GetParentObject(object obj, string path, out string lastMember)
-        {
-            var paPath = PAPath.Create(path);
-            var parent = GetParentObject(obj, paPath, out var lastPart);
-            lastMember = ConvertPartToString(lastPart);
-            return parent;
-        }
         public static object GetParentObject(object obj, PAPath path, out PAPart lastPart)
         {
             obj.ThrowIfNull(nameof(obj));
@@ -271,6 +274,7 @@ namespace TreeNode.Runtime
                 index--;
             }
         }
+
 
         public static void GetAllInPath<T>(object obj, ref PAPath path, ref int index, List<(int depth, T value)> list) where T : class
         {

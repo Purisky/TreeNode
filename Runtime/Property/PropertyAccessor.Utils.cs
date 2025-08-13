@@ -18,7 +18,7 @@ namespace TreeNode.Runtime
         /// <summary>
         /// 统一的验证策略
         /// </summary>
-        private static class ValidationStrategy
+        public static class ValidationStrategy
         {
             /// <summary>
             /// 验证成员是否存在 - 使用 TypeCacheSystem
