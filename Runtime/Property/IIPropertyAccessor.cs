@@ -45,7 +45,7 @@ namespace TreeNode.Runtime
             {
                 return accessor.GetValueInternal<T>(ref path, ref index);
             }
-            else if (element is IList || element is Array) { throw new NestedCollectionException(path.GetSubPath(0, index), list.GetType()); }
+            else if (element is ICollection) { throw new NestedCollectionException(path.GetSubPath(0, index), list.GetType()); }
             return PropertyAccessor.GetValue<T>(element, ref path, ref index);
         }
         public static void SetValueInternalClass<T, TClass>(this List<TClass> list, ref PAPath path, ref int index, T value) where TClass : class
@@ -67,7 +67,7 @@ namespace TreeNode.Runtime
                 accessor.SetValueInternal(ref path, ref index, value);
                 return;
             }
-            else if (list[first.Index] is IList || list[first.Index] is Array) { throw new NestedCollectionException(path.GetSubPath(0, index), list.GetType()); }
+            else if (list[first.Index] is ICollection) { throw new NestedCollectionException(path.GetSubPath(0, index), list.GetType()); }
             PropertyAccessor.SetValue(list[first.Index], ref path, ref index, value);
         }
         public static void SetValueInternalStruct<T, TStruct>(this List<TStruct> list, ref PAPath path, ref int index, T value) where TStruct : struct
@@ -137,7 +137,7 @@ namespace TreeNode.Runtime
             if (index == path.Parts.Length - 1) { return; }
             index++;
             if (element is IPropertyAccessor accessor) { accessor.ValidatePath(ref path, ref index); }
-            else if (element is IList || element is Array) { throw new NestedCollectionException(path.GetSubPath(0, index), list.GetType()); }
+            else if (element is ICollection) { throw new NestedCollectionException(path.GetSubPath(0, index), list.GetType()); }
             else if (element != null) { PropertyAccessor.ValidatePath(element, ref path, ref index); }
         }
         public static void GetAllInPath<T>(this IList list, ref PAPath path, ref int index, List<(int depth, T value)> listValues) where T : class
@@ -148,7 +148,7 @@ namespace TreeNode.Runtime
             if (index == path.Parts.Length - 1) { return; }
             index++;
             if (element is IPropertyAccessor accessor) { accessor.GetAllInPath(ref path, ref index, listValues); }
-            else if (element is IList || element is Array) { throw new NestedCollectionException(path.GetSubPath(0, index), list.GetType()); }
+            else if (element is ICollection) { throw new NestedCollectionException(path.GetSubPath(0, index), list.GetType()); }
             else { PropertyAccessor.GetAllInPath<T>(element, ref path, ref index, listValues); }
         }
 
@@ -165,7 +165,7 @@ namespace TreeNode.Runtime
                     listNodes.Add((next, node));
                 }
                 if (list[i] is IPropertyAccessor accessor) { accessor.CollectNodes(listNodes, next, depth); }
-                else if (list[i] is IList || list[i] is Array) { throw new NestedCollectionException(parent, list.GetType()); }
+                else if (list[i] is ICollection) { throw new NestedCollectionException(parent, list.GetType()); }
                 else { PropertyAccessor.CollectNodes(list[i], listNodes, next, depth); }
             }
         }
