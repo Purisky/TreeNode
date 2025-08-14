@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Xml.Linq;
 using TreeNode.Runtime.Property.Exceptions;
+using static TreeNode.Runtime.TypeCacheSystem;
 using IndexOutOfRangeException = TreeNode.Runtime.Property.Exceptions.IndexOutOfRangeException;
 
 namespace TreeNode.Runtime
@@ -21,6 +22,7 @@ namespace TreeNode.Runtime
         void ValidatePath(ref PAPath path, ref int index);
         void GetAllInPath<T>(ref PAPath path, ref int index, List<(int depth, T value)> list) where T : class;
         void CollectNodes(List<(PAPath, JsonNode)> list, PAPath parent, int depth = -1);
+        TypeReflectionInfo TypeInfo { get; }
     }
 
     public static class PropertyAccessorExtensions
@@ -51,55 +53,33 @@ namespace TreeNode.Runtime
                 return accessor.GetValueInternal<T>(ref path, ref index);
             }
             else if (element is ICollection) { throw new NestedCollectionException(path.GetSubPath(0, index), list.GetType()); }
-            return PropertyAccessor.GetValue<T>(element, ref path, ref index);
+            return PropertyAccessor.GetValueInternal<T>(element, ref path, ref index);
         }
-        public static void SetValueInternalClass<T, TClass>(this List<TClass> list, ref PAPath path, ref int index, T value) where TClass : class
+        public static void SetValueInternal<T>(this IList list, ref PAPath path, ref int index, T value)
         {
             ref PAPart first = ref list.ValidIndex(ref path, ref index);
             if (index == path.Parts.Length - 1)
             {
-                if (value is TClass classValue)
-                {
-                    list[first.Index] = classValue;
-                    return;
-                }
-                index--;
-                throw new InvalidCastException($"Cannot cast value of type {value?.GetType().Name ?? "null"} to {typeof(TClass).Name}");
-            }
-            index++;
-            if (list[first.Index] is IPropertyAccessor accessor)
-            {
-                accessor.SetValueInternal(ref path, ref index, value);
-                return;
-            }
-            else if (list[first.Index] is ICollection) { throw new NestedCollectionException(path.GetSubPath(0, index), list.GetType()); }
-            PropertyAccessor.SetValue(list[first.Index], ref path, ref index, value);
-        }
-        public static void SetValueInternalStruct<T, TStruct>(this List<TStruct> list, ref PAPath path, ref int index, T value) where TStruct : struct
-        {
-            ref PAPart first = ref list.ValidIndex(ref path, ref index);
-            if (index == path.Parts.Length - 1)
-            {
-                if (value is TStruct structValue)
+                if (value is T structValue)
                 {
                     list[first.Index] = structValue;
                     return;
                 }
                 index--;
-                throw new InvalidCastException($"Cannot cast value of type {value?.GetType().Name ?? "null"} to {typeof(TStruct).Name}");
+                throw new InvalidCastException($"Cannot cast value of type {value?.GetType().Name ?? "null"} to {typeof(T).Name}");
             }
             index++;
-            TStruct @struct = list[first.Index];
-            if (@struct is IPropertyAccessor accessor)
+            object item = list[first.Index];
+            if (item is IPropertyAccessor accessor)
             {
                 accessor.SetValueInternal(ref path, ref index, value);
-                list[first.Index] = (TStruct)accessor;
+                list[first.Index] = accessor;
                 return;
             }
-            PropertyAccessor.SetValue(@struct, ref path, ref index, value);
-            list[first.Index] = @struct;
+            PropertyAccessor.SetValueInternal(item, ref path, ref index, value);
+            list[first.Index] = item;
         }
-        public static void RemoveValueInternalClass<TClass>(this List<TClass> list, ref PAPath path, ref int index) where TClass : class
+        public static void RemoveValueInternal(this IList list, ref PAPath path, ref int index)
         {
             ref PAPart first = ref list.ValidIndex(ref path, ref index);
             if (index == path.Parts.Length - 1)
@@ -108,32 +88,15 @@ namespace TreeNode.Runtime
                 return;
             }
             index++;
-            if (list[first.Index] is IPropertyAccessor accessor)
+            object item = list[first.Index];
+            if (item is IPropertyAccessor accessor)
             {
                 accessor.RemoveValueInternal(ref path, ref index);
+                list[first.Index] = accessor;
                 return;
             }
-            else if (list[first.Index] is IList || list[first.Index] is Array) { throw new NestedCollectionException(path.GetSubPath(0, index), list.GetType()); }
-            PropertyAccessor.RemoveValue(list[first.Index], ref path, ref index);
-        }
-        public static void RemoveValueInternalStruct<TStruct>(this List<TStruct> list, ref PAPath path, ref int index) where TStruct : struct
-        {
-            ref PAPart first = ref list.ValidIndex(ref path, ref index);
-            if (index == path.Parts.Length - 1)
-            {
-                list.RemoveAt(first.Index);
-                return;
-            }
-            index++;
-            TStruct @struct = list[first.Index];
-            if (@struct is IPropertyAccessor accessor)
-            {
-                accessor.RemoveValueInternal(ref path, ref index);
-                list[first.Index] = (TStruct)accessor;
-            }
-
-            PropertyAccessor.RemoveValue(@struct, ref path, ref index);
-            list[first.Index] = @struct;
+            PropertyAccessor.RemoveValueInternal(item, ref path, ref index);
+            list[first.Index] = item;
         }
         public static void ValidatePath(this IList list, ref PAPath path, ref int index)
         {
@@ -164,7 +127,7 @@ namespace TreeNode.Runtime
             if (depth > 0) { depth--; }
             for (int i = 0; i < list.Count; i++)
             {
-                PAPath next = parent.AppendIndex(i);
+                PAPath next = parent.Append(i);
                 if (list[i] is JsonNode node)
                 {
                     listNodes.Add((next, node));

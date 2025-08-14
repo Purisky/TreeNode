@@ -1552,7 +1552,7 @@ namespace TreeNode.Editor
             // 批量更新索引显示
             UpdateIndexDisplay(index);
 
-            PAPath propertyPath = Path.AppendIndex(index);
+            PAPath propertyPath = Path.Append(index);
 
             // 高效的内容清理和重建
             CleanupContent();

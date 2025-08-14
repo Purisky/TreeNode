@@ -158,6 +158,8 @@ namespace TreeNode.Editor
                 {
                     case KeyCode.S:
                         SaveChanges();
+                        evt.StopPropagation();
+
                         break;
                     case KeyCode.Z:
                         List<ViewChange> changes;

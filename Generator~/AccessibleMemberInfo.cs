@@ -11,6 +11,13 @@ namespace TreeNodeSourceGenerator
     public partial class NodeAccessorSourceGenerator
     {
 
+        private static bool HasNoJsonNodeContainerAttribute(ITypeSymbol type)
+        {
+            return type.GetAttributes().Any(attr =>
+                attr.AttributeClass?.Name == "NoJsonNodeContainerAttribute" ||
+                attr.AttributeClass?.ToDisplayString() == "TreeNode.Runtime.NoJsonNodeContainerAttribute");
+        }
+
         private static bool HasJsonIgnoreAttribute(ISymbol symbol)
         {
             return symbol.GetAttributes().Any(attr =>
@@ -20,7 +27,7 @@ namespace TreeNodeSourceGenerator
         }
         private AccessibleMemberInfo AnalyzeFieldMember(IFieldSymbol field)
         {
-            return new AccessibleMemberInfo
+            var memberInfo = new AccessibleMemberInfo
             {
                 Name = field.Name,
                 Type = field.Type,
@@ -32,13 +39,19 @@ namespace TreeNodeSourceGenerator
                 ElementType = GetCollectionElementType(field.Type),
                 CanWrite = !field.IsReadOnly,
                 IsReadOnly = field.IsReadOnly,
-                IsStructCollection = IsStructCollection(field.Type)
+                IsStructCollection = IsStructCollection(field.Type),
+                HasNoJsonNodeContainer = HasNoJsonNodeContainerAttribute(field.Type)
             };
+            
+            // 分析特性标记
+            AnalyzeMemberAttributes(field, memberInfo);
+            
+            return memberInfo;
         }
 
         private AccessibleMemberInfo AnalyzePropertyMember(IPropertySymbol property)
         {
-            return new AccessibleMemberInfo
+            var memberInfo = new AccessibleMemberInfo
             {
                 Name = property.Name,
                 Type = property.Type,
@@ -50,8 +63,67 @@ namespace TreeNodeSourceGenerator
                 ElementType = GetCollectionElementType(property.Type),
                 CanWrite = property.SetMethod != null,
                 IsReadOnly = property.SetMethod == null,
-                IsStructCollection = IsStructCollection(property.Type)
+                IsStructCollection = IsStructCollection(property.Type),
+                HasNoJsonNodeContainer = HasNoJsonNodeContainerAttribute(property.Type)
             };
+            
+            // 分析特性标记
+            AnalyzeMemberAttributes(property, memberInfo);
+            
+            return memberInfo;
+        }
+
+        /// <summary>
+        /// 分析成员的特性标记
+        /// </summary>
+        private void AnalyzeMemberAttributes(ISymbol member, AccessibleMemberInfo memberInfo)
+        {
+            var attributes = member.GetAttributes();
+            
+            foreach (var attr in attributes)
+            {
+                var attrName = attr.AttributeClass?.Name;
+                var attrFullName = attr.AttributeClass?.ToDisplayString();
+                
+                switch (attrName)
+                {
+                    case "ChildAttribute":
+                        memberInfo.IsChild = true;
+                        memberInfo.ShowInNode = true;
+                        // 尝试获取 IsTop 参数
+                        if (attr.ConstructorArguments.Length > 0)
+                        {
+                            var firstArg = attr.ConstructorArguments[0];
+                            if (firstArg.Type?.SpecialType == SpecialType.System_Boolean)
+                            {
+                                memberInfo.IsTopChild = (bool)firstArg.Value;
+                            }
+                        }
+                        break;
+                        
+                    case "TitlePortAttribute":
+                        memberInfo.IsTitlePort = true;
+                        memberInfo.ShowInNode = true;
+                        break;
+                        
+                    case "ShowInNodeAttribute":
+                        memberInfo.ShowInNode = true;
+                        break;
+                        
+                    case "GroupAttribute":
+                        memberInfo.HasGroupAttribute = true;
+                        // 尝试获取 Name 参数
+                        if (attr.ConstructorArguments.Length > 0)
+                        {
+                            var firstArg = attr.ConstructorArguments[0];
+                            if (firstArg.Type?.SpecialType == SpecialType.System_String)
+                            {
+                                memberInfo.GroupName = firstArg.Value?.ToString() ?? string.Empty;
+                            }
+                        }
+                        break;
+                }
+            }
         }
         private bool HasParameterlessConstructor(ITypeSymbol type)
         {
@@ -83,13 +155,13 @@ namespace TreeNodeSourceGenerator
             Dictionary<string, AccessibleMemberInfo> dic = new();
             while (currentType != null)
             {
-                Debug.Log($"  {currentType.ToDisplayString()}");
+                //Debug.Log($"  {currentType.ToDisplayString()}");
                 foreach (var member in currentType.GetMembers())
                 {
                     bool added = false;
                     if (!IsMemberValid(member))
                     {
-                        Debug.Log($"     {member.ToDisplayString()} :false");
+                        //Debug.Log($"     {member.ToDisplayString()} :false");
                         continue;
                     }
                     if (member is IFieldSymbol field && !field.IsReadOnly)
@@ -128,7 +200,7 @@ namespace TreeNodeSourceGenerator
                             propertyAccessorTypes.Add(namedType);
                         }
                     }
-                    Debug.Log($"     {member.ToDisplayString()} :{added}");
+                    //Debug.Log($"     {member.ToDisplayString()} :{added}");
                 }
                 // 移动到父类
                 currentType = currentType.BaseType;

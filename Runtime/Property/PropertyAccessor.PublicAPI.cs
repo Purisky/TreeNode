@@ -45,11 +45,7 @@ namespace TreeNode.Runtime
             var multiGetter = GetOrCreateGetter<T>(parent.GetType(), lastPart);
             return multiGetter(parent);
         }
-        public static T GetValue<T>(object obj, ref PAPath path, ref int index)
-        {
-            var subPath = path.GetSubPath(index);
-            return GetValue<T>(obj, subPath);
-        }
+
         public static void SetValue<T>(object obj, PAPart part, T value)
         {
             if (obj.GetType().IsValueType)
@@ -90,11 +86,6 @@ namespace TreeNode.Runtime
             }
         }
 
-        public static void SetValue<T>(object obj, ref PAPath path, ref int index, T value)
-        {
-            var subPath = path.GetSubPath(index);
-            SetValue(obj, subPath, value);
-        }
         public static void RemoveValue(object obj, string path)
         {
             RemoveValue(obj, PAPath.Create(path));
@@ -113,26 +104,7 @@ namespace TreeNode.Runtime
                 setter(parent, null);
             }
         }
-        public static void RemoveValue(object obj, ref PAPath path, ref int index)
-        {
-            var subPath = path.GetSubPath(index);
-            var parent = GetParentObject(obj, subPath, out var lastPart);
-            if (parent is IList list && lastPart.IsIndex)
-            {
-                if (lastPart.Index >= 0 && lastPart.Index < list.Count)
-                {
-                    list.RemoveAt(lastPart.Index);
-                    return;
-                }
-                index--;
-                throw new IndexOutOfRangeException(path, list.GetType(), lastPart.Index, list.Count);
-            }
-            else
-            {
-                var setter = GetOrCreateSetter<object>(parent.GetType(), lastPart);
-                setter(parent, null);
-            }
-        }
+
         public static bool GetValidPath(object obj, string path, out int validLength)
         {
             obj.ThrowIfNull(nameof(obj));
@@ -257,6 +229,91 @@ namespace TreeNode.Runtime
         }
 
 
+        public static T GetValueInternal<T>(object obj, ref PAPath path, ref int index)
+        {
+            ref PAPart first = ref path.Parts[index];
+            if (index == path.Parts.Length - 1)
+            {
+                var singleGetter = GetOrCreateGetter<T>(obj.GetType(), first);
+                return singleGetter(obj); 
+            }
+            index++;
+            object nextObj = GetOrCreateGetter<object>(obj.GetType(), first)(obj);
+            if (nextObj is IPropertyAccessor accessor)
+            {
+                return accessor.GetValueInternal<T>(ref path, ref index);
+            }
+            else if (nextObj is IList list)
+            {
+                return list.GetValueInternal<T>(ref path, ref index);
+            }
+            else
+            {
+                return GetValueInternal<T>(nextObj, ref path, ref index);
+            }
+        }
+        public static void SetValueInternal<T>(object obj, ref PAPath path, ref int index, T value)
+        {
+            ref PAPart first = ref path.Parts[index];
+            Type type = obj.GetType();
+            var typeInfo = TypeCacheSystem.GetTypeInfo(type);
+            var memberInfo = typeInfo.GetMember(first.Name);
+            if (index == path.Parts.Length - 1)
+            {
+                var singleSetter = CacheManager.GetOrCreateSetter<T>(type, first);
+                singleSetter(obj,value);
+            }
+            index++;
+            object nextObj = GetOrCreateGetter<object>(type, first)(obj);
+            if (nextObj is IPropertyAccessor accessor)
+            {
+                accessor.SetValueInternal<T>(ref path, ref index,value);
+                if (memberInfo.ValueType.IsValueType && memberInfo.MemberType == TypeCacheSystem.MemberType.Property)
+                {
+                    var singleSetter = CacheManager.GetOrCreateSetter<object>(type, first);
+                    singleSetter(obj, accessor);
+                }
+            }
+            else if (nextObj is IList list)
+            {
+                 list.SetValueInternal<T>(ref path, ref index, value);
+            }
+            else
+            {
+                GetValueInternal<T>(nextObj, ref path, ref index);
+            }
+        }
+        public static void RemoveValueInternal(object obj, ref PAPath path, ref int index)
+        {
+            ref PAPart first = ref path.Parts[index];
+            Type type = obj.GetType();
+            var typeInfo = TypeCacheSystem.GetTypeInfo(type);
+            var memberInfo = typeInfo.GetMember(first.Name);
+            if (index == path.Parts.Length - 1)
+            {
+                var singleSetter = CacheManager.GetOrCreateSetter<object>(type, first);
+                singleSetter(obj, default);
+            }
+            index++;
+            object nextObj = GetOrCreateGetter<object>(type, first)(obj);
+            if (nextObj is IPropertyAccessor accessor)
+            {
+                accessor.RemoveValueInternal(ref path, ref index);
+                if (memberInfo.ValueType.IsValueType && memberInfo.MemberType == TypeCacheSystem.MemberType.Property)
+                {
+                    var singleSetter = CacheManager.GetOrCreateSetter<object>(type, first);
+                    singleSetter(obj, accessor);
+                }
+            }
+            else if (nextObj is IList list)
+            {
+                list.RemoveValueInternal(ref path, ref index);
+            }
+            else
+            {
+                RemoveValueInternal(nextObj, ref path, ref index);
+            }
+        }
         public static void ValidatePath(object obj, ref PAPath path, ref int index)
         {
             try
@@ -274,8 +331,6 @@ namespace TreeNode.Runtime
                 index--;
             }
         }
-
-
         public static void GetAllInPath<T>(object obj, ref PAPath path, ref int index, List<(int depth, T value)> list) where T : class
         {
             try
@@ -304,8 +359,8 @@ namespace TreeNode.Runtime
             // 使用TypeCacheSystem获取缓存的类型信息
             var typeInfo = TypeCacheSystem.GetTypeInfo(type);
             
-            // 遍历所有可读成员
-            foreach (var memberInfo in typeInfo.AllMembers.Where(n=>n.MayContainNestedStructure))
+            // 遍历可能包含嵌套JsonNode的成员（性能优化）
+            foreach (var memberInfo in typeInfo.GetNestedJsonNodeCandidateMembers())
             {
                 try
                 {
@@ -317,7 +372,7 @@ namespace TreeNode.Runtime
                         continue;
                     }
                     
-                    var memberPath = parent.AppendField(memberInfo.Name);
+                    var memberPath = parent.Append(memberInfo.Name);
                     
                     // 优先处理JsonNode类型成员
                     if (memberInfo.Category == TypeCacheSystem.MemberCategory.JsonNode && value is JsonNode jsonNode)
@@ -334,8 +389,8 @@ namespace TreeNode.Runtime
                     { 
                         list.CollectNodes(listNodes, memberPath, depth); 
                     }
-                    // 只对可能包含嵌套结构的成员进行递归
-                    else if (memberInfo.MayContainNestedStructure) 
+                    // 只对可能包含嵌套JsonNode的成员进行递归
+                    else if (memberInfo.MayContainNestedJsonNode) 
                     { 
                         CollectNodes(value, listNodes, memberPath, depth); 
                     }

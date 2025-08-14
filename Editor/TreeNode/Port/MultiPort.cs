@@ -48,7 +48,7 @@ namespace TreeNode.Editor
                     return PAPath.Empty;
                 }
                 list.RemoveAt(index);
-                return new PAPath(Meta.Path).AppendIndex(index);
+                return new PAPath(Meta.Path).Append(index);
             }
             else
             {
@@ -58,7 +58,7 @@ namespace TreeNode.Editor
                     node.Data.SetValue(Meta.Path, list);
                 }
                 list.Add(child);
-                return new PAPath(Meta.Path).AppendIndex(list.Count-1);
+                return new PAPath(Meta.Path).Append(list.Count-1);
             }
         }
 

@@ -110,21 +110,15 @@ namespace TreeNode.Runtime
             /// </summary>
             public bool MayContainNestedStructure { get; set; }
 
+            /// <summary>
+            /// 是否可能包含嵌套JsonNode（排除NoJsonNodeContainer标记的类型）
+            /// </summary>
+            public bool MayContainNestedJsonNode { get; set; }
+
             #endregion
 
-            #region 性能优化
-
-            /// <summary>
-            /// 预编译的Getter委托
-            /// </summary>
             public Func<object, object> Getter { get; set; }
-
-            /// <summary>
-            /// 预编译的Setter委托
-            /// </summary>
             public Action<object, object> Setter { get; set; }
-
-            #endregion
 
             /// <summary>
             /// 获取成员信息描述
@@ -134,6 +128,7 @@ namespace TreeNode.Runtime
                 return $"{MemberType}.{Name}({ValueType.Name}) - {Category}";
             }
         }
+
 
         /// <summary>
         /// 完整的Type反射信息
@@ -156,6 +151,11 @@ namespace TreeNode.Runtime
             /// 是否包含JsonNode
             /// </summary>
             public bool ContainsJsonNode { get; set; }
+
+            /// <summary>
+            /// 是否可能包含嵌套JsonNode（排除NoJsonNodeContainer标记的类型）
+            /// </summary>
+            public bool MayContainNestedJsonNode { get; set; }
 
             /// <summary>
             /// 是否有无参构造函数
@@ -207,6 +207,12 @@ namespace TreeNode.Runtime
             /// </summary>
             public IEnumerable<UnifiedMemberInfo> GetNestedCandidateMembers()
                 => AllMembers.Where(m => m.MayContainNestedStructure);
+
+            /// <summary>
+            /// 获取可能包含嵌套JsonNode的成员（用于JsonNode收集优化）
+            /// </summary>
+            public IEnumerable<UnifiedMemberInfo> GetNestedJsonNodeCandidateMembers()
+                => AllMembers.Where(m => m.MayContainNestedJsonNode);
 
             /// <summary>
             /// 根据名称查找成员
@@ -294,7 +300,7 @@ namespace TreeNode.Runtime
                 throw new ArgumentNullException(nameof(type));
             }
 
-            return _typeInfoCache.GetOrAdd(type, BuildTypeInfo);
+            return _typeInfoCache.GetOrAdd(type, BuildTypeInfoWithPrecompiled);
         }
         /// <summary>
         /// 预热缓存 - 提前构建指定类型的反射信息
@@ -443,6 +449,77 @@ namespace TreeNode.Runtime
         #region 内部构建方法
 
         /// <summary>
+        /// 构建Type的完整反射信息（优先使用预编译数据）
+        /// </summary>
+        private static TypeReflectionInfo BuildTypeInfoWithPrecompiled(Type type)
+        {
+            // 首先尝试从IPropertyAccessor接口获取预编译的TypeInfo
+            var precompiledInfo = TryGetPrecompiledTypeInfo(type);
+            if (precompiledInfo != null)
+            {
+                return precompiledInfo;
+            }
+
+            // 如果没有预编译数据，则使用反射构建
+            return BuildTypeInfo(type);
+        }
+
+        /// <summary>
+        /// 尝试从IPropertyAccessor接口获取预编译的TypeInfo
+        /// </summary>
+        private static TypeReflectionInfo TryGetPrecompiledTypeInfo(Type type)
+        {
+            try
+            {
+                // 检查类型是否实现了IPropertyAccessor接口
+                if (!typeof(IPropertyAccessor).IsAssignableFrom(type))
+                {
+                    return null;
+                }
+
+                // 检查类型是否有无参构造函数
+                if (!HasParameterlessConstructor(type))
+                {
+                    return null;
+                }
+
+                // 创建类型实例
+                var instance = Activator.CreateInstance(type);
+                if (instance is IPropertyAccessor propertyAccessor)
+                {
+                    var typeInfo = propertyAccessor.TypeInfo;
+                    if (typeInfo != null)
+                    {
+                        // 确保TypeInfo的Type字段正确设置
+                        if (typeInfo.Type == null)
+                        {
+                            typeInfo.Type = type;
+                        }
+
+                        // 如果MemberLookup字典为空，从AllMembers构建
+                        if (typeInfo.MemberLookup == null || typeInfo.MemberLookup.Count == 0)
+                        {
+                            typeInfo.MemberLookup = new Dictionary<string, UnifiedMemberInfo>();
+                            foreach (var member in typeInfo.AllMembers)
+                            {
+                                typeInfo.MemberLookup[member.Name] = member;
+                            }
+                        }
+
+                        return typeInfo;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // 预编译数据获取失败时记录警告，但不阻止后续的反射构建
+                UnityEngine.Debug.LogWarning($"Failed to get precompiled TypeInfo for {type.Name}: {ex.Message}");
+            }
+
+            return null;
+        }
+
+        /// <summary>
         /// 构建Type的完整反射信息
         /// </summary>
         private static TypeReflectionInfo BuildTypeInfo(Type type)
@@ -452,6 +529,7 @@ namespace TreeNode.Runtime
                 Type = type,
                 IsUserDefinedType = IsUserDefinedType(type),
                 ContainsJsonNode = ContainsJsonNode(type),
+                MayContainNestedJsonNode = MayContainNestedJsonNode(type),
                 HasParameterlessConstructor = HasParameterlessConstructor(type)
             };
 
@@ -536,7 +614,8 @@ namespace TreeNode.Runtime
                 RenderOrder = CalculateRenderOrder(member),
                 GroupName = GetGroupName(member),
                 IsMultiValue = IsCollectionType(valueType),
-                MayContainNestedStructure = MayContainNestedStructure(valueType)
+                MayContainNestedStructure = MayContainNestedStructure(valueType),
+                MayContainNestedJsonNode = MayContainNestedJsonNode(valueType)
             };
 
             // 创建访问委托
@@ -823,6 +902,23 @@ namespace TreeNode.Runtime
         }
 
         /// <summary>
+        /// 检查类型是否有NoJsonNodeContainer标记
+        /// </summary>
+        private static bool HasNoJsonNodeContainerAttribute(Type type)
+        {
+            if (type == null) return false;
+            
+            try
+            {
+                return type.GetCustomAttribute<NoJsonNodeContainerAttribute>() != null;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
         /// 检查是否为JsonNode类型
         /// </summary>
         private static bool IsJsonNodeType(Type type)
@@ -839,6 +935,70 @@ namespace TreeNode.Runtime
             {
                 return false;
             }
+        }
+
+        /// <summary>
+        /// 判断类型是否可能包含嵌套JsonNode
+        /// 考虑NoJsonNodeContainer标记，使用快速判断避免递归分析以提高性能
+        /// 注意：这里只检查子字段，不包括类型本身是否为JsonNode
+        /// </summary>
+        private static bool MayContainNestedJsonNode(Type type)
+        {
+            if (type == null) return false;
+
+            // 如果类型被标记为NoJsonNodeContainer，则不可能包含JsonNode
+            if (HasNoJsonNodeContainerAttribute(type))
+                return false;
+
+            // 基本类型不包含JsonNode
+            if (type.IsPrimitive || type == typeof(string) || type == typeof(decimal))
+                return false;
+
+            // 枚举类型不包含JsonNode
+            if (type.IsEnum)
+                return false;
+
+            // 常见的系统值类型不包含JsonNode
+            if (type == typeof(DateTime) || type == typeof(TimeSpan) || type == typeof(Guid) ||
+                type == typeof(DateTimeOffset))
+                return false;
+
+            // Unity特定的基本值类型不包含JsonNode
+            if (type.Namespace?.StartsWith("UnityEngine") == true)
+            {
+                return false;
+            }
+
+            // 集合类型快速检查：只检查元素类型是否直接为JsonNode
+            if (IsCollectionType(type))
+            {
+                var elementType = GetCollectionElementType(type);
+                if (elementType != null)
+                {
+                    // 快速检查：只判断元素是否直接为JsonNode类型
+                    if (IsJsonNodeType(elementType))
+                        return true;
+                    
+                    // 如果元素类型有NoJsonNodeContainer标记，则不可能包含JsonNode
+                    if (HasNoJsonNodeContainerAttribute(elementType))
+                        return false;
+                        
+                    // 对于用户定义的元素类型，保守返回true（避免深度递归）
+                    return IsUserDefinedType(elementType);
+                }
+            }
+
+            // 对于用户定义的类型，保守返回true（避免递归分析成员）
+            if (IsUserDefinedType(type))
+            {
+                return true;
+            }
+
+            // 系统类型（如 System.Object）可能包含JsonNode
+            if (type == typeof(object))
+                return true;
+
+            return false;
         }
 
         /// <summary>

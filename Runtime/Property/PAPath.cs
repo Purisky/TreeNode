@@ -6,10 +6,6 @@ using UnityEngine;
 
 namespace TreeNode.Runtime
 {
-    /// <summary>
-    /// 高性能字段路径结构 - 支持路径解析、缓存和快速访问
-    /// 提供与PropertyAccessor兼容的高性能路径操作
-    /// </summary>
     public struct PAPath : IEquatable<PAPath>
     {
         #region 字段
@@ -80,26 +76,25 @@ namespace TreeNode.Runtime
         #endregion
 
         #region 公共属性
-        public readonly bool Root=> Parts != null && Parts.Length == 1 && Parts[0].IsIndex;
+        public readonly bool Root=> Depth == 1 && Parts[0].IsIndex;
         public readonly bool ItemOfCollection => Valid && Parts[^1].IsIndex;
-        public readonly bool Valid => Parts != null && Parts.Length > 0;
-        public readonly bool ExistParent => Parts != null && Parts.Length > 1;
+        public readonly bool Valid => Depth > 0;
+        public readonly bool ExistParent => Depth > 1;
         /// <summary>
         /// 路径是否为空
         /// </summary>
-        public readonly bool IsEmpty => Parts == null || Parts.Length == 0;
+        public readonly bool IsEmpty => Depth == 0;
         /// <summary>
         /// 路径深度
         /// </summary>
         public readonly int Depth => Parts?.Length ?? 0;
-
         /// <summary>
         /// 原始路径字符串
         /// </summary>
         public readonly string OriginalPath => _originalPath ?? string.Empty;
 
         /// <summary>
-        /// 是否只包含字段访问（不包含索引器）
+        /// 是否只包含字段属性访问
         /// </summary>
         public readonly bool IsFieldsOnly
         {
@@ -129,17 +124,9 @@ namespace TreeNode.Runtime
                 return false;
             }
         }
-
-        /// <summary>
-        /// 最后一个路径部分
-        /// </summary>
         public readonly PAPart LastPart => Valid ? Parts[^1] : PAPart._;
-
-        /// <summary>
-        /// 第一个路径部分
-        /// </summary>
         public readonly PAPart FirstPart => Valid ? Parts[0] : PAPart._;
-        //public readonly PAPath SkipFirst => GetSubPath(1);
+
         #endregion
 
         #region 静态工厂方法
@@ -197,51 +184,11 @@ namespace TreeNode.Runtime
         /// <param name="fieldName">字段名</param>
         /// <param name="index">索引值</param>
         /// <returns>PAPath实例</returns>
-        public static PAPath FieldIndex(string fieldName, int index) => 
-            Create($"{fieldName}[{index}]");
+        public static PAPath FieldIndex(string fieldName, int index) => Create($"{fieldName}[{index}]");
 
         #endregion
 
         #region 路径操作方法
-
-        /// <summary>
-        /// 添加字段访问
-        /// </summary>
-        /// <param name="fieldName">字段名</param>
-        /// <returns>新的PAPath</returns>
-        public readonly PAPath AppendField(string fieldName)
-        {
-            if (string.IsNullOrEmpty(fieldName))
-                return this;
-
-            var newParts = new PAPart[Depth + 1];
-            if (Parts != null)
-                Array.Copy(Parts, newParts, Parts.Length);
-            
-            newParts[Depth] = PAPart.FromString(fieldName);
-            return new PAPath(newParts);
-        }
-
-        /// <summary>
-        /// 添加索引访问
-        /// </summary>
-        /// <param name="index">索引值</param>
-        /// <returns>新的PAPath</returns>
-        public readonly PAPath AppendIndex(int index)
-        {
-            var newParts = new PAPart[Depth + 1];
-            if (Parts != null)
-                Array.Copy(Parts, newParts, Parts.Length);
-            
-            newParts[Depth] = PAPart.FromIndex(index);
-            return new PAPath(newParts);
-        }
-
-        /// <summary>
-        /// 组合另一个路径
-        /// </summary>
-        /// <param name="other">要组合的路径</param>
-        /// <returns>新的PAPath</returns>
         public readonly PAPath Combine(PAPath other)
         {
             if (other.IsEmpty) return this;
@@ -260,7 +207,7 @@ namespace TreeNode.Runtime
         /// <returns>父级路径，如果没有则返回空路径</returns>
         public readonly PAPath GetParent()
         {
-            if (Depth <= 1) return new PAPath();
+            if (Depth <= 1) return Empty;
 
             var parentParts = new PAPart[Depth - 1];
             Array.Copy(Parts, parentParts, parentParts.Length);
@@ -289,28 +236,12 @@ namespace TreeNode.Runtime
             Array.Copy(Parts, startIndex, subParts, 0, count);
             return new PAPath(subParts);
         }
-
-        /// <summary>
-        /// 获取最后一部分路径
-        /// </summary>
-        /// <returns>最后一个路径部分，如果路径为空则返回默认值</returns>
-        public readonly PAPart GetLastPart()
-        {
-            return Depth > 0 ? Parts[Depth - 1] : default(PAPart);
-        }
-
-        /// <summary>
-        /// 追加字符串成员路径
-        /// </summary>
-        /// <param name="memberName">成员名称</param>
-        /// <returns>新的路径</returns>
         public readonly PAPath Append(string memberName)
         {
             if (string.IsNullOrEmpty(memberName))
             {
                 return this;
             }
-
             var newParts = new PAPart[Depth + 1];
             if (Parts != null && Parts.Length > 0)
             {
@@ -319,12 +250,6 @@ namespace TreeNode.Runtime
             newParts[Depth] = PAPart.FromString(memberName);
             return new PAPath(newParts);
         }
-
-        /// <summary>
-        /// 追加索引路径
-        /// </summary>
-        /// <param name="index">索引值</param>
-        /// <returns>新的路径</returns>
         public readonly PAPath Append(int index)
         {
             var newParts = new PAPart[Depth + 1];
@@ -335,25 +260,6 @@ namespace TreeNode.Runtime
             newParts[Depth] = PAPart.FromIndex(index);
             return new PAPath(newParts);
         }
-
-        /// <summary>
-        /// 检查是否为多端口路径（包含索引）
-        /// </summary>
-        /// <returns>如果路径中包含索引部分则返回true</returns>
-        public readonly bool IsMultiPortPath()
-        {
-            if (Parts == null) return false;
-            
-            for (int i = 0; i < Parts.Length; i++)
-            {
-                if (Parts[i].IsIndex)
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-
         /// <summary>
         /// 获取渲染顺序（基于路径结构）
         /// </summary>
@@ -381,74 +287,6 @@ namespace TreeNode.Runtime
 
         #endregion
 
-        #region 性能优化方法
-
-        /// <summary>
-        /// 快速访问 - 直接使用PropertyAccessor获取值
-        /// </summary>
-        /// <typeparam name="T">返回值类型</typeparam>
-        /// <param name="obj">目标对象</param>
-        /// <returns>属性值</returns>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public readonly T GetValue<T>(object obj)
-        {
-            return PropertyAccessor.GetValue<T>(obj, this);
-        }
-
-        /// <summary>
-        /// 快速设置 - 直接使用PropertyAccessor设置值
-        /// </summary>
-        /// <typeparam name="T">值类型</typeparam>
-        /// <param name="obj">目标对象</param>
-        /// <param name="value">要设置的值</param>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public readonly void SetValue<T>(object obj, T value)
-        {
-            PropertyAccessor.SetValue(obj, this, value);
-        }
-
-        /// <summary>
-        /// 安全获取值
-        /// </summary>
-        /// <typeparam name="T">返回值类型</typeparam>
-        /// <param name="obj">目标对象</param>
-        /// <param name="defaultValue">默认值</param>
-        /// <returns>属性值或默认值</returns>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public readonly T GetValueOrDefault<T>(object obj, T defaultValue = default)
-        {
-            try
-            {
-                return GetValue<T>(obj);
-            }
-            catch
-            {
-                return defaultValue;
-            }
-        }
-
-        /// <summary>
-        /// 安全设置值
-        /// </summary>
-        /// <typeparam name="T">值类型</typeparam>
-        /// <param name="obj">目标对象</param>
-        /// <param name="value">要设置的值</param>
-        /// <returns>是否设置成功</returns>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public readonly bool TrySetValue<T>(object obj, T value)
-        {
-            try
-            {
-                SetValue(obj, value);
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        #endregion
 
         #region 私有方法
 

@@ -32,6 +32,7 @@ namespace TreeNodeSourceGenerator
             sb.AppendLine("using TreeNode.Runtime;");
             sb.AppendLine("using TreeNode.Utility;");
             sb.AppendLine("using System.Collections.Generic;");
+            sb.AppendLine("using static TreeNode.Runtime.TypeCacheSystem;");
             sb.AppendLine();
             sb.AppendLine($"namespace {namespaceName}");
             sb.AppendLine("{");
@@ -46,6 +47,9 @@ namespace TreeNodeSourceGenerator
             GenerateAccessMethod(sb, nodeType, accessibleMembers, AccessOperation.ValidatePath);
             GenerateAccessMethod(sb, nodeType, accessibleMembers, AccessOperation.GetAllInPath);
             GenerateAccessMethod(sb, nodeType, accessibleMembers, AccessOperation.CollectNodes);
+
+            // 生成预编译的 TypeInfo 属性
+            GenerateTypeInfoProperty(sb, nodeType);
 
             sb.AppendLine("    }");
             sb.AppendLine("}");
@@ -251,14 +255,8 @@ namespace TreeNodeSourceGenerator
             var accessMethod = operation switch
             {
                 AccessOperation.Get => $"return {member.Name}.GetValueInternal<T>(ref path,ref index);",
-                AccessOperation.Set when member.IsStructCollection =>
-                    $"{member.Name}.SetValueInternalStruct(ref path,ref index, value);return;",
-                AccessOperation.Set =>
-                    $"{member.Name}.SetValueInternalClass(ref path,ref index, value);return;",
-                AccessOperation.Remove when member.IsStructCollection =>
-                    $"{member.Name}.RemoveValueInternalStruct(ref path,ref index);return;",
-                AccessOperation.Remove =>
-                    $"{member.Name}.RemoveValueInternalClass(ref path,ref index);return;",
+                AccessOperation.Set => $"{member.Name}.SetValueInternal(ref path,ref index, value);return;",
+                AccessOperation.Remove => $"{member.Name}.RemoveValueInternal(ref path,ref index);return;",
                 _ => throw new ArgumentException($"Unknown operation: {operation}")
             };
 
@@ -314,9 +312,9 @@ namespace TreeNodeSourceGenerator
 
             var propertyAccessorAccess = operation switch
             {
-                AccessOperation.Get => $"return PropertyAccessor.GetValue<T>({member.Name}, ref path,ref index);",
-                AccessOperation.Set => $"PropertyAccessor.SetValue({member.Name},ref path,ref index, value);return;",
-                AccessOperation.Remove => $"PropertyAccessor.RemoveValue({member.Name},ref path,ref index);return;",
+                AccessOperation.Get => $"return PropertyAccessor.GetValueInternal<T>({member.Name}, ref path,ref index);",
+                AccessOperation.Set => $"PropertyAccessor.SetValueInternal({member.Name},ref path,ref index, value);return;",
+                AccessOperation.Remove => $"PropertyAccessor.RemoveValueInternal({member.Name},ref path,ref index);return;",
                 _ => throw new ArgumentException($"Unknown operation: {operation}")
             };
             return member.ImplementsIPropertyAccessor || member.IsJsonNodeType || (member.Type is INamedTypeSymbol namedTypeSymbol && TypeDict.ContainsKey(namedTypeSymbol)) ? directAccess : propertyAccessorAccess;
@@ -334,9 +332,9 @@ namespace TreeNodeSourceGenerator
 
             var propertyAccessorAccess = operation switch
             {
-                AccessOperation.Get => $"return PropertyAccessor.GetValue<T>({tempVarName}, ref path,ref index);",
-                AccessOperation.Set => $"PropertyAccessor.SetValue({tempVarName},ref path,ref index, value);",
-                AccessOperation.Remove => $"PropertyAccessor.RemoveValue({tempVarName},ref path,ref index);",
+                AccessOperation.Get => $"return PropertyAccessor.GetValueInternal<T>({tempVarName}, ref path,ref index);",
+                AccessOperation.Set => $"PropertyAccessor.SetValueInternal({tempVarName},ref path,ref index, value);",
+                AccessOperation.Remove => $"PropertyAccessor.RemoveValueInternal({tempVarName},ref path,ref index);",
                 _ => throw new ArgumentException($"Unknown operation: {operation}")
             };
 
@@ -539,7 +537,97 @@ namespace TreeNodeSourceGenerator
         /// </summary>
         private void GenerateCollectNodesMethod(StringBuilder sb, List<AccessibleMemberInfo> members)
         {
-            sb.AppendLine("            // TODO: 实现收集逻辑");
+            sb.AppendLine("            if (depth == 0) { return; }");
+            sb.AppendLine("            if (depth > 0) { depth--; }");
+            sb.AppendLine();
+
+            // 过滤出可能包含嵌套结构的成员（排除基础类型、Vec2类型和带有NoJsonNodeContainer标记的类型）
+            var nestableMembers = members.Where(m => 
+                m.IsJsonNodeType || 
+                m.HasNestedAccess || 
+                m.IsCollection || 
+                (!m.HasNoJsonNodeContainer&& m.Type.SpecialType != SpecialType.System_String&&!m.IsValueType)
+            ).ToList();
+
+            if (nestableMembers.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var member in nestableMembers)
+            {
+                // 检查成员是否为null（仅对引用类型且不会自动创建实例的成员）
+                bool needCreateInstance = NeedCreateInstance(member);
+                if (!member.IsValueType && !needCreateInstance)
+                {
+                    sb.AppendLine($"            if ({member.Name} != null)");
+                    sb.AppendLine("            {");
+                    GenerateCollectNodesMemberLogic(sb, member, "    ");
+                    sb.AppendLine("            }");
+                }
+                else
+                {
+                    GenerateCollectNodesMemberLogic(sb, member, "");
+                }
+                sb.AppendLine();
+            }
+        }
+
+        private void GenerateCollectNodesMemberLogic(StringBuilder sb, AccessibleMemberInfo member, string indent)
+        {
+            string memberPath = $"parent.Append(\"{member.Name}\")";
+            
+            // 如果成员本身是JsonNode类型，直接添加
+            if (member.IsJsonNodeType)
+            {
+                sb.AppendLine($"{indent}            list.Add(({memberPath}, {member.Name}));");
+            }
+            
+            // 处理集合类型
+            if (member.IsCollection)
+            {
+                bool needCreateInstance = NeedCreateInstance(member);
+                if (needCreateInstance)
+                {
+                    sb.AppendLine($"{indent}            {member.Name}??=new();");
+                }
+                sb.AppendLine($"{indent}            {member.Name}.CollectNodes(list, {memberPath}, depth);");
+            }
+            // 处理具有嵌套访问的成员
+            else if (member.HasNestedAccess)
+            {
+                bool needCreateInstance = NeedCreateInstance(member);
+                if (needCreateInstance)
+                {
+                    sb.AppendLine($"{indent}            {member.Name}??=new();");
+                }
+
+                if (member.ImplementsIPropertyAccessor || member.IsJsonNodeType || (member.Type is INamedTypeSymbol namedTypeSymbol && TypeDict.ContainsKey(namedTypeSymbol)))
+                {
+                    sb.AppendLine($"{indent}            {member.Name}.CollectNodes(list, {memberPath}, depth);");
+                }
+                else
+                {
+                    sb.AppendLine($"{indent}            PropertyAccessor.CollectNodes({member.Name}, list, {memberPath}, depth);");
+                }
+            }
+            // 处理其他可能包含嵌套结构的引用类型成员
+            else if (!member.IsValueType && member.Type.SpecialType != SpecialType.System_String)
+            {
+                sb.AppendLine($"{indent}            PropertyAccessor.CollectNodes({member.Name}, list, {memberPath}, depth);");
+            }
+        }
+
+        /// <summary>
+        /// 生成预编译的 TypeInfo 属性，避免反射消耗
+        /// </summary>
+        private void GenerateTypeInfoProperty(StringBuilder sb, INamedTypeSymbol nodeType)
+        {
+            var fullTypeName = nodeType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            string override_keyword = ImplementsIPropertyAccessor(nodeType) ? "override " : "";
+            GeneratePrecompiledTypeReflectionInfo(sb, nodeType, fullTypeName);
+            sb.AppendLine($"        [Newtonsoft.Json.JsonIgnore]");
+            sb.AppendLine($"        public {override_keyword}TypeReflectionInfo TypeInfo => _typeInfo;");
         }
     }
 }

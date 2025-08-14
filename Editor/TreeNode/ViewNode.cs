@@ -746,11 +746,11 @@ namespace TreeNode.Editor
             
             if (childPort is NumPort)
             {
-                path = path.AppendField(nameof(NumValue.Node));
+                path = path.Append(nameof(NumValue.Node));
             }
             else if (childPort is MultiPort)
             {
-                path = path.AppendIndex(ParentPort.Index);
+                path = path.Append(ParentPort.Index);
             }
 
             return parentNode.GetNodePath().Combine(path);

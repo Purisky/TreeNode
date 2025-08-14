@@ -168,7 +168,6 @@ namespace TreeNode.Editor
         private void FormatAllNodes(DropdownMenuAction a)
         {
             FormatNodes();
-            //Window.History.AddStep();
         }
 
         private void ShowTreeView(DropdownMenuAction a)
@@ -254,14 +253,12 @@ namespace TreeNode.Editor
             NodePrepData[] nodeDataPrep;
             //using (new Timer("异步数据预准备"))
             {
-                // 预准备节点数据 - 异步执行
                 nodeDataPrep = PrepareNodeDataParallel(sortedNodes);
             }
 
 
             //using (new Timer($"UI创建[{nodeDataPrep.Length}]"))
             {
-                // 第二阶段：渐进式UI创建（主线程小批次）
                 CreateUIProgressively(nodeDataPrep);
             }
 

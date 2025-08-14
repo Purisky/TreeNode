@@ -24,11 +24,13 @@ namespace TreeNode.Editor
 
         public virtual void AddNode(JsonNode node)
         {
+            PAPath path = PAPath.Index(Asset.Data.Nodes.Count);
             Asset.Data.Nodes.Add(node);
-            var createOperation =  NodeOperation.Create(node,$"[{Asset.Data.Nodes.Count-1}]" , this.Asset);
+            
+            var createOperation =  NodeOperation.Create(node, path, Asset);
             Window.History.Record(createOperation);
 
-            NodeTree.OnNodeAdded(node);
+            NodeTree.OnNodeAdded(node, path);
             AddViewNode(node);
         }
 
@@ -36,11 +38,12 @@ namespace TreeNode.Editor
         {
             if (path.IsEmpty)
             {
+                path = PAPath.Index(Asset.Data.Nodes.Count);
                 Asset.Data.Nodes.Add(node);
-                var createOperation = NodeOperation.Create(node, $"[{Asset.Data.Nodes.Count-1}]", this.Asset);
+                var createOperation = NodeOperation.Create(node, path, this.Asset);
                 Window.History.Record(createOperation);
 
-                NodeTree.OnNodeAdded(node);
+                NodeTree.OnNodeAdded(node, path);
                 return true;
             }
             try
@@ -56,21 +59,20 @@ namespace TreeNode.Editor
                     {
                         oldValue = Activator.CreateInstance(valueType);
                         PropertyAccessor.SetValue(parent, last, oldValue);
-                        path_ = $"{path_}[0]";
                     }
                 }
                 if (oldValue is IList nodeList)
                 {
+                    path_ = path_.Append(nodeList.Count);
                     nodeList.Add(node);
-                    path_ = $"{path_}[{nodeList.Count-1}]";
                 }
                 else
                 {
                     PropertyAccessor.SetValue(parent, last, node);
                 }
-                var moveOperation = NodeOperation.Create(node, path, this.Asset);
+                var moveOperation = NodeOperation.Create(node, path_, this.Asset);
                 Window.History.Record(moveOperation);
-                NodeTree.OnNodeAdded(node, path);
+                NodeTree.OnNodeAdded(node, path_);
                 return true;
             }
             catch (Exception e)
@@ -84,11 +86,13 @@ namespace TreeNode.Editor
         {
             // 记录节点删除操作
             int index = Asset.Data.Nodes.IndexOf(node);
-            var deleteOperation = NodeOperation.Delete(node,$"[{index}]", this.Asset);
+            PAPath path = PAPath.Index(index);
+
+            var deleteOperation = NodeOperation.Delete(node, path, this.Asset);
             Window.History.Record(deleteOperation);
             
             Asset.Data.Nodes.Remove(node);
-            NodeTree.OnNodeRemoved(node);
+            NodeTree.OnNodeRemoved(node,path);
         }
 
         public ViewNode AddViewNode(JsonNode node)
@@ -198,7 +202,7 @@ namespace TreeNode.Editor
         /// </summary>
         private void CreateEdgesAsync()
         {
-            foreach (var metadata in _nodeTree.GetSortedNodes())
+            foreach (var metadata in _nodeTree.GetNodes())
             {
                 if (metadata.Parent != null)
                 {

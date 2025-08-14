@@ -2,9 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using TreeNode.Utility;
-using TreeNode.Editor;
-using UnityEngine;
+using UnityEngine.Profiling.Memory.Experimental;
 
 namespace TreeNode.Runtime
 {
@@ -28,10 +26,10 @@ namespace TreeNode.Runtime
             public NodeMetadata Parent { get; set; }
             public List<NodeMetadata> Children { get; set; } = new();
             public int RootIndex { get; set; } = -1;
-            public int ListIndex { get; set; } = 0;
+            public int ListIndex { get; set; } = 0; 
             public bool IsMultiPort { get; set; }
             public int RenderOrder { get; set; } = 0; // UI渲染顺序
-            
+
             public bool IsRoot => Parent == null;
             public string DisplayName => Node.GetInfo();
         }
@@ -43,6 +41,7 @@ namespace TreeNode.Runtime
         private readonly TreeNodeAsset _asset;
         private readonly Dictionary<JsonNode, NodeMetadata> _nodeMetadataMap;
         private readonly List<NodeMetadata> _rootNodes;
+        private Dictionary<JsonNode, int> _rootIndexCache;
         private bool _isDirty = true;
 
         #endregion
@@ -75,8 +74,28 @@ namespace TreeNode.Runtime
         public NodeMetadata GetNodeMetadata(JsonNode node)
         {
             EnsureTreeBuilt();
-            return _nodeMetadataMap.TryGetValue(node, out var metadata) ? metadata : null;
+
+            // 极小规模时线性搜索更快
+            if (UseLinearSearch)
+            {
+                foreach (var kvp in _nodeMetadataMap)
+                {
+                    if (ReferenceEquals(kvp.Key, node))
+                        return kvp.Value;
+                }
+                return null;
+            }
+            else
+            {
+                return _nodeMetadataMap.TryGetValue(node, out var metadata) ? metadata : null;
+            }
         }
+
+        /// <summary>
+        /// 判断是否使用线性搜索
+        /// 极小规模下线性搜索比字典查找更快
+        /// </summary>
+        private bool UseLinearSearch => _nodeMetadataMap.Count < 8;
 
         /// <summary>
         /// 获取指定节点的所有子节点
@@ -136,548 +155,652 @@ namespace TreeNode.Runtime
         {
             _nodeMetadataMap.Clear();
             _rootNodes.Clear();
-            
-            if (_asset?.Nodes == null || _asset.Nodes.Count == 0)
-                return;
+            _isDirty = false;
+            _asset.Nodes ??= new();
+            if (_asset.Nodes.Count == 0) { return; }
 
-            // 步骤1：使用现有的 PropertyAccessor.CollectNodes 收集所有节点
+            // 缓存根节点索引
+            CacheRootIndexes();
+             
+            // 重建所有节点
             var nodeList = new List<(PAPath path, JsonNode node)>();
-            PropertyAccessor.CollectNodes(_asset, nodeList, PAPath.Empty, depth: -1);
-            
-            // 步骤2：创建元数据映射
-            foreach (var (path, node) in nodeList)
+
+            for (int i = 0; i < _asset.Nodes.Count; i++)
             {
-                var metadata = new NodeMetadata
+                nodeList.Clear();
+                PAPath path = PAPath.Index(i);
+                _asset.Nodes[i].CollectNodes(nodeList, path, -1);
+                NodeMetadata metadata = new()
                 {
-                    Node = node,
+                    Node = _asset.Nodes[i],
                     Path = path,
                     Depth = path.Depth,
                     RenderOrder = path.GetRenderOrder()
                 };
-                
-                _nodeMetadataMap[node] = metadata;
+                _nodeMetadataMap[_asset.Nodes[i]] = metadata;
+                _rootNodes.Add(metadata);
+                foreach (var (path_, node) in nodeList)
+                {
+                    NodeMetadata metadata_ = new NodeMetadata()
+                    {
+                        Node = node,
+                        Path = path_,
+                        Depth = path_.Depth,
+                        RenderOrder = path_.GetRenderOrder()
+                    };
+                    _nodeMetadataMap[node] = metadata_;
+                }
             }
-            
-            // 步骤3：建立层次关系（简化版）
+            // 建立层次关系
             BuildHierarchyFromPaths();
         }
 
         /// <summary>
-        /// 递归收集节点 - 使用 TypeCacheSystem 统一缓存
+        /// 重建指定分支 - 处理单次操作的基础重建单元
+        /// 集合内元素重建时，需要重建parent[index..]所有元素，先移除所有parent下索引>=index的节点内容
         /// </summary>
-        private void CollectNodesRecursively(JsonNode node, HashSet<JsonNode> collected)
+        /// <param name="path">操作的路径</param>
+        /// <param name="node">相关的节点</param>
+        public void RebuildBranch(PAPath path, JsonNode node)
         {
-            if (node == null || collected.Contains(node))
+            EnsureTreeBuilt();
+            
+            if (path.IsEmpty)
+            {
                 return;
+            }
+
+            if (path.LastPart.IsIndex)
+            {
+                // 处理集合元素的重建
+                RebuildCollectionBranch(path, node);
+            }
+            else
+            {
+                // 处理普通属性的重建
+                RebuildPropertyBranch(path, node);
+            }
+        }
+
+        /// <summary>
+        /// 重建集合分支 - 处理集合元素的重建
+        /// 当集合内元素重建时，需要重建parent[index..]所有元素，先移除所有parent下索引>=index的节点内容
+        /// </summary>
+        /// <param name="path">集合元素的路径</param>
+        /// <param name="node">相关的节点</param>
+        private void RebuildCollectionBranch(PAPath path, JsonNode node)
+        {
+            var parentPath = path.GetParent();
+            int changedIndex = path.LastPart.Index;
+
+            // 1. 先移除所有parent下索引>=index的节点内容
+            RemoveCollectionItemsFromIndex(parentPath, changedIndex);
+
+            // 2. 重新构建从指定索引开始的所有集合元素
+            RebuildCollectionFromIndex(parentPath, changedIndex);
+        }
+
+        /// <summary>
+        /// 重建普通属性分支 - 处理非集合属性的重建
+        /// </summary>
+        /// <param name="path">属性的路径</param>
+        /// <param name="node">相关的节点</param>
+        private void RebuildPropertyBranch(PAPath path, JsonNode node)
+        {
+            // 清理该分支下的所有元数据
+            ClearBranchMetadata(path);
+            
+            // 重新构建该分支
+            RebuildSingleBranch(path);
+        }
+
+        /// <summary>
+        /// 移除集合中从指定索引开始的所有元素的元数据
+        /// </summary>
+        /// <param name="parentPath">父路径</param>
+        /// <param name="fromIndex">起始索引</param>
+        private void RemoveCollectionItemsFromIndex(PAPath parentPath, int fromIndex)
+        {
+            var itemsToRemove = new List<NodeMetadata>();
+
+            // 收集需要移除的元数据
+            foreach (var metadata in _nodeMetadataMap.Values.ToList())
+            {
+                // 检查是否是该集合下的元素，且索引 >= fromIndex
+                if (IsCollectionItemToRemove(metadata.Path, parentPath, fromIndex))
+                {
+                    itemsToRemove.Add(metadata);
+                }
+            }
+
+            // 移除收集的元数据
+            foreach (var metadata in itemsToRemove)
+            {
+                RemoveMetadata(metadata);
+            }
+        }
+
+        /// <summary>
+        /// 判断是否是需要移除的集合项
+        /// </summary>
+        /// <param name="itemPath">项目路径</param>
+        /// <param name="parentPath">父集合路径</param>
+        /// <param name="fromIndex">起始索引</param>
+        /// <returns>是否需要移除</returns>
+        private bool IsCollectionItemToRemove(PAPath itemPath, PAPath parentPath, int fromIndex)
+        {
+            // 检查路径深度
+            if (itemPath.Depth <= parentPath.Depth)
+            {
+                return false;
+            }
+
+            // 检查是否是父路径的子路径
+            if (!itemPath.IsChildOf(parentPath) && !itemPath.Equals(parentPath))
+            {
+                return false;
+            }
+
+            // 获取在父路径基础上的相对路径
+            var relativePath = GetRelativePath(itemPath, parentPath);
+            if (relativePath.IsEmpty || relativePath.Parts.Length == 0)
+            {
+                return false;
+            }
+
+            // 检查第一个部分是否是索引且 >= fromIndex
+            var firstPart = relativePath.Parts[0];
+            return firstPart.IsIndex && firstPart.Index >= fromIndex;
+        }
+
+        /// <summary>
+        /// 从指定索引重新构建集合元素
+        /// </summary>
+        /// <param name="parentPath">父路径</param>
+        /// <param name="fromIndex">起始索引</param>
+        private void RebuildCollectionFromIndex(PAPath parentPath, int fromIndex)
+        {
+            // 获取父节点
+            var parentNode = GetNodeAtPath(parentPath);
+            if (parentNode == null)
+            {
+                return;
+            }
+
+            // 收集从指定索引开始的所有节点
+            var nodeList = new List<(PAPath path, JsonNode node)>();
+            parentNode.CollectNodes(nodeList, parentPath, depth: -1);
+
+            // 筛选出索引 >= fromIndex 的节点
+            var filteredNodes = nodeList.Where(item => 
+            {
+                var relativePath = GetRelativePath(item.path, parentPath);
+                if (relativePath.IsEmpty || relativePath.Parts.Length == 0)
+                {
+                    return false;
+                }
                 
-            collected.Add(node);
-            
-            var typeInfo = TypeCacheSystem.GetTypeInfo(node.GetType());
-            
-            // 处理直接的JsonNode成员
-            foreach (var member in typeInfo.GetJsonNodeMembers())
+                var firstPart = relativePath.Parts[0];
+                return firstPart.IsIndex && firstPart.Index >= fromIndex;
+            }).ToList();
+
+            // 为这些节点创建元数据
+            foreach (var (path, nodeItem) in filteredNodes)
             {
-                try
-                {
-                    var value = member.Getter(node);
-                    if (value is JsonNode childNode)
-                    {
-                        CollectNodesRecursively(childNode, collected);
-                    }
-                }
-                catch
-                {
-                    // 跳过无法访问的成员
-                }
+                CreateNodeMetadata(nodeItem, path);
             }
-            
-            // 处理集合成员 - 增强版本，支持嵌套节点集合
-            foreach (var member in typeInfo.GetCollectionMembers())
-            {
-                try
-                {
-                    var value = member.Getter(node);
-                    if (value is System.Collections.IEnumerable enumerable)
-                    {
-                        CollectNodesFromCollection(enumerable, collected);
-                    }
-                }
-                catch
-                {
-                    // 跳过无法访问的成员
-                }
-            }
-            
-            // 处理嵌套的JsonNode - 使用通用递归方法
-            CollectNestedNodesGeneric(node, collected);
+
+            // 重新建立层次关系
+            BuildHierarchyFromPaths(filteredNodes.Select(item => item.path).ToArray());
         }
 
         /// <summary>
-        /// 通用方法收集嵌套的JsonNode
+        /// 重新构建单个分支
         /// </summary>
-        private void CollectNestedNodesGeneric(JsonNode node, HashSet<JsonNode> collected)
+        /// <param name="branchPath">分支路径</param>
+        private void RebuildSingleBranch(PAPath branchPath)
         {
-            var typeInfo = TypeCacheSystem.GetTypeInfo(node.GetType());
-            
-            // 获取可能包含嵌套结构的成员并进行运行时递归检查
-            foreach (var member in typeInfo.GetNestedCandidateMembers())
+            var branchNode = GetNodeAtPath(branchPath);
+            if (branchNode == null)
             {
-                try
-                {
-                    var value = member.Getter(node);
-                    if (value != null)
-                    {
-                        // 递归检查嵌套的JsonNode
-                        CollectNestedJsonNodesFromValue(value, collected);
-                    }
-                }
-                catch
-                {
-                    // 跳过无法访问的成员
-                }
-            }
-        }
-
-        /// <summary>
-        /// 从值中递归收集嵌套的JsonNode - 统一处理方法
-        /// </summary>
-        private void CollectNestedJsonNodesFromValue(object value, HashSet<JsonNode> collected)
-        {
-            if (value == null) return;
-
-            // 直接是JsonNode的情况
-            if (value is JsonNode jsonNode)
-            {
-                CollectNodesRecursively(jsonNode, collected);
                 return;
             }
 
-            // 集合类型的情况
-            if (value is System.Collections.IEnumerable enumerable)
+            // 收集该分支下的所有节点
+            var nodeList = new List<(PAPath path, JsonNode node)>();
+            branchNode.CollectNodes(nodeList, branchPath, depth: -1);
+
+            // 为这些节点创建元数据
+            foreach (var (path, node) in nodeList)
             {
-                CollectNodesFromCollection(enumerable, collected);
-                return;
+                CreateNodeMetadata(node, path);
             }
 
-            // 可能包含嵌套JsonNode的对象
-            var valueType = value.GetType();
-            var typeInfo = TypeCacheSystem.GetTypeInfo(valueType);
-            
-            if (typeInfo.ContainsJsonNode)
+            // 重新建立层次关系
+            BuildHierarchyFromPaths(nodeList.Select(item => item.path).ToArray());
+        }
+
+        /// <summary>
+        /// 获取指定路径的节点
+        /// </summary>
+        /// <param name="path">路径</param>
+        /// <returns>节点或null</returns>
+        private JsonNode GetNodeAtPath(PAPath path)
+        {
+            if (path.IsEmpty)
             {
-                // 处理直接的JsonNode成员
-                foreach (var member in typeInfo.GetJsonNodeMembers())
-                {
-                    try
-                    {
-                        var nestedValue = member.Getter(value);
-                        if (nestedValue is JsonNode nestedNode)
-                        {
-                            CollectNodesRecursively(nestedNode, collected);
-                        }
-                    }
-                    catch
-                    {
-                        // 跳过无法访问的成员
-                    }
-                }
+                return null;
+            }
 
-                // 处理集合成员
-                foreach (var member in typeInfo.GetCollectionMembers())
-                {
-                    try
-                    {
-                        var nestedValue = member.Getter(value);
-                        if (nestedValue is System.Collections.IEnumerable nestedEnumerable)
-                        {
-                            CollectNodesFromCollection(nestedEnumerable, collected);
-                        }
-                    }
-                    catch
-                    {
-                        // 跳过无法访问的成员
-                    }
-                }
-
-                // 递归处理可能包含嵌套结构的成员
-                foreach (var member in typeInfo.GetNestedCandidateMembers())
-                {
-                    try
-                    {
-                        var nestedValue = member.Getter(value);
-                        if (nestedValue != null)
-                        {
-                            CollectNestedJsonNodesFromValue(nestedValue, collected);
-                        }
-                    }
-                    catch
-                    {
-                        // 跳过无法访问的成员
-                    }
-                }
+            try
+            {
+                return PropertyAccessor.GetValue<JsonNode>(_asset.Nodes, path);
+            }
+            catch
+            {
+                return null;
             }
         }
 
         /// <summary>
-        /// 从集合中收集JsonNode - 支持嵌套结构
+        /// 创建节点元数据
         /// </summary>
-        private void CollectNodesFromCollection(System.Collections.IEnumerable collection, HashSet<JsonNode> collected)
+        /// <param name="node">节点</param>
+        /// <param name="path">路径</param>
+        private void CreateNodeMetadata(JsonNode node, PAPath path)
         {
-            foreach (var item in collection)
+            if (node == null || _nodeMetadataMap.ContainsKey(node))
             {
-                if (item == null) continue;
+                return;
+            }
 
-                // 直接是JsonNode的情况
-                if (item is JsonNode childJsonNode)
+            var metadata = new NodeMetadata
+            {
+                Node = node,
+                Path = path,
+                Depth = path.Depth,
+                RenderOrder = path.GetRenderOrder()
+            };
+
+            _nodeMetadataMap[node] = metadata;
+        }
+
+        /// <summary>
+        /// 移除元数据
+        /// </summary>
+        /// <param name="metadata">要移除的元数据</param>
+        private void RemoveMetadata(NodeMetadata metadata)
+        {
+            // 从父节点的子节点列表中移除
+            if (metadata.Parent != null)
+            {
+                metadata.Parent.Children.Remove(metadata);
+            }
+            else
+            {
+                // 从根节点列表中移除
+                _rootNodes.Remove(metadata);
+            }
+
+            // 从映射表中移除
+            _nodeMetadataMap.Remove(metadata.Node);
+        }
+
+
+        /// <summary>
+        /// 重建集合操作 - 处理集合内元素的增删，更新索引和之后的所有节点
+        /// </summary>
+        /// <param name="changes">变更列表</param>
+        public void RebuildTree((PAPath path, JsonNode node)[] changes)
+        {
+            if (changes == null || changes.Length == 0)
+            {
+                RebuildTree();
+                return;
+            }
+            changes = FilterRedundantChanges(changes);
+            for (int i = 0; i < changes.Length; i++)
+            {
+                if (changes[i].path.IsEmpty) { continue; }
+                RebuildBranch(changes[i].path, changes[i].node);
+            }
+        }
+
+        private static (PAPath path, JsonNode node)[] FilterRedundantChanges((PAPath path, JsonNode node)[] changes)
+        {
+            if (changes.Length <= 1) { return changes; }
+            for (int i = 0; i < changes.Length - 1; i++)
+            {
+                if (changes[i].path.IsEmpty) { continue; }
+                ref PAPath iPath = ref changes[i].path;
+                for (int j = i + 1; j < changes.Length; j++)
                 {
-                    CollectNodesRecursively(childJsonNode, collected);
+                    if (changes[j].path.IsEmpty) { continue; }
+                    ref PAPath jPath = ref changes[j].path;
+                    if (jPath.StartsWith(iPath))
+                    {
+                        changes[j] = (PAPath.Empty, null);
+                        continue;
+                    }
+                    if (iPath.StartsWith(jPath))
+                    {
+                        changes[i] = (PAPath.Empty, null);
+                        break;
+                    }
                 }
-                // 可能包含嵌套JsonNode的用户定义类型（如TimeValue）
+            }
+            Dictionary<PAPath, (int index, int pos)> dict = new();
+            for (int i = 0; i < changes.Length; i++)
+            {
+                if (changes[i].path.IsEmpty) { continue; }
+                if (changes[i].path.ItemOfCollection)
+                {
+                    PAPath parent = changes[i].path.GetParent();
+                    int index = changes[i].path.LastPart.Index;
+                    if (dict.TryGetValue(parent, out (int index, int pos) old))
+                    {
+                        if (index < old.index)
+                        {
+                            dict[parent] = (index, i);
+                            changes[i] = (PAPath.Empty, null);
+                        }
+                    }
+                }
+            }
+            List<(PAPath path, JsonNode node)> list = new(changes);
+            list.RemoveAll(n => n.path.IsEmpty);
+            changes = list.ToArray();
+            return changes;
+        }
+        /// <summary>
+        /// 获取相对路径
+        /// </summary>
+        private PAPath GetRelativePath(PAPath fullPath, PAPath basePath)
+        {
+            if (basePath.IsEmpty) return fullPath;
+            if (fullPath.Depth <= basePath.Depth) return new PAPath();
+
+            int skipCount = basePath.Depth;
+            var relativeParts = new PAPart[fullPath.Depth - skipCount];
+            Array.Copy(fullPath.Parts, skipCount, relativeParts, 0, relativeParts.Length);
+            
+            return new PAPath(relativeParts);
+        }
+
+        /// <summary>
+        /// 清理指定分支的元数据
+        /// </summary>
+        private void ClearBranchMetadata(PAPath branchPath)
+        {
+            var metadataToRemove = new List<NodeMetadata>();
+
+            // 收集需要移除的元数据
+            foreach (var metadata in _nodeMetadataMap.Values.ToList())
+            {
+                if (metadata.Path.Equals(branchPath) || metadata.Path.IsChildOf(branchPath))
+                {
+                    metadataToRemove.Add(metadata);
+                }
+            }
+
+            // 移除元数据和相关关系
+            foreach (var metadata in metadataToRemove)
+            {
+                // 从父节点的子节点列表中移除
+                if (metadata.Parent != null)
+                {
+                    metadata.Parent.Children.Remove(metadata);
+                }
                 else
                 {
-                    var itemTypeInfo = TypeCacheSystem.GetTypeInfo(item.GetType());
-                    if (itemTypeInfo.IsUserDefinedType && itemTypeInfo.ContainsJsonNode)
-                    {
-                        CollectNestedJsonNodesFromValue(item, collected);
-                    }
+                    // 从根节点列表中移除
+                    _rootNodes.Remove(metadata);
                 }
+
+                // 从映射表中移除
+                _nodeMetadataMap.Remove(metadata.Node);
             }
         }
 
+        /// <summary>
+        /// 兼容旧接口的重载方法
+        /// </summary>
+        /// <param name="targetPaths">目标路径数组</param>
+        public void RebuildTree(PAPath[] targetPaths)
+        {
+            if (targetPaths == null || targetPaths.Length == 0)
+            {
+                RebuildTree();
+                return;
+            }
+
+            // 转换为新格式，假设都是添加操作
+            var targetChanges = targetPaths.Select(path => (path, (JsonNode)null)).ToArray();
+            RebuildTree(targetChanges);
+        }        /// <summary>
+        /// 缓存根节点索引，避免重复的IndexOf调用
+        /// </summary>
+        private void CacheRootIndexes()
+        {
+            _rootIndexCache = new Dictionary<JsonNode, int>(_asset.Nodes.Count);
+            for (int i = 0; i < _asset.Nodes.Count; i++)
+            {
+                _rootIndexCache[_asset.Nodes[i]] = i;
+            }
+        }
         #endregion
 
         #region 层次关系构建
-
+        
         /// <summary>
-        /// 基于路径信息建立层次关系 - 优化版 O(n log n)
+        /// 构建或重建节点的层次关系
         /// </summary>
-        private void BuildHierarchyFromPaths()
+        /// <param name="targetPaths">要处理的特定路径，null表示处理所有节点</param>
+        private void BuildHierarchyFromPaths(PAPath[] targetPaths = null)
         {
-            // 性能优化：创建路径到元数据的映射表，避免 O(n²) 查找
+            // 创建路径到元数据的映射表，用于快速查找
             var pathToMetadata = new Dictionary<PAPath, NodeMetadata>(_nodeMetadataMap.Count);
-            
-            // 步骤1：构建路径映射表 O(n)
             foreach (var metadata in _nodeMetadataMap.Values)
             {
                 pathToMetadata[metadata.Path] = metadata;
             }
-            
-            // 步骤2：按深度排序处理 O(n log n)
-            var sortedMetadata = _nodeMetadataMap.Values.OrderBy(m => m.Depth).ToList();
-            
-            // 步骤3：建立层次关系 O(n)
+
+            // 确定要处理的元数据集合
+            IEnumerable<NodeMetadata> targetMetadata;
+            if (targetPaths == null)
+            {
+                // 处理所有节点
+                targetMetadata = _nodeMetadataMap.Values;
+            }
+            else
+            {
+                // 只处理指定路径的节点
+                targetMetadata = targetPaths
+                    .Where(path => pathToMetadata.ContainsKey(path))
+                    .Select(path => pathToMetadata[path]);
+            }
+
+            // 按深度排序，确保父节点先于子节点处理
+            var sortedMetadata = targetMetadata.OrderBy(m => m.Depth).ToList();
+            var affectedParents = new HashSet<NodeMetadata>();
+
             foreach (var metadata in sortedMetadata)
             {
                 if (metadata.Depth == 0)
                 {
-                    // 根节点
-                    metadata.RootIndex = _asset.Nodes.IndexOf(metadata.Node);
-                    _rootNodes.Add(metadata);
+                    // 处理根节点
+                    SetupRootNode(metadata);
                 }
                 else
                 {
-                    // 优化：通过路径映射表直接查找父节点
-                    var parentPath = metadata.Path.GetParent();
-                    if (!parentPath.IsEmpty && pathToMetadata.TryGetValue(parentPath, out var parentMetadata))
+                    // 处理子节点
+                    var parent = SetupChildNode(metadata, pathToMetadata);
+                    if (parent != null)
                     {
-                        var lastPart = metadata.Path.GetLastPart();
-                        
-                        metadata.Parent = parentMetadata;
-                        
-                        // 设置 LocalPath - 创建包含最后一部分的路径
-                        metadata.LocalPath = new PAPath(new[] { lastPart });
-                        metadata.IsMultiPort = metadata.Path.IsMultiPortPath();
-                        
-                        // 设置 ListIndex（如果是集合中的项）
-                        if (lastPart.IsIndex)
-                        {
-                            metadata.ListIndex = lastPart.Index;
-                        }
-                        
-                        parentMetadata.Children.Add(metadata);
+                        affectedParents.Add(parent);
                     }
                 }
             }
-            
-            // 排序子节点
-            foreach (var metadata in _nodeMetadataMap.Values)
+
+            // 对所有受影响的父节点的子节点重新排序
+            if (targetPaths == null)
             {
-                if (metadata.Children.Count > 0)
+                // 全量重建，排序所有节点的子节点
+                SortChildrenForParents(Enumerable.Empty<NodeMetadata>());
+            }
+            else
+            {
+                // 部分重建，只排序受影响的父节点
+                SortChildrenForParents(affectedParents);
+            }
+        }
+
+        /// <summary>
+        /// 设置根节点
+        /// </summary>
+        private void SetupRootNode(NodeMetadata metadata)
+        {
+            // 设置根节点索引
+            if (_rootIndexCache != null && _rootIndexCache.TryGetValue(metadata.Node, out int rootIndex))
+            {
+                metadata.RootIndex = rootIndex;
+            }
+            else
+            {
+                metadata.RootIndex = _asset.Nodes.IndexOf(metadata.Node);
+            }
+
+            // 添加到根节点列表（避免重复）
+            if (!_rootNodes.Contains(metadata))
+            {
+                _rootNodes.Add(metadata);
+            }
+        }
+
+        /// <summary>
+        /// 设置子节点
+        /// </summary>
+        /// <param name="metadata">子节点元数据</param>
+        /// <param name="pathToMetadata">路径到元数据的映射</param>
+        /// <returns>父节点元数据</returns>
+        private NodeMetadata SetupChildNode(NodeMetadata metadata, Dictionary<PAPath, NodeMetadata> pathToMetadata)
+        {
+            var parentPath = metadata.Path.GetParent();
+            if (parentPath.IsEmpty)
+            {
+                return null;
+            }
+
+            // 查找父节点
+            NodeMetadata parentMetadata = null;
+            if (pathToMetadata.TryGetValue(parentPath, out parentMetadata))
+            {
+                // 在映射中找到了父节点
+            }
+            else
+            {
+                // 在现有节点中查找父节点
+                var parentNode = GetNodeAtPath(parentPath);
+                if (parentNode != null)
                 {
-                    metadata.Children = metadata.Children
-                        .OrderBy(c => c.RenderOrder)
-                        .ThenBy(c => c.ListIndex)
-                        .ToList();
+                    parentMetadata = GetNodeMetadata(parentNode);
+                }
+            }
+
+            if (parentMetadata != null)
+            {
+                var lastPart = metadata.Path.LastPart;
+
+                // 设置父子关系
+                metadata.Parent = parentMetadata;
+                metadata.LocalPath = new PAPath(new[] { lastPart });
+                metadata.IsMultiPort = metadata.Path.HasIndexer;
+
+                // 设置列表索引
+                if (lastPart.IsIndex)
+                {
+                    metadata.ListIndex = lastPart.Index;
+                }
+
+                // 添加到父节点的子节点列表（避免重复）
+                if (!parentMetadata.Children.Contains(metadata))
+                {
+                    parentMetadata.Children.Add(metadata);
+                }
+
+                return parentMetadata;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// 为指定的父节点集合排序子节点
+        /// </summary>
+        private void SortChildrenForParents(IEnumerable<NodeMetadata> parents)
+        {
+            // 如果是全量重建（没有指定特定父节点），为所有有子节点的节点排序
+            if (!parents.Any())
+            {
+                foreach (var metadata in _nodeMetadataMap.Values)
+                {
+                    if (metadata.Children.Count > 0)
+                    {
+                        SortChildren(metadata);
+                    }
+                }
+            }
+            else
+            {
+                // 为指定的父节点排序
+                foreach (var parent in parents)
+                {
+                    SortChildren(parent);
                 }
             }
         }
 
         /// <summary>
-        /// 建立节点间的层次关系 - 使用缓存和UI渲染顺序
+        /// 智能排序子节点：根据子节点数量选择不同策略
         /// </summary>
-        private void BuildHierarchy()
+        private void SortChildren(NodeMetadata parent)
         {
-            // 首先标记根节点
-            for (int i = 0; i < _asset.Nodes.Count; i++)
+            if (parent.Children.Count > 2)
             {
-                var rootNode = _asset.Nodes[i];
-                if (_nodeMetadataMap.TryGetValue(rootNode, out var metadata))
-                {
-                    metadata.RootIndex = i;
-                    _rootNodes.Add(metadata);
-                }
-            }
-
-            // 然后为每个节点建立父子关系
-            foreach (var kvp in _nodeMetadataMap)
-            {
-                var parentNode = kvp.Key;
-                var parentMetadata = kvp.Value;
-                
-                BuildChildRelationshipsWithOrder(parentNode, parentMetadata);
-            }
-            
-            // 去重处理：移除重复的子节点
-            DeduplicateChildren();
-        }
-
-        /// <summary>
-        /// 对所有节点的Children列表进行去重处理
-        /// </summary>
-        private void DeduplicateChildren()
-        {
-            foreach (var kvp in _nodeMetadataMap)
-            {
-                var metadata = kvp.Value;
-                if (metadata.Children.Count <= 1)
-                    continue; // 0个或1个子节点无需去重
-                
-                // 使用Dictionary进行高效去重，键为JsonNode，值为最优的NodeMetadata
-                var uniqueChildren = new Dictionary<JsonNode, NodeMetadata>();
-                
-                foreach (var child in metadata.Children)
-                {
-                    if (uniqueChildren.TryGetValue(child.Node, out var existingChild))
-                    {
-                        // 如果已存在，选择优先级更高的（RenderOrder更小，或ListIndex更小）
-                        if (child.RenderOrder < existingChild.RenderOrder ||
-                            (child.RenderOrder == existingChild.RenderOrder && child.ListIndex < existingChild.ListIndex))
-                        {
-                            uniqueChildren[child.Node] = child;
-                        }
-                    }
-                    else
-                    {
-                        uniqueChildren[child.Node] = child;
-                    }
-                }
-                
-                // 重新构建Children列表，保持排序
-                metadata.Children = uniqueChildren.Values
-                    .OrderBy(child => child.RenderOrder)
-                    .ThenBy(child => child.ListIndex)
+                // 多个子节点时使用完整排序
+                parent.Children = parent.Children
+                    .OrderBy(c => c.RenderOrder)
+                    .ThenBy(c => c.ListIndex)
                     .ToList();
             }
+            else if (parent.Children.Count == 2)
+            {
+                // 两个子节点时使用简单比较交换
+                var first = parent.Children[0];
+                var second = parent.Children[1];
+
+                bool shouldSwap = first.RenderOrder > second.RenderOrder ||
+                                 (first.RenderOrder == second.RenderOrder && first.ListIndex > second.ListIndex);
+
+                if (shouldSwap)
+                {
+                    parent.Children[0] = second;
+                    parent.Children[1] = first;
+                }
+            }
+            // 单个或零个子节点无需排序
         }
 
-        /// <summary>
-        /// 为指定节点建立子节点关系 - 考虑UI渲染顺序
-        /// </summary>
-        private void BuildChildRelationshipsWithOrder(JsonNode parentNode, NodeMetadata parentMetadata)
-        {
-            var typeInfo = TypeCacheSystem.GetTypeInfo(parentNode.GetType());
-            
-            // 按渲染顺序处理成员 - 使用统一的成员列表
-            foreach (var member in typeInfo.GetAllMembers())
-            {
-                try
-                {
-                    var value = member.Getter(parentNode);
-                    ProcessChildMemberWithOrder(member, value, parentMetadata);
-                }
-                catch
-                {
-                    // 跳过无法访问的成员
-                }
-            }
-        }
 
-        /// <summary>
-        /// 处理子成员 - 考虑渲染顺序和特殊类型
-        /// </summary>
-        private void ProcessChildMemberWithOrder(TypeCacheSystem.UnifiedMemberInfo memberInfo, object value, NodeMetadata parentMetadata)
-        {
-            if (value == null) return;
-            
-            // 直接的JsonNode子节点
-            if (memberInfo.Category == TypeCacheSystem.MemberCategory.JsonNode && value is JsonNode childNode)
-            {
-                if (_nodeMetadataMap.TryGetValue(childNode, out var childMetadata))
-                {
-                    childMetadata.Parent = parentMetadata;
-                    childMetadata.LocalPath = memberInfo.Name;
-                    childMetadata.IsMultiPort = false;
-                    childMetadata.RenderOrder = memberInfo.RenderOrder;
-                    parentMetadata.Children.Add(childMetadata);
-                }
-            }
-            // 集合类型 - 支持直接JsonNode集合和嵌套节点集合
-            else if (memberInfo.IsMultiValue && value is System.Collections.IEnumerable enumerable)
-            {
-                ProcessCollectionChildren(enumerable, memberInfo, parentMetadata);
-            }
-        }
 
-        /// <summary>
-        /// 处理集合类型的子节点
-        /// </summary>
-        private void ProcessCollectionChildren(System.Collections.IEnumerable collection, TypeCacheSystem.UnifiedMemberInfo memberInfo, NodeMetadata parentMetadata)
-        {
-            int index = 0;
-            foreach (var item in collection)
-            {
-                if (item == null)
-                {
-                    index++;
-                    continue;
-                }
 
-                // 直接是JsonNode的情况
-                if (item is JsonNode childJsonNode && _nodeMetadataMap.TryGetValue(childJsonNode, out var childMetadata))
-                {
-                    childMetadata.Parent = parentMetadata;
-                    childMetadata.LocalPath = $"{memberInfo.Name}[{index}]"; // 修复：包含索引信息
-                    childMetadata.IsMultiPort = true;
-                    childMetadata.ListIndex = index;
-                    childMetadata.RenderOrder = memberInfo.RenderOrder;
-                    parentMetadata.Children.Add(childMetadata);
-                }
-                // 包含嵌套JsonNode的用户定义类型（如TimeValue）
-                else
-                {
-                    var itemTypeInfo = TypeCacheSystem.GetTypeInfo(item.GetType());
-                    if (itemTypeInfo.IsUserDefinedType && itemTypeInfo.ContainsJsonNode)
-                    {
-                        ProcessNestedNodesInCollectionItem(item, index, memberInfo, parentMetadata);
-                    }
-                }
 
-                index++;
-            }
-        }
 
-        /// <summary>
-        /// 处理集合项中的嵌套节点
-        /// </summary>
-        private void ProcessNestedNodesInCollectionItem(object item, int itemIndex, TypeCacheSystem.UnifiedMemberInfo memberInfo, NodeMetadata parentMetadata)
-        {
-            var itemTypeInfo = TypeCacheSystem.GetTypeInfo(item.GetType());
-            
-            // 直接处理JsonNode成员
-            foreach (var jsonNodeMember in itemTypeInfo.GetJsonNodeMembers())
-            {
-                try
-                {
-                    var nestedNode = jsonNodeMember.Getter(item);
-                    if (nestedNode is JsonNode jsonNode && _nodeMetadataMap.TryGetValue(jsonNode, out var childMetadata))
-                    {
-                        childMetadata.Parent = parentMetadata;
-                        childMetadata.LocalPath = $"{memberInfo.Name}[{itemIndex}].{jsonNodeMember.Name}";
-                        childMetadata.IsMultiPort = true;
-                        childMetadata.ListIndex = itemIndex;
-                        childMetadata.RenderOrder = memberInfo.RenderOrder + jsonNodeMember.RenderOrder;
-                        parentMetadata.Children.Add(childMetadata);
-                    }
-                }
-                catch
-                {
-                    // 跳过无法访问的成员
-                }
-            }
 
-            // 递归处理可能包含嵌套JsonNode的成员
-            foreach (var nestedCandidate in itemTypeInfo.GetNestedCandidateMembers())
-            {
-                try
-                {
-                    var nestedValue = nestedCandidate.Getter(item);
-                    if (nestedValue != null)
-                    {
-                        ProcessNestedJsonNodesInItemRecursive(nestedValue, itemIndex, memberInfo, nestedCandidate.Name, parentMetadata, memberInfo.RenderOrder + nestedCandidate.RenderOrder);
-                    }
-                }
-                catch
-                {
-                    // 跳过无法访问的成员
-                }
-            }
-        }
 
-        /// <summary>
-        /// 递归处理集合项中深层嵌套的JsonNode
-        /// </summary>
-        private void ProcessNestedJsonNodesInItemRecursive(object value, int itemIndex, TypeCacheSystem.UnifiedMemberInfo rootMemberInfo, string currentPath, NodeMetadata parentMetadata, int baseRenderOrder)
-        {
-            if (value == null) return;
 
-            if (value is JsonNode jsonNode && _nodeMetadataMap.TryGetValue(jsonNode, out var childMetadata))
-            {
-                childMetadata.Parent = parentMetadata;
-                childMetadata.LocalPath = $"{rootMemberInfo.Name}[{itemIndex}].{currentPath}";
-                childMetadata.IsMultiPort = true;
-                childMetadata.ListIndex = itemIndex;
-                childMetadata.RenderOrder = baseRenderOrder;
-                parentMetadata.Children.Add(childMetadata);
-                return;
-            }
 
-            var valueTypeInfo = TypeCacheSystem.GetTypeInfo(value.GetType());
-            if (valueTypeInfo.ContainsJsonNode)
-            {
-                // 继续深度搜索JsonNode
-                foreach (var member in valueTypeInfo.GetJsonNodeMembers())
-                {
-                    try
-                    {
-                        var nestedValue = member.Getter(value);
-                        if (nestedValue is JsonNode nestedNode)
-                        {
-                            ProcessNestedJsonNodesInItemRecursive(nestedNode, itemIndex, rootMemberInfo, $"{currentPath}.{member.Name}", parentMetadata, baseRenderOrder + member.RenderOrder);
-                        }
-                    }
-                    catch
-                    {
-                        // 跳过无法访问的成员
-                    }
-                }
 
-                // 递归处理可能包含嵌套JsonNode的成员
-                foreach (var nestedCandidate in valueTypeInfo.GetNestedCandidateMembers())
-                {
-                    try
-                    {
-                        var nestedValue = nestedCandidate.Getter(value);
-                        if (nestedValue != null)
-                        {
-                            ProcessNestedJsonNodesInItemRecursive(nestedValue, itemIndex, rootMemberInfo, $"{currentPath}.{nestedCandidate.Name}", parentMetadata, baseRenderOrder + nestedCandidate.RenderOrder);
-                        }
-                    }
-                    catch
-                    {
-                        // 跳过无法访问的成员
-                    }
-                }
-            }
-        }
-
-        /// <summary>
-        /// 构建子节点路径
-        /// </summary>
-        private string BuildChildPath(string parentPath, NodeMetadata child, JsonNode parentNode)
-        {
-            // 现在LocalPath已经包含了正确的索引信息，直接使用即可
-            return $"{parentPath}.{child.LocalPath}";
-        }
 
         #endregion
 
@@ -690,24 +813,26 @@ namespace TreeNode.Runtime
         {
             foreach (var rootMetadata in _rootNodes)
             {
-                CalculatePathAndDepthRecursively(rootMetadata, $"[{rootMetadata.RootIndex}]", 0);
+                var rootPath = new PAPath($"[{rootMetadata.RootIndex}]");
+                CalculatePathAndDepthRecursively(rootMetadata, rootPath, 0);
             }
         }
 
         /// <summary>
         /// 递归计算路径和深度
         /// </summary>
-        private void CalculatePathAndDepthRecursively(NodeMetadata metadata, string path, int depth)
+        private void CalculatePathAndDepthRecursively(NodeMetadata metadata, PAPath path, int depth)
         {
             metadata.Path = path;
             metadata.Depth = depth;
-            
+
             // 按渲染顺序排序子节点
             var sortedChildren = metadata.Children.OrderBy(c => c.RenderOrder).ThenBy(c => c.ListIndex).ToList();
-            
+
             foreach (var child in sortedChildren)
             {
-                string childPath = BuildChildPath(path, child, metadata.Node);
+                // 构建子节点的PAPath
+                var childPath = path.Combine(child.LocalPath);
                 CalculatePathAndDepthRecursively(child, childPath, depth + 1);
             }
         }
@@ -717,46 +842,16 @@ namespace TreeNode.Runtime
         #region 调试和分析方法
 
         /// <summary>
-        /// 获取类型分析信息（用于调试）
+        /// 获取简化的类型分析信息（用于调试）
         /// </summary>
         public string GetTypeAnalysisInfo(Type type)
         {
-            var typeInfo = TypeCacheSystem.GetTypeInfo(type);
             var sb = new StringBuilder();
-            
+
             sb.AppendLine($"类型分析: {type.Name}");
             sb.AppendLine($"命名空间: {type.Namespace}");
-            sb.AppendLine($"是否用户定义类型: {typeInfo.IsUserDefinedType}");
-            sb.AppendLine($"是否包含JsonNode: {typeInfo.ContainsJsonNode}");
-            sb.AppendLine();
-            
-            sb.AppendLine("JsonNode成员:");
-            foreach (var member in typeInfo.GetJsonNodeMembers())
-            {
-                sb.AppendLine($"  - {member.Name} ({member.ValueType.Name}) [Order: {member.RenderOrder}]");
-            }
-            sb.AppendLine();
-            
-            sb.AppendLine("集合成员:");
-            foreach (var member in typeInfo.GetCollectionMembers())
-            {
-                sb.AppendLine($"  - {member.Name} ({member.ValueType.Name}) [Order: {member.RenderOrder}]");
-            }
-            sb.AppendLine();
-            
-            sb.AppendLine("可能包含嵌套结构的成员:");
-            foreach (var member in typeInfo.GetNestedCandidateMembers())
-            {
-                sb.AppendLine($"  - {member.Name} ({member.ValueType.Name}) [Order: {member.RenderOrder}]");
-            }
-            sb.AppendLine();
-            
-            sb.AppendLine("所有成员:");
-            foreach (var member in typeInfo.GetAllMembers())
-            {
-                sb.AppendLine($"  - {member.MemberType}.{member.Name} ({member.ValueType.Name}) - {member.Category} [Order: {member.RenderOrder}]");
-            }
-            
+            sb.AppendLine($"是否为JsonNode: {typeof(JsonNode).IsAssignableFrom(type)}");
+
             return sb.ToString();
         }
 
@@ -779,116 +874,62 @@ namespace TreeNode.Runtime
             }
         }
         #endregion
-        
+
         #region Editor Support Methods
-        
+
         /// <summary>
         /// 通知有新节点被添加
         /// </summary>
         /// <param name="node">添加的节点</param>
-        public void OnNodeAdded(JsonNode node)
-        {
-            if (node != null && !_nodeMetadataMap.ContainsKey(node))
-            {
-                RebuildTree();
-            }
-        }
-        
-        /// <summary>
-        /// 通知有节点被添加到指定路径
-        /// </summary>
-        /// <param name="node">添加的节点</param>
-        /// <param name="path">节点路径</param>
+        /// <param name="path">节点的目标路径</param>
         public void OnNodeAdded(JsonNode node, PAPath path)
         {
-            if (node != null && !_nodeMetadataMap.ContainsKey(node))
+            if (node != null && !path.IsEmpty && !_nodeMetadataMap.ContainsKey(node))
             {
-                if (IsIncrementalModeEnabled)
-                {
-                    // 增量更新模式（将来实现）
-                    MarkDirty();
-                }
-                else
-                {
-                    RebuildTree();
-                }
+                // 使用智能分支重建
+                RebuildBranch(path, node);
             }
         }
-        
+
         /// <summary>
         /// 通知有节点被移除
         /// </summary>
         /// <param name="node">移除的节点</param>
-        public void OnNodeRemoved(JsonNode node)
+        /// <param name="path">节点的路径</param>
+        public void OnNodeRemoved(JsonNode node, PAPath path)
         {
-            if (node != null && _nodeMetadataMap.ContainsKey(node))
+            if (node != null && !path.IsEmpty && _nodeMetadataMap.ContainsKey(node))
             {
-                if (IsIncrementalModeEnabled)
-                {
-                    // 增量更新模式（将来实现）
-                    MarkDirty();
-                }
-                else
-                {
-                    RebuildTree();
-                }
+                RebuildBranch(path, node);
             }
         }
-        
-        /// <summary>
-        /// 启用增量更新模式
-        /// </summary>
-        public void EnableIncrementalMode()
-        {
-            if (IsIncrementalModeEnabled)
-            {
-                return;
-            }
 
-            try
-            {
-                IsIncrementalModeEnabled = true;
-                Debug.Log("JsonNodeTree: 增量更新模式已启用");
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"启用增量更新模式失败: {ex.Message}");
-                IsIncrementalModeEnabled = false;
-            }
-        }
-        
         /// <summary>
-        /// 禁用增量更新模式
+        /// 批量处理节点变更
         /// </summary>
-        public void DisableIncrementalMode()
-        {
-            if (!IsIncrementalModeEnabled)
-            {
-                return;
-            }
-
-            IsIncrementalModeEnabled = false;
-            Debug.Log("JsonNodeTree: 增量更新模式已禁用，回退到全量更新");
-        }
-        
-        /// <summary>
-        /// 增量更新是否启用
-        /// </summary>
-        public bool IsIncrementalModeEnabled { get; private set; } = false;
-        
-        /// <summary>
-        /// 获取排序后的节点列表
-        /// </summary>
-        /// <returns>排序后的节点元数据列表</returns>
+        /// <param name="changes">变更列表，包含路径、节点和操作类型</param>
+        public void OnNodesChanged((PAPath path, JsonNode node)[] changes) => RebuildTree(changes);
         public List<NodeMetadata> GetSortedNodes()
         {
-            EnsureTreeBuilt();
-            return _nodeMetadataMap.Values
+            return GetNodes()
                 .OrderBy(m => m.RenderOrder)
                 .ThenBy(m => m.Path.ToString())
                 .ToList();
         }
         
+        public IEnumerable<NodeMetadata> GetNodes()
+        {
+            EnsureTreeBuilt();
+            return _nodeMetadataMap.Values;
+        }
+
+
+
+
+
+
+
+
         /// <summary>
         /// 验证树结构的完整性
         /// </summary>
@@ -905,7 +946,7 @@ namespace TreeNode.Runtime
                 return false;
             }
         }
-        
+
         /// <summary>
         /// 如果需要则刷新树结构
         /// </summary>
@@ -916,7 +957,7 @@ namespace TreeNode.Runtime
                 RebuildTree();
             }
         }
-        
+
         /// <summary>
         /// 获取所有节点的路径信息
         /// </summary>
@@ -929,12 +970,12 @@ namespace TreeNode.Runtime
                 .OrderBy(item => item.Item1)
                 .ToList();
         }
-        
+
         /// <summary>
         /// 获取总节点数量
         /// </summary>
         public int TotalNodeCount => _nodeMetadataMap.Count;
-        
+
         /// <summary>
         /// 获取树形视图的字符串表示
         /// </summary>
@@ -942,12 +983,12 @@ namespace TreeNode.Runtime
         public string GetTreeView()
         {
             EnsureTreeBuilt();
-            
+
             if (_rootNodes.Count == 0)
             {
                 return "Empty Tree";
             }
-            
+
             var sb = new StringBuilder();
             for (int i = 0; i < _rootNodes.Count; i++)
             {
@@ -956,7 +997,7 @@ namespace TreeNode.Runtime
             }
             return sb.ToString();
         }
-        
+
         /// <summary>
         /// 递归构建树形视图
         /// </summary>
@@ -965,113 +1006,17 @@ namespace TreeNode.Runtime
             string connector = isLast ? "└── " : "├── ";
             string typeName = metadata.Node?.GetType().Name ?? "Unknown";
             sb.AppendLine($"{prefix}{connector}{metadata.DisplayName} ({typeName})");
-            
+
             string childPrefix = prefix + (isLast ? "    " : "│   ");
-            
+
             for (int i = 0; i < metadata.Children.Count; i++)
             {
                 bool isLastChild = i == metadata.Children.Count - 1;
                 BuildTreeView(metadata.Children[i], sb, childPrefix, isLastChild);
             }
         }
-        
-        #endregion
-
-        #region 性能优化方法
-
-        /// <summary>
-        /// 高性能重建 - 适用于大型树结构
-        /// </summary>
-        public void RebuildTreeOptimized()
-        {
-            const int PARALLEL_THRESHOLD = 100; // 节点数量阈值
-            
-            _nodeMetadataMap.Clear();
-            _rootNodes.Clear();
-            
-            if (_asset?.Nodes == null || _asset.Nodes.Count == 0)
-                return;
-
-            // 预热缓存以提升性能
-            TypeCacheSystem.WarmupJsonNodeTypes(typeof(TreeNodeAsset));
-
-            // 步骤1：使用批量收集
-            var nodeList = new List<(PAPath path, JsonNode node)>();
-            PropertyAccessor.CollectNodes(_asset, nodeList, PAPath.Empty, depth: -1);
-            
-            // 步骤2：并行创建元数据（当节点数量足够大时）
-            if (nodeList.Count >= PARALLEL_THRESHOLD)
-            {
-                CreateMetadataParallel(nodeList);
-            }
-            else
-            {
-                CreateMetadataSequential(nodeList);
-            }
-            
-            // 步骤3：建立层次关系（已优化为 O(n log n)）
-            BuildHierarchyFromPaths();
-        }
-
-        /// <summary>
-        /// 并行创建元数据
-        /// </summary>
-        private void CreateMetadataParallel(List<(PAPath path, JsonNode node)> nodeList)
-        {
-            var metadataArray = new NodeMetadata[nodeList.Count];
-            
-            System.Threading.Tasks.Parallel.For(0, nodeList.Count, i =>
-            {
-                var (path, node) = nodeList[i];
-                metadataArray[i] = new NodeMetadata
-                {
-                    Node = node,
-                    Path = path,
-                    Depth = path.Depth,
-                    RenderOrder = path.GetRenderOrder()
-                };
-            });
-            
-            // 合并到主映射表
-            for (int i = 0; i < metadataArray.Length; i++)
-            {
-                _nodeMetadataMap[metadataArray[i].Node] = metadataArray[i];
-            }
-        }
-
-        /// <summary>
-        /// 顺序创建元数据
-        /// </summary>
-        private void CreateMetadataSequential(List<(PAPath path, JsonNode node)> nodeList)
-        {
-            foreach (var (path, node) in nodeList)
-            {
-                var metadata = new NodeMetadata
-                {
-                    Node = node,
-                    Path = path,
-                    Depth = path.Depth,
-                    RenderOrder = path.GetRenderOrder()
-                };
-                
-                _nodeMetadataMap[node] = metadata;
-            }
-        }
-
-        /// <summary>
-        /// 获取构建性能统计信息
-        /// </summary>
-        public string GetPerformanceStats()
-        {
-            var stats = TypeCacheSystem.GetJsonNodeCacheStats();
-            var totalNodes = _nodeMetadataMap.Count;
-            var avgDepth = totalNodes > 0 ? _nodeMetadataMap.Values.Average(m => m.Depth) : 0;
-            var maxDepth = totalNodes > 0 ? _nodeMetadataMap.Values.Max(m => m.Depth) : 0;
-            
-            return $"Tree Stats: {totalNodes} nodes, Avg Depth: {avgDepth:F1}, Max Depth: {maxDepth}\n" +
-                   $"Cache Stats: {stats}";
-        }
 
         #endregion
+
     }
 }

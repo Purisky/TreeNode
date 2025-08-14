@@ -18,7 +18,7 @@ namespace TreeNode.Editor
         public NumValue NumValue;
         public Label Text;
         public FloatField FloatField;
-        public override PAPath LocalPath => base.LocalPath.AppendField(nameof(NumValue.Node));
+        public override PAPath LocalPath => base.LocalPath.Append(nameof(NumValue.Node));
         public static NumPort Create(ViewNode node_, MemberMeta meta, ViewNode node)
         {
             Type type = typeof(NumNode);

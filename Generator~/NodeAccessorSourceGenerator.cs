@@ -299,6 +299,7 @@ namespace TreeNodeSourceGenerator
             
             sb.AppendLine("using System;");
             sb.AppendLine("using System.Collections.Generic;");
+            sb.AppendLine("using static TreeNode.Runtime.TypeCacheSystem;");
             sb.AppendLine();
             sb.AppendLine($"namespace {jsonNodeType.ContainingNamespace.ToDisplayString()}");
             sb.AppendLine("{");
@@ -321,6 +322,9 @@ namespace TreeNodeSourceGenerator
                 }
             }
             
+            sb.AppendLine($"        public virtual TypeReflectionInfo TypeInfo => null;");
+
+
             sb.AppendLine("    }");
             sb.AppendLine("}");
             
@@ -420,8 +424,29 @@ namespace TreeNodeSourceGenerator
                 return $"{paramsModifier}{refKind}{paramType} {paramName}";
             }));
             
-            sb.AppendLine($"        public virtual {returnType} {methodName}({parameters}){genericConstraints}=>throw new NotImplementedException($\"Method '{methodName}' is not implemented in {{GetType().Name}}\");");
+            string defaultValue = string.Join(", ", method.Parameters.Select(p => 
+            {
+                var refKind = p.RefKind switch
+                {
+                    RefKind.Ref => "ref ",
+                    RefKind.Out => "out ",
+                    RefKind.In => "in ",
+                    _ => ""
+                };
+                
+                var paramType = p.Type.ToDisplayString();
+                var paramName = p.Name;
+                
+                // 处理params参数
+                var paramsModifier = p.IsParams ? "params " : "";
+                
+                return $"{paramsModifier}{refKind} {paramName}";
+            }));
 
+
+
+            sb.AppendLine($"        public virtual {returnType} {methodName}({parameters}){genericConstraints} => PropertyAccessor.{methodName}(this,{defaultValue}) ;");
+            //sb.AppendLine($"        public virtual {returnType} {methodName}({parameters}){genericConstraints}=>throw new NotImplementedException($\"Method '{methodName}' is not implemented in {{GetType().Name}}\");");
         }
 
         private string GetDefaultValue(ITypeSymbol type)
@@ -442,8 +467,6 @@ namespace TreeNodeSourceGenerator
                 _ => type.IsValueType ? $"default({type.ToDisplayString()})" : "null"
             };
         }
-
-        // ...existing code...
     }
 
     internal class JsonNodeSyntaxReceiver : ISyntaxReceiver
@@ -477,5 +500,14 @@ namespace TreeNodeSourceGenerator
         public bool CanWrite { get; set; }
         public bool IsReadOnly { get; set; }
         public bool IsStructCollection { get; set; }
+        public bool HasNoJsonNodeContainer { get; set; }
+        
+        // 特性标记相关
+        public bool IsChild { get; set; }
+        public bool IsTitlePort { get; set; }
+        public bool ShowInNode { get; set; }
+        public bool IsTopChild { get; set; }
+        public bool HasGroupAttribute { get; set; }
+        public string GroupName { get; set; }
     }
 }
