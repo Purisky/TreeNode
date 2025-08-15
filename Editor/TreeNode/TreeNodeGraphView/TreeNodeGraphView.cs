@@ -227,7 +227,7 @@ namespace TreeNode.Editor
         /// </summary>
         private void DrawNodesAsync()
         {
-            using (new Timer($"渲染[{Window.Path}]"))
+            using (new Timer($"Render[{Window.Title}]"))
             {
                 //using (new Timer("CreateViewNodesAsyncOptimized"))
                 {

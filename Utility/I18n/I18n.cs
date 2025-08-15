@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 #if TREENODE_CHINESE
 using Current = TreeNode.Utility.Chinese;
@@ -21,6 +21,8 @@ namespace TreeNode.Utility
         public const string TreeNode = Current.TreeNode;
         public const string Hotkeys = Current.Hotkeys;
         public const string ForceReloadIcon = Current.ForceReloadIcon;
+        public const string ForceReloadView = Current.ForceReloadView;
+
         public const string CreateNode = Current.CreateNode;
         public const string PrintNodePath = Current.PrintNodePath;
         public const string PrintFieldPath = Current.PrintFieldPath;

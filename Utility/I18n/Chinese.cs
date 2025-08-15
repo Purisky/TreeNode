@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 namespace TreeNode.Utility
 {
@@ -10,6 +10,7 @@ namespace TreeNode.Utility
         public const string TreeNode = "树节点";
         public const string Hotkeys = "热键";
         public const string ForceReloadIcon = "刷新图标";
+        public const string ForceReloadView = "重新加载";
 
         public const string CreateNode = "创建节点";
         public const string PrintNodePath = "打印节点路径";

@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 namespace TreeNode.Utility
 {
@@ -10,6 +10,7 @@ namespace TreeNode.Utility
         public const string TreeNode = "Tree Node";
         public const string Hotkeys = "Hotkeys";
         public const string ForceReloadIcon = "Force Reload Icon";
+         public const string ForceReloadView = "Reload View";
         public const string CreateNode = "Create Node";
         public const string PrintNodePath = "Print Node Path";
         public const string PrintFieldPath = "Print Field Path";
