@@ -40,24 +40,17 @@ namespace TreeNode.Runtime
                 ReflectionInfo = TypeCacheSystem.GetTypeInfo(node.GetType());
                 Children = new();
             }
-            public void SortChildren()
+            public void SortChildren(Dictionary<JsonNode, NodeMetadata> dict)
             {
-                Children.Sort(PathComparer);
+                List<(PAPath, JsonNode)> list = ListPool<(PAPath, JsonNode)>.GetList();
+                Node.CollectNodes(list, Path, 1);
+                Children.Clear();
+                for (int i = 0; i < list.Count; i++)
+                {
+                    Children.Add(dict[list[i].Item2]);
+                }
+                list.Release();
             }
-
-            public Comparer<NodeMetadata> PathComparer => Comparer<NodeMetadata>.Create((a, b) =>
-            {
-                PAPath locala = a.LocalPath;
-                PAPath localb = b.LocalPath;
-
-
-
-                return 1;
-            });
-
-
-
-
         }
 
         #endregion
@@ -101,44 +94,10 @@ namespace TreeNode.Runtime
             EnsureTreeBuilt();
             return _nodeMetadataMap.TryGetValue(node, out var metadata) ? metadata : null;
         }
-        /// <summary>
-        /// 获取指定节点的所有子节点
-        /// </summary>
-        public IReadOnlyList<NodeMetadata> GetChildren(JsonNode node)
-        {
-            var metadata = GetNodeMetadata(node);
-            return metadata?.Children?.AsReadOnly() ?? new List<NodeMetadata>().AsReadOnly();
-        }
-
-        /// <summary>
-        /// 获取指定节点的父节点
-        /// </summary>
-        public NodeMetadata GetParent(JsonNode node)
-        {
-            var metadata = GetNodeMetadata(node);
-            return metadata?.Parent;
-        }
-
-        /// <summary>
-        /// 获取所有节点
-        /// </summary>
-        public IEnumerable<NodeMetadata> GetAllNodes()
-        {
-            EnsureTreeBuilt();
-            return _nodeMetadataMap.Values;
-        }
-
-        /// <summary>
-        /// 标记为需要重建
-        /// </summary>
         public void MarkDirty()
         {
             _isDirty = true;
         }
-
-        /// <summary>
-        /// 确保树已构建
-        /// </summary>
         private void EnsureTreeBuilt()
         {
             if (_isDirty)
@@ -190,10 +149,10 @@ namespace TreeNode.Runtime
             temp.Release();
             return metadata;
         }
-        public void RebuildBranch(PAPath path, JsonNode node)
+        public void RebuildBranch(PAPath path, JsonNode node, bool remove)
         {
             EnsureTreeBuilt();
-            
+
             if (path.IsEmpty)
             {
                 return;
@@ -202,35 +161,35 @@ namespace TreeNode.Runtime
             if (path.LastPart.IsIndex)
             {
                 // 处理集合元素的重建
-                RebuildCollectionBranch(path, node);
+                RebuildCollectionBranch(path, node, remove);
             }
             else
             {
                 // 处理普通属性的重建
-                RebuildFieldBranch(path, node);
+                RebuildFieldBranch(path, node, remove);
             }
         }
-        private void RebuildCollectionBranch(PAPath path, JsonNode node)
+        private void RebuildCollectionBranch(PAPath path, JsonNode node, bool remove)
         {
             var parentPath = path.GetParent();
             int changedIndex = path.LastPart.Index;
             RemoveCollectionItemsFromIndex(parentPath, changedIndex);
+            if (remove) { return; }
             BuildCollectionFromIndex(parentPath, changedIndex);
         }
-        private void RebuildFieldBranch(PAPath path, JsonNode node)
+        private void RebuildFieldBranch(PAPath path, JsonNode node, bool remove)
         {
             // 清理该分支下的所有元数据
             ClearBranchMetadata(path);
+            if (remove) { return; }
             var list = ListPool<(PAPath path, JsonNode node)>.GetList();
-            PAPath parentPath = path.GetParent();
-            JsonNode parent = GetNodeAtPath(parentPath);
+            int index = 0;
+            var jsonnodes = ListPool<(int depth, JsonNode node)>.GetList();
+            _asset.Nodes.GetAllInPath(ref path, ref index, jsonnodes);
+            JsonNode parent = jsonnodes.Last().node == node ? jsonnodes[^2].node : node;
             NodeMetadata parentMeta = GetNodeMetadata(parent);
-            NodeMetadata nodeMetadata = BuildNode(path, node, list);
-            
-            
-            
-            
-            
+            BuildNode(path, node, list);
+            parentMeta.SortChildren(_nodeMetadataMap);
             list.Release();
         }
         private void RemoveCollectionItemsFromIndex(PAPath parentPath, int fromIndex)
@@ -359,7 +318,7 @@ namespace TreeNode.Runtime
         /// 重建集合操作 - 处理集合内元素的增删，更新索引和之后的所有节点
         /// </summary>
         /// <param name="changes">变更列表</param>
-        public void RebuildTree((PAPath path, JsonNode node)[] changes)
+        public void RebuildTree((PAPath path, JsonNode node,bool remove)[] changes)
         {
             if (changes == null || changes.Length == 0)
             {
@@ -370,11 +329,11 @@ namespace TreeNode.Runtime
             for (int i = 0; i < changes.Length; i++)
             {
                 if (changes[i].path.IsEmpty) { continue; }
-                RebuildBranch(changes[i].path, changes[i].node);
+                RebuildBranch(changes[i].path, changes[i].node, changes[i].remove);
             }
         }
 
-        private static (PAPath path, JsonNode node)[] FilterRedundantChanges((PAPath path, JsonNode node)[] changes)
+        private static (PAPath path, JsonNode node,bool remove)[] FilterRedundantChanges((PAPath path, JsonNode node, bool remove)[] changes)
         {
             if (changes.Length <= 1) { return changes; }
             for (int i = 0; i < changes.Length - 1; i++)
@@ -387,12 +346,12 @@ namespace TreeNode.Runtime
                     ref PAPath jPath = ref changes[j].path;
                     if (jPath.StartsWith(iPath))
                     {
-                        changes[j] = (PAPath.Empty, null);
+                        changes[j] = (PAPath.Empty, null,true);
                         continue;
                     }
                     if (iPath.StartsWith(jPath))
                     {
-                        changes[i] = (PAPath.Empty, null);
+                        changes[i] = (PAPath.Empty, null, true);
                         break;
                     }
                 }
@@ -410,12 +369,12 @@ namespace TreeNode.Runtime
                         if (index < old.index)
                         {
                             dict[parent] = (index, i);
-                            changes[i] = (PAPath.Empty, null);
+                            changes[i] = (PAPath.Empty, null, true);
                         }
                     }
                 }
             }
-            List<(PAPath path, JsonNode node)> list = new(changes);
+            List<(PAPath path, JsonNode node,bool remove)> list = new(changes);
             list.RemoveAll(n => n.path.IsEmpty);
             changes = list.ToArray();
             return changes;
@@ -457,25 +416,6 @@ namespace TreeNode.Runtime
             }
         }
         #endregion
-        #region 调试和分析方法
-
-        /// <summary>
-        /// 获取简化的类型分析信息（用于调试）
-        /// </summary>
-        public string GetTypeAnalysisInfo(Type type)
-        {
-            var sb = new StringBuilder();
-
-            sb.AppendLine($"类型分析: {type.Name}");
-            sb.AppendLine($"命名空间: {type.Namespace}");
-            sb.AppendLine($"是否为JsonNode: {typeof(JsonNode).IsAssignableFrom(type)}");
-
-            return sb.ToString();
-        }
-
-        #endregion
-
-
         #region Editor Support Methods
 
         /// <summary>
@@ -488,7 +428,7 @@ namespace TreeNode.Runtime
             if (node != null && !path.IsEmpty && !_nodeMetadataMap.ContainsKey(node))
             {
                 // 使用智能分支重建
-                RebuildBranch(path, node);
+                RebuildBranch(path, node,false);
             }
         }
 
@@ -501,7 +441,7 @@ namespace TreeNode.Runtime
         {
             if (node != null && !path.IsEmpty && _nodeMetadataMap.ContainsKey(node))
             {
-                RebuildBranch(path, node);
+                RebuildBranch(path, node, true);
             }
         }
 
@@ -509,7 +449,7 @@ namespace TreeNode.Runtime
         /// 批量处理节点变更
         /// </summary>
         /// <param name="changes">变更列表，包含路径、节点和操作类型</param>
-        public void OnNodesChanged((PAPath path, JsonNode node)[] changes) => RebuildTree(changes);
+        public void OnNodesChanged((PAPath path, JsonNode node,bool remove)[] changes) => RebuildTree(changes);
         public IEnumerable<NodeMetadata> GetNodes()
         {
             EnsureTreeBuilt();
@@ -560,7 +500,6 @@ namespace TreeNode.Runtime
             EnsureTreeBuilt();
             return _nodeMetadataMap.Values
                 .Select(m => (m.Path.ToString(), m.DisplayName))
-                .OrderBy(item => item.Item1)
                 .ToList();
         }
 
