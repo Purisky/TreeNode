@@ -538,7 +538,6 @@ namespace TreeNodeSourceGenerator
         private void GenerateCollectNodesMethod(StringBuilder sb, List<AccessibleMemberInfo> members)
         {
             sb.AppendLine("            if (depth == 0) { return; }");
-            sb.AppendLine("            if (depth > 0) { depth--; }");
             sb.AppendLine();
 
             // 过滤出可能包含嵌套结构的成员（排除基础类型、Vec2类型和带有NoJsonNodeContainer标记的类型）
@@ -577,9 +576,11 @@ namespace TreeNodeSourceGenerator
         {
             string memberPath = $"parent.Append(\"{member.Name}\")";
             
+            string depth_ = "depth";
             // 如果成员本身是JsonNode类型，直接添加
             if (member.IsJsonNodeType)
             {
+                depth_ = "depth > 0 ? depth - 1 : depth"; // 避免修改原始 depth 参数
                 sb.AppendLine($"{indent}            list.Add(({memberPath}, {member.Name}));");
             }
             
@@ -604,7 +605,7 @@ namespace TreeNodeSourceGenerator
 
                 if (member.ImplementsIPropertyAccessor || member.IsJsonNodeType || (member.Type is INamedTypeSymbol namedTypeSymbol && TypeDict.ContainsKey(namedTypeSymbol)))
                 {
-                    sb.AppendLine($"{indent}            {member.Name}.CollectNodes(list, {memberPath}, depth);");
+                    sb.AppendLine($"{indent}            {member.Name}.CollectNodes(list, {memberPath}, {depth_});");
                 }
                 else
                 {

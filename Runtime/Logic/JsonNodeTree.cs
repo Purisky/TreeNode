@@ -1,7 +1,10 @@
-﻿using System;
+﻿using NUnit.Framework;
+using NUnit.Framework.Interfaces;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using TreeNode.Utility;
 using UnityEngine.Profiling.Memory.Experimental;
 
 namespace TreeNode.Runtime
@@ -20,18 +23,41 @@ namespace TreeNode.Runtime
         public class NodeMetadata
         {
             public JsonNode Node { get; set; }
+            public TypeCacheSystem.TypeReflectionInfo ReflectionInfo { get; set; }
             public PAPath Path { get; set; }
             public PAPath LocalPath { get; set; }
-            public int Depth { get; set; }
             public NodeMetadata Parent { get; set; }
             public List<NodeMetadata> Children { get; set; } = new();
-            public int RootIndex { get; set; } = -1;
-            public int ListIndex { get; set; } = 0; 
+            public int ListIndex { get; set; } = 0;
             public bool IsMultiPort { get; set; }
-            public int RenderOrder { get; set; } = 0; // UI渲染顺序
-
             public bool IsRoot => Parent == null;
             public string DisplayName => Node.GetInfo();
+
+            public NodeMetadata(JsonNode node, PAPath path)
+            {
+                Node = node;
+                Path = path;
+                ReflectionInfo = TypeCacheSystem.GetTypeInfo(node.GetType());
+                Children = new();
+            }
+            public void SortChildren()
+            {
+                Children.Sort(PathComparer);
+            }
+
+            public Comparer<NodeMetadata> PathComparer => Comparer<NodeMetadata>.Create((a, b) =>
+            {
+                PAPath locala = a.LocalPath;
+                PAPath localb = b.LocalPath;
+
+
+
+                return 1;
+            });
+
+
+
+
         }
 
         #endregion
@@ -41,7 +67,6 @@ namespace TreeNode.Runtime
         private readonly TreeNodeAsset _asset;
         private readonly Dictionary<JsonNode, NodeMetadata> _nodeMetadataMap;
         private readonly List<NodeMetadata> _rootNodes;
-        private Dictionary<JsonNode, int> _rootIndexCache;
         private bool _isDirty = true;
 
         #endregion
@@ -74,29 +99,8 @@ namespace TreeNode.Runtime
         public NodeMetadata GetNodeMetadata(JsonNode node)
         {
             EnsureTreeBuilt();
-
-            // 极小规模时线性搜索更快
-            if (UseLinearSearch)
-            {
-                foreach (var kvp in _nodeMetadataMap)
-                {
-                    if (ReferenceEquals(kvp.Key, node))
-                        return kvp.Value;
-                }
-                return null;
-            }
-            else
-            {
-                return _nodeMetadataMap.TryGetValue(node, out var metadata) ? metadata : null;
-            }
+            return _nodeMetadataMap.TryGetValue(node, out var metadata) ? metadata : null;
         }
-
-        /// <summary>
-        /// 判断是否使用线性搜索
-        /// 极小规模下线性搜索比字典查找更快
-        /// </summary>
-        private bool UseLinearSearch => _nodeMetadataMap.Count < 8;
-
         /// <summary>
         /// 获取指定节点的所有子节点
         /// </summary>
@@ -148,9 +152,6 @@ namespace TreeNode.Runtime
 
         #region 树构建核心逻辑
 
-        /// <summary>
-        /// 重新构建整个树结构 - 基于 PropertyAccessor
-        /// </summary>
         public void RebuildTree()
         {
             _nodeMetadataMap.Clear();
@@ -158,49 +159,37 @@ namespace TreeNode.Runtime
             _isDirty = false;
             _asset.Nodes ??= new();
             if (_asset.Nodes.Count == 0) { return; }
-
-            // 缓存根节点索引
-            CacheRootIndexes();
-             
-            // 重建所有节点
-            var nodeList = new List<(PAPath path, JsonNode node)>();
-
+            var nodeList = ListPool<(PAPath path, JsonNode node)>.GetList();
             for (int i = 0; i < _asset.Nodes.Count; i++)
             {
-                nodeList.Clear();
                 PAPath path = PAPath.Index(i);
-                _asset.Nodes[i].CollectNodes(nodeList, path, -1);
-                NodeMetadata metadata = new()
-                {
-                    Node = _asset.Nodes[i],
-                    Path = path,
-                    Depth = path.Depth,
-                    RenderOrder = path.GetRenderOrder()
-                };
-                _nodeMetadataMap[_asset.Nodes[i]] = metadata;
-                _rootNodes.Add(metadata);
-                foreach (var (path_, node) in nodeList)
-                {
-                    NodeMetadata metadata_ = new NodeMetadata()
-                    {
-                        Node = node,
-                        Path = path_,
-                        Depth = path_.Depth,
-                        RenderOrder = path_.GetRenderOrder()
-                    };
-                    _nodeMetadataMap[node] = metadata_;
-                }
+                NodeMetadata root = BuildNode(path, _asset.Nodes[i], nodeList);
+                root.LocalPath = path;
             }
-            // 建立层次关系
-            BuildHierarchyFromPaths();
+            nodeList.Release();
         }
 
-        /// <summary>
-        /// 重建指定分支 - 处理单次操作的基础重建单元
-        /// 集合内元素重建时，需要重建parent[index..]所有元素，先移除所有parent下索引>=index的节点内容
-        /// </summary>
-        /// <param name="path">操作的路径</param>
-        /// <param name="node">相关的节点</param>
+        public NodeMetadata BuildNode(PAPath path, JsonNode node, List<(PAPath path, JsonNode node)> list)
+        {
+            NodeMetadata metadata = new(node, path);
+            if (path.Root)
+            {
+                _rootNodes.Add(metadata);
+            }
+            _nodeMetadataMap[node] = metadata;
+            list.Clear();
+            node.CollectNodes(list, path, 1);
+            var temp = ListPool<(PAPath path, JsonNode node)>.GetList();
+            for (int i = 0; i < list.Count; i++)
+            {
+                NodeMetadata child = BuildNode(list[i].path, list[i].node, temp);
+                child.Parent = metadata;
+                child.LocalPath =  list[i].path.GetSubPath(path.Depth);
+                metadata.Children.Add(child);
+            }
+            temp.Release();
+            return metadata;
+        }
         public void RebuildBranch(PAPath path, JsonNode node)
         {
             EnsureTreeBuilt();
@@ -218,47 +207,32 @@ namespace TreeNode.Runtime
             else
             {
                 // 处理普通属性的重建
-                RebuildPropertyBranch(path, node);
+                RebuildFieldBranch(path, node);
             }
         }
-
-        /// <summary>
-        /// 重建集合分支 - 处理集合元素的重建
-        /// 当集合内元素重建时，需要重建parent[index..]所有元素，先移除所有parent下索引>=index的节点内容
-        /// </summary>
-        /// <param name="path">集合元素的路径</param>
-        /// <param name="node">相关的节点</param>
         private void RebuildCollectionBranch(PAPath path, JsonNode node)
         {
             var parentPath = path.GetParent();
             int changedIndex = path.LastPart.Index;
-
-            // 1. 先移除所有parent下索引>=index的节点内容
             RemoveCollectionItemsFromIndex(parentPath, changedIndex);
-
-            // 2. 重新构建从指定索引开始的所有集合元素
-            RebuildCollectionFromIndex(parentPath, changedIndex);
+            BuildCollectionFromIndex(parentPath, changedIndex);
         }
-
-        /// <summary>
-        /// 重建普通属性分支 - 处理非集合属性的重建
-        /// </summary>
-        /// <param name="path">属性的路径</param>
-        /// <param name="node">相关的节点</param>
-        private void RebuildPropertyBranch(PAPath path, JsonNode node)
+        private void RebuildFieldBranch(PAPath path, JsonNode node)
         {
             // 清理该分支下的所有元数据
             ClearBranchMetadata(path);
+            var list = ListPool<(PAPath path, JsonNode node)>.GetList();
+            PAPath parentPath = path.GetParent();
+            JsonNode parent = GetNodeAtPath(parentPath);
+            NodeMetadata parentMeta = GetNodeMetadata(parent);
+            NodeMetadata nodeMetadata = BuildNode(path, node, list);
             
-            // 重新构建该分支
-            RebuildSingleBranch(path);
+            
+            
+            
+            
+            list.Release();
         }
-
-        /// <summary>
-        /// 移除集合中从指定索引开始的所有元素的元数据
-        /// </summary>
-        /// <param name="parentPath">父路径</param>
-        /// <param name="fromIndex">起始索引</param>
         private void RemoveCollectionItemsFromIndex(PAPath parentPath, int fromIndex)
         {
             var itemsToRemove = new List<NodeMetadata>();
@@ -289,28 +263,9 @@ namespace TreeNode.Runtime
         /// <returns>是否需要移除</returns>
         private bool IsCollectionItemToRemove(PAPath itemPath, PAPath parentPath, int fromIndex)
         {
-            // 检查路径深度
-            if (itemPath.Depth <= parentPath.Depth)
-            {
-                return false;
-            }
-
-            // 检查是否是父路径的子路径
-            if (!itemPath.IsChildOf(parentPath) && !itemPath.Equals(parentPath))
-            {
-                return false;
-            }
-
-            // 获取在父路径基础上的相对路径
-            var relativePath = GetRelativePath(itemPath, parentPath);
-            if (relativePath.IsEmpty || relativePath.Parts.Length == 0)
-            {
-                return false;
-            }
-
-            // 检查第一个部分是否是索引且 >= fromIndex
-            var firstPart = relativePath.Parts[0];
-            return firstPart.IsIndex && firstPart.Index >= fromIndex;
+            if (!itemPath.IsChildOf(parentPath)) { return false; }
+            ref PAPart Index = ref itemPath.Parts[parentPath.Depth];
+            return Index.IsIndex && Index.Index >= fromIndex;
         }
 
         /// <summary>
@@ -318,68 +273,44 @@ namespace TreeNode.Runtime
         /// </summary>
         /// <param name="parentPath">父路径</param>
         /// <param name="fromIndex">起始索引</param>
-        private void RebuildCollectionFromIndex(PAPath parentPath, int fromIndex)
+        private void BuildCollectionFromIndex(PAPath parentPath, int fromIndex)
         {
-            // 获取父节点
-            var parentNode = GetNodeAtPath(parentPath);
-            if (parentNode == null)
+            JsonNode parent = null;
+            NodeMetadata parentMeta = null;
+            var nodeList = ListPool<(PAPath path, JsonNode node)>.GetList();
+            if (!parentPath.IsEmpty)
             {
-                return;
-            }
-
-            // 收集从指定索引开始的所有节点
-            var nodeList = new List<(PAPath path, JsonNode node)>();
-            parentNode.CollectNodes(nodeList, parentPath, depth: -1);
-
-            // 筛选出索引 >= fromIndex 的节点
-            var filteredNodes = nodeList.Where(item => 
-            {
-                var relativePath = GetRelativePath(item.path, parentPath);
-                if (relativePath.IsEmpty || relativePath.Parts.Length == 0)
+                parent = GetNodeAtPath(parentPath);
+                if (parent == null)
                 {
-                    return false;
+                    return;
                 }
-                
-                var firstPart = relativePath.Parts[0];
-                return firstPart.IsIndex && firstPart.Index >= fromIndex;
-            }).ToList();
-
-            // 为这些节点创建元数据
-            foreach (var (path, nodeItem) in filteredNodes)
-            {
-                CreateNodeMetadata(nodeItem, path);
+                parentMeta = GetNodeMetadata(GetNodeAtPath(parentPath));
+                parent.CollectNodes(nodeList, parentPath, 1);
+                if (nodeList.Count == 0) { return; }
             }
-
-            // 重新建立层次关系
-            BuildHierarchyFromPaths(filteredNodes.Select(item => item.path).ToArray());
+            else
+            {
+                _asset.Nodes.CollectNodes(nodeList, PAPath.Empty, 1);
+            }
+            var temp = ListPool<(PAPath path, JsonNode node)>.GetList();
+            for (int i = fromIndex; i < nodeList.Count; i++)
+            {
+                PAPath path = parentPath.Append(i);
+                NodeMetadata metadata = BuildNode(path, nodeList[i].node, temp);
+                metadata.LocalPath = PAPath.Index(i);
+                if (parentPath.IsEmpty)
+                {
+                    _rootNodes.Add(metadata);
+                }
+                else
+                {
+                    parentMeta.Children.Add(metadata);
+                }
+            }
+            temp.Release();
+            nodeList.Release();
         }
-
-        /// <summary>
-        /// 重新构建单个分支
-        /// </summary>
-        /// <param name="branchPath">分支路径</param>
-        private void RebuildSingleBranch(PAPath branchPath)
-        {
-            var branchNode = GetNodeAtPath(branchPath);
-            if (branchNode == null)
-            {
-                return;
-            }
-
-            // 收集该分支下的所有节点
-            var nodeList = new List<(PAPath path, JsonNode node)>();
-            branchNode.CollectNodes(nodeList, branchPath, depth: -1);
-
-            // 为这些节点创建元数据
-            foreach (var (path, node) in nodeList)
-            {
-                CreateNodeMetadata(node, path);
-            }
-
-            // 重新建立层次关系
-            BuildHierarchyFromPaths(nodeList.Select(item => item.path).ToArray());
-        }
-
         /// <summary>
         /// 获取指定路径的节点
         /// </summary>
@@ -394,37 +325,14 @@ namespace TreeNode.Runtime
 
             try
             {
-                return PropertyAccessor.GetValue<JsonNode>(_asset.Nodes, path);
+                int index = 0;
+                return _asset.Nodes.GetValueInternal<JsonNode>(ref path, ref index);
             }
             catch
             {
                 return null;
             }
         }
-
-        /// <summary>
-        /// 创建节点元数据
-        /// </summary>
-        /// <param name="node">节点</param>
-        /// <param name="path">路径</param>
-        private void CreateNodeMetadata(JsonNode node, PAPath path)
-        {
-            if (node == null || _nodeMetadataMap.ContainsKey(node))
-            {
-                return;
-            }
-
-            var metadata = new NodeMetadata
-            {
-                Node = node,
-                Path = path,
-                Depth = path.Depth,
-                RenderOrder = path.GetRenderOrder()
-            };
-
-            _nodeMetadataMap[node] = metadata;
-        }
-
         /// <summary>
         /// 移除元数据
         /// </summary>
@@ -512,20 +420,7 @@ namespace TreeNode.Runtime
             changes = list.ToArray();
             return changes;
         }
-        /// <summary>
-        /// 获取相对路径
-        /// </summary>
-        private PAPath GetRelativePath(PAPath fullPath, PAPath basePath)
-        {
-            if (basePath.IsEmpty) return fullPath;
-            if (fullPath.Depth <= basePath.Depth) return new PAPath();
 
-            int skipCount = basePath.Depth;
-            var relativeParts = new PAPart[fullPath.Depth - skipCount];
-            Array.Copy(fullPath.Parts, skipCount, relativeParts, 0, relativeParts.Length);
-            
-            return new PAPath(relativeParts);
-        }
 
         /// <summary>
         /// 清理指定分支的元数据
@@ -561,284 +456,7 @@ namespace TreeNode.Runtime
                 _nodeMetadataMap.Remove(metadata.Node);
             }
         }
-
-        /// <summary>
-        /// 兼容旧接口的重载方法
-        /// </summary>
-        /// <param name="targetPaths">目标路径数组</param>
-        public void RebuildTree(PAPath[] targetPaths)
-        {
-            if (targetPaths == null || targetPaths.Length == 0)
-            {
-                RebuildTree();
-                return;
-            }
-
-            // 转换为新格式，假设都是添加操作
-            var targetChanges = targetPaths.Select(path => (path, (JsonNode)null)).ToArray();
-            RebuildTree(targetChanges);
-        }        /// <summary>
-        /// 缓存根节点索引，避免重复的IndexOf调用
-        /// </summary>
-        private void CacheRootIndexes()
-        {
-            _rootIndexCache = new Dictionary<JsonNode, int>(_asset.Nodes.Count);
-            for (int i = 0; i < _asset.Nodes.Count; i++)
-            {
-                _rootIndexCache[_asset.Nodes[i]] = i;
-            }
-        }
         #endregion
-
-        #region 层次关系构建
-        
-        /// <summary>
-        /// 构建或重建节点的层次关系
-        /// </summary>
-        /// <param name="targetPaths">要处理的特定路径，null表示处理所有节点</param>
-        private void BuildHierarchyFromPaths(PAPath[] targetPaths = null)
-        {
-            // 创建路径到元数据的映射表，用于快速查找
-            var pathToMetadata = new Dictionary<PAPath, NodeMetadata>(_nodeMetadataMap.Count);
-            foreach (var metadata in _nodeMetadataMap.Values)
-            {
-                pathToMetadata[metadata.Path] = metadata;
-            }
-
-            // 确定要处理的元数据集合
-            IEnumerable<NodeMetadata> targetMetadata;
-            if (targetPaths == null)
-            {
-                // 处理所有节点
-                targetMetadata = _nodeMetadataMap.Values;
-            }
-            else
-            {
-                // 只处理指定路径的节点
-                targetMetadata = targetPaths
-                    .Where(path => pathToMetadata.ContainsKey(path))
-                    .Select(path => pathToMetadata[path]);
-            }
-
-            // 按深度排序，确保父节点先于子节点处理
-            var sortedMetadata = targetMetadata.OrderBy(m => m.Depth).ToList();
-            var affectedParents = new HashSet<NodeMetadata>();
-
-            foreach (var metadata in sortedMetadata)
-            {
-                if (metadata.Depth == 0)
-                {
-                    // 处理根节点
-                    SetupRootNode(metadata);
-                }
-                else
-                {
-                    // 处理子节点
-                    var parent = SetupChildNode(metadata, pathToMetadata);
-                    if (parent != null)
-                    {
-                        affectedParents.Add(parent);
-                    }
-                }
-            }
-
-            // 对所有受影响的父节点的子节点重新排序
-            if (targetPaths == null)
-            {
-                // 全量重建，排序所有节点的子节点
-                SortChildrenForParents(Enumerable.Empty<NodeMetadata>());
-            }
-            else
-            {
-                // 部分重建，只排序受影响的父节点
-                SortChildrenForParents(affectedParents);
-            }
-        }
-
-        /// <summary>
-        /// 设置根节点
-        /// </summary>
-        private void SetupRootNode(NodeMetadata metadata)
-        {
-            // 设置根节点索引
-            if (_rootIndexCache != null && _rootIndexCache.TryGetValue(metadata.Node, out int rootIndex))
-            {
-                metadata.RootIndex = rootIndex;
-            }
-            else
-            {
-                metadata.RootIndex = _asset.Nodes.IndexOf(metadata.Node);
-            }
-
-            // 添加到根节点列表（避免重复）
-            if (!_rootNodes.Contains(metadata))
-            {
-                _rootNodes.Add(metadata);
-            }
-        }
-
-        /// <summary>
-        /// 设置子节点
-        /// </summary>
-        /// <param name="metadata">子节点元数据</param>
-        /// <param name="pathToMetadata">路径到元数据的映射</param>
-        /// <returns>父节点元数据</returns>
-        private NodeMetadata SetupChildNode(NodeMetadata metadata, Dictionary<PAPath, NodeMetadata> pathToMetadata)
-        {
-            var parentPath = metadata.Path.GetParent();
-            if (parentPath.IsEmpty)
-            {
-                return null;
-            }
-
-            // 查找父节点
-            NodeMetadata parentMetadata = null;
-            if (pathToMetadata.TryGetValue(parentPath, out parentMetadata))
-            {
-                // 在映射中找到了父节点
-            }
-            else
-            {
-                // 在现有节点中查找父节点
-                var parentNode = GetNodeAtPath(parentPath);
-                if (parentNode != null)
-                {
-                    parentMetadata = GetNodeMetadata(parentNode);
-                }
-            }
-
-            if (parentMetadata != null)
-            {
-                var lastPart = metadata.Path.LastPart;
-
-                // 设置父子关系
-                metadata.Parent = parentMetadata;
-                metadata.LocalPath = new PAPath(new[] { lastPart });
-                metadata.IsMultiPort = metadata.Path.HasIndexer;
-
-                // 设置列表索引
-                if (lastPart.IsIndex)
-                {
-                    metadata.ListIndex = lastPart.Index;
-                }
-
-                // 添加到父节点的子节点列表（避免重复）
-                if (!parentMetadata.Children.Contains(metadata))
-                {
-                    parentMetadata.Children.Add(metadata);
-                }
-
-                return parentMetadata;
-            }
-
-            return null;
-        }
-
-        /// <summary>
-        /// 为指定的父节点集合排序子节点
-        /// </summary>
-        private void SortChildrenForParents(IEnumerable<NodeMetadata> parents)
-        {
-            // 如果是全量重建（没有指定特定父节点），为所有有子节点的节点排序
-            if (!parents.Any())
-            {
-                foreach (var metadata in _nodeMetadataMap.Values)
-                {
-                    if (metadata.Children.Count > 0)
-                    {
-                        SortChildren(metadata);
-                    }
-                }
-            }
-            else
-            {
-                // 为指定的父节点排序
-                foreach (var parent in parents)
-                {
-                    SortChildren(parent);
-                }
-            }
-        }
-
-        /// <summary>
-        /// 智能排序子节点：根据子节点数量选择不同策略
-        /// </summary>
-        private void SortChildren(NodeMetadata parent)
-        {
-            if (parent.Children.Count > 2)
-            {
-                // 多个子节点时使用完整排序
-                parent.Children = parent.Children
-                    .OrderBy(c => c.RenderOrder)
-                    .ThenBy(c => c.ListIndex)
-                    .ToList();
-            }
-            else if (parent.Children.Count == 2)
-            {
-                // 两个子节点时使用简单比较交换
-                var first = parent.Children[0];
-                var second = parent.Children[1];
-
-                bool shouldSwap = first.RenderOrder > second.RenderOrder ||
-                                 (first.RenderOrder == second.RenderOrder && first.ListIndex > second.ListIndex);
-
-                if (shouldSwap)
-                {
-                    parent.Children[0] = second;
-                    parent.Children[1] = first;
-                }
-            }
-            // 单个或零个子节点无需排序
-        }
-
-
-
-
-
-
-
-
-
-
-
-
-        #endregion
-
-        #region 路径和深度计算
-
-        /// <summary>
-        /// 计算所有节点的路径和深度
-        /// </summary>
-        private void CalculatePathsAndDepths()
-        {
-            foreach (var rootMetadata in _rootNodes)
-            {
-                var rootPath = new PAPath($"[{rootMetadata.RootIndex}]");
-                CalculatePathAndDepthRecursively(rootMetadata, rootPath, 0);
-            }
-        }
-
-        /// <summary>
-        /// 递归计算路径和深度
-        /// </summary>
-        private void CalculatePathAndDepthRecursively(NodeMetadata metadata, PAPath path, int depth)
-        {
-            metadata.Path = path;
-            metadata.Depth = depth;
-
-            // 按渲染顺序排序子节点
-            var sortedChildren = metadata.Children.OrderBy(c => c.RenderOrder).ThenBy(c => c.ListIndex).ToList();
-
-            foreach (var child in sortedChildren)
-            {
-                // 构建子节点的PAPath
-                var childPath = path.Combine(child.LocalPath);
-                CalculatePathAndDepthRecursively(child, childPath, depth + 1);
-            }
-        }
-
-        #endregion
-
         #region 调试和分析方法
 
         /// <summary>
@@ -857,23 +475,6 @@ namespace TreeNode.Runtime
 
         #endregion
 
-        #region PropertyAccessor Integration Methods
-
-        /// <summary>
-        /// 获取带路径信息的所有 JsonNode
-        /// </summary>
-        /// <returns>包含路径信息的 JsonNode 枚举</returns>
-        public IEnumerable<(JsonNode node, PAPath path, int depth)> GetJsonNodeHierarchy()
-        {
-            var nodeList = new List<(PAPath path, JsonNode node)>();
-            _asset.Nodes.CollectNodes(nodeList, PAPath.Empty, depth: -1);
-
-            foreach (var item in nodeList)
-            {
-                yield return (item.node, item.path, item.path.Depth);
-            }
-        }
-        #endregion
 
         #region Editor Support Methods
 
@@ -909,14 +510,6 @@ namespace TreeNode.Runtime
         /// </summary>
         /// <param name="changes">变更列表，包含路径、节点和操作类型</param>
         public void OnNodesChanged((PAPath path, JsonNode node)[] changes) => RebuildTree(changes);
-        public List<NodeMetadata> GetSortedNodes()
-        {
-            return GetNodes()
-                .OrderBy(m => m.RenderOrder)
-                .ThenBy(m => m.Path.ToString())
-                .ToList();
-        }
-        
         public IEnumerable<NodeMetadata> GetNodes()
         {
             EnsureTreeBuilt();

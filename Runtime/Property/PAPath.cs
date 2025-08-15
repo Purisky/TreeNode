@@ -285,6 +285,21 @@ namespace TreeNode.Runtime
             return order;
         }
 
+        /// <summary>
+        /// 获取相对路径
+        /// </summary>
+        public static PAPath GetRelativePath(PAPath fullPath, PAPath basePath)
+        {
+            if (basePath.IsEmpty) return fullPath;
+            if (fullPath.Depth <= basePath.Depth) return new PAPath();
+
+            int skipCount = basePath.Depth;
+            var relativeParts = new PAPart[fullPath.Depth - skipCount];
+            Array.Copy(fullPath.Parts, skipCount, relativeParts, 0, relativeParts.Length);
+
+            return new PAPath(relativeParts);
+        }
+
         #endregion
 
 
@@ -490,13 +505,7 @@ namespace TreeNode.Runtime
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public readonly bool IsChildOf(PAPath parent)
         {
-            // 空路径或无效路径处理
-            if (parent.IsEmpty) return !IsEmpty; // 任何非空路径都是空路径的子路径
-            if (IsEmpty) return false; // 空路径不是任何路径的子路径
-            if (parent.Depth >= Depth) return false; // 子路径必须比父路径更深
-
-            // 检查当前路径是否以父路径开头
-            return StartsWith(parent);
+            return parent.Depth < Depth && StartsWith(parent);
         }
 
         /// <summary>

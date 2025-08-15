@@ -246,7 +246,7 @@ namespace TreeNode.Editor
         /// </summary>
         private void CreateViewNodesAsyncOptimized()
         {
-            var sortedNodes = _nodeTree.GetSortedNodes();
+            var sortedNodes = _nodeTree.GetNodes().ToList();
             var totalNodes = sortedNodes.Count;
 
             if (totalNodes == 0) return;

@@ -310,7 +310,7 @@ namespace TreeNode.Editor
                     AddElement(edge);
 
                     // 设置多端口索引
-                    if (childMetadata.IsMultiPort)
+                    if (childMetadata.Path.ItemOfCollection)
                     {
                         childViewNode.ParentPort.SetIndex(childMetadata.ListIndex);
                     }
@@ -439,25 +439,6 @@ namespace TreeNode.Editor
         public virtual string Validate()
         {
             return NodeTree.ValidateTree() ? null : "Tree validation failed";
-        }
-
-        /// <summary>
-        /// 获取排序后的ViewNode列表 - 基于逻辑层数据
-        /// </summary>
-        public List<ViewNode> GetSortNodes()
-        {
-            var sortedMetadata = NodeTree.GetSortedNodes();
-            var sortedViewNodes = new List<ViewNode>();
-
-            foreach (var metadata in sortedMetadata)
-            {
-                if (NodeDic.TryGetValue(metadata.Node, out ViewNode viewNode))
-                {
-                    sortedViewNodes.Add(viewNode);
-                }
-            }
-
-            return sortedViewNodes;
         }
 
         /// <summary>

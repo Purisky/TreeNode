@@ -57,4 +57,23 @@ namespace TreeNode.Utility
         }
 
     }
+    public class ListPool<T>: ObjPool<List<T>>
+    {
+        public ListPool() : base(null, l => l.Clear())
+        {
+        }
+        public static ListPool<T> Inst { get; } = new();
+        public static List<T> GetList()
+        {
+            return Inst.Get();
+        }
+    }
+    public static class ListExtensions
+    {
+        public static void Release<T>(this List<T> list)
+        {
+            ListPool<T>.Inst.Release(list);
+        }
+    }
+
 }

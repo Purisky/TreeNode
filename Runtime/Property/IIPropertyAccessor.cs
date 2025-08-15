@@ -122,19 +122,19 @@ namespace TreeNode.Runtime
 
         public static void CollectNodes(this IList list, List<(PAPath, JsonNode)> listNodes, PAPath parent, int depth = -1)
         {
-
             if (depth == 0) { return; }
-            if (depth > 0) { depth--; }
             for (int i = 0; i < list.Count; i++)
             {
+                int depth_ = depth;
                 PAPath next = parent.Append(i);
                 if (list[i] is JsonNode node)
                 {
                     listNodes.Add((next, node));
+                    if (depth_ > 0) { depth_--; }
                 }
-                if (list[i] is IPropertyAccessor accessor) { accessor.CollectNodes(listNodes, next, depth); }
+                if (list[i] is IPropertyAccessor accessor) { accessor.CollectNodes(listNodes, next, depth_); }
                 else if (list[i] is ICollection) { throw new NestedCollectionException(parent, list.GetType()); }
-                else { PropertyAccessor.CollectNodes(list[i], listNodes, next, depth); }
+                else { PropertyAccessor.CollectNodes(list[i], listNodes, next, depth_); }
             }
         }
     }

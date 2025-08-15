@@ -352,8 +352,6 @@ namespace TreeNode.Runtime
         public static void CollectNodes(object obj, List<(PAPath, JsonNode)> listNodes, PAPath parent, int depth = -1)
         {
             if (depth == 0) { return; }
-            if (depth > 0) { depth--; }
-            
             var type = obj.GetType();
             
             // 使用TypeCacheSystem获取缓存的类型信息
@@ -364,6 +362,7 @@ namespace TreeNode.Runtime
             {
                 try
                 {
+                    int depth_ = depth;
                     // 使用预编译的Getter委托获取成员值，性能更高
                     var value = memberInfo.Getter(obj);
                     
@@ -378,21 +377,22 @@ namespace TreeNode.Runtime
                     if (memberInfo.Category == TypeCacheSystem.MemberCategory.JsonNode && value is JsonNode jsonNode)
                     {
                         listNodes.Add((memberPath, jsonNode));
+                        if (depth_ > 0) { depth_--; }
                     }
                     
                     // 处理特殊接口类型
                     if (value is IPropertyAccessor accessor) 
                     { 
-                        accessor.CollectNodes(listNodes, memberPath, depth); 
+                        accessor.CollectNodes(listNodes, memberPath, depth_); 
                     }
                     else if (value is IList list) 
                     { 
-                        list.CollectNodes(listNodes, memberPath, depth); 
+                        list.CollectNodes(listNodes, memberPath, depth_); 
                     }
                     // 只对可能包含嵌套JsonNode的成员进行递归
                     else if (memberInfo.MayContainNestedJsonNode) 
                     { 
-                        CollectNodes(value, listNodes, memberPath, depth); 
+                        CollectNodes(value, listNodes, memberPath, depth_); 
                     }
                 }
                 catch
