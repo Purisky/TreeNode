@@ -11,21 +11,7 @@ namespace TreeNode.Editor
     [Serializable]
     public record CopyPasteData
     {
-        public List<NodeCopyData> RootNodes { get; set; } = new();
-        public Vec2 OriginalCenter { get; set; }
-    }
-
-    /// <summary>
-    /// 节点复制数据结构 - 包含完整的节点层次结构
-    /// </summary>
-    [Serializable]
-    public record NodeCopyData
-    {
-        public string TypeName { get; set; } = string.Empty;
-        public string JsonData { get; set; } = string.Empty;
-        public Vec2 Position { get; set; }
-        public List<NodeCopyData> Children { get; set; } = new();
-        public string PropertyPath { get; set; } = string.Empty;
+        public List<JsonNode> RootNodes { get; set; } = new();
     }
 
     /// <summary>

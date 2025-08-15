@@ -456,8 +456,6 @@ namespace TreeNode.Editor
                 ViewNodes.Add(viewNode);
                 NodeDic.Add(node, viewNode);
                 AddElement(viewNode);
-
-                // ✅ 移除异步子节点初始化调用 - 将在批量连接阶段处理
             }
             catch (Exception e)
             {
@@ -546,7 +544,7 @@ namespace TreeNode.Editor
 
         #endregion
 
-        public Vector2 GetMousePosition()
+        public Vec2 GetMousePosition()
         {
             Vector2 mousePositionInWindow = Mouse.current.position.ReadValue()/ EditorGUIUtility.pixelsPerPoint;
             mousePositionInWindow.y -= 24;

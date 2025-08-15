@@ -293,6 +293,7 @@ namespace TreeNode.Runtime
             {
                 var singleSetter = CacheManager.GetOrCreateSetter<object>(type, first);
                 singleSetter(obj, default);
+                return;
             }
             index++;
             object nextObj = GetOrCreateGetter<object>(type, first)(obj);

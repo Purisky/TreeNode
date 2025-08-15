@@ -66,6 +66,12 @@ namespace TreeNode.Editor
         {
             ParentPort parentport_of_child = edge.ParentPort();
             parentport_of_child.SetIndex(-1);
+            SortIndex();
+            base.OnRemoveEdge(edge);
+        }
+
+        public void SortIndex()
+        {
             List<JsonNode> list = GetChildValues();
             if (list.Any())
             {
@@ -74,8 +80,8 @@ namespace TreeNode.Editor
                     existEdge.ParentPort().SetIndex(list);
                 }
             }
-            base.OnRemoveEdge(edge);
         }
+
         public override void OnAddEdge(Edge edge)
         {
             ParentPort parentport_of_child = edge.ParentPort();

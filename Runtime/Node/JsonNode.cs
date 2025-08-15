@@ -96,6 +96,21 @@ namespace TreeNode.Runtime
                 return (x * 397) ^ y;
             }
         }
+
+        public static Vec2 Min(Vec2 position, Vec2 originalCenter)
+        {
+            return new Vec2(
+                Mathf.Min(position.x, originalCenter.x),
+                Mathf.Min(position.y, originalCenter.y)
+            );
+        }
+        public static Vec2 Max(Vec2 position, Vec2 originalCenter)
+        {
+            return new Vec2(
+                Mathf.Max(position.x, originalCenter.x),
+                Mathf.Max(position.y, originalCenter.y)
+            );
+        }
         public static bool operator ==(Vec2 left, Vec2 right)
         {
             return left.Equals(right);

@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TreeNode.Runtime;
+using TreeNode.Utility;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -117,7 +118,7 @@ namespace TreeNode.Editor
         /// <summary>
         /// 专用于工具添加节点的方法
         /// </summary>
-        public ViewNode AddViewNodeWithConnection(JsonNode node, string nodePath)
+        public ViewNode AddViewNodeWithConnection(JsonNode node, PAPath nodePath)
         {
             // 1. 创建ViewNode（使用现有的AddViewNode方法）
             ViewNode viewNode = AddViewNode(node);
@@ -134,12 +135,13 @@ namespace TreeNode.Editor
         /// <summary>
         /// 为工具添加的节点创建连接 - 优化版本
         /// </summary>
-        private void CreateToolNodeConnection(ViewNode childViewNode, string nodePath)
+        private void CreateToolNodeConnection(ViewNode childViewNode, PAPath nodePath)
         {
             try
             {
                 // 通过现有的GetPort方法查找端口
                 var childPort = GetPort(nodePath);
+                //Debug.Log(childPort);
                 if (childPort != null && childViewNode.ParentPort != null)
                 {
                     // 立即创建连接
@@ -181,7 +183,7 @@ namespace TreeNode.Editor
                 var childValues = multiPort.GetChildValues();
                 int newIndex = Math.Max(0, childValues.Count - 1);
                 childViewNode.ParentPort.SetIndex(newIndex);
-                Debug.Log($"设置MultiPort索引: {newIndex}");
+                //Debug.Log($"设置MultiPort索引: {newIndex}");
             }
             
             Debug.Log($"立即创建工具节点连接: {childPort.node.Data.GetType().Name} -> {childViewNode.Data.GetType().Name}");
@@ -312,7 +314,7 @@ namespace TreeNode.Editor
                     // 设置多端口索引
                     if (childMetadata.Path.ItemOfCollection)
                     {
-                        childViewNode.ParentPort.SetIndex(childMetadata.ListIndex);
+                        childViewNode.ParentPort.SetIndex(childMetadata.Path.LastPart.Index);
                     }
                 }
                 else
@@ -422,16 +424,36 @@ namespace TreeNode.Editor
         #endregion
         #region 数据访问和查询
 
-        public PropertyElement Find(string path)
-        {
-            JsonNode node = PropertyAccessor.GetLast<JsonNode>(Asset.Data.Nodes, path, false, out int index);
-            if (node is null) { return null; }
-            if (index >= path.Length - 1) { return null; }
-            string local = path[index..];
-            return NodeDic[node]?.FindByLocalPath(local);
-        }
+        //public PropertyElement Find(PAPath path)
+        //{
+        //    int index = 0;
+        //    List<(int, JsonNode)> list = ListPool<(int, JsonNode)>.GetList();
+        //    Asset.Data.Nodes.GetAllInPath<JsonNode>(ref path,ref index,list);
+        //    if(list.Last().Item1== path.Depth-1)
 
-        public ChildPort GetPort(string path) => Find(path)?.Q<ChildPort>();
+
+        //    list.Release();
+        //    if (node is null) { return null; }
+        //    if (index >= path.Length - 1) { return null; }
+        //    string local = path[index..];
+        //    return NodeDic[node]?.FindByLocalPath(local);
+        //}
+
+        public ChildPort GetPort(PAPath path)
+        {
+            if (path.ItemOfCollection)
+            { 
+                path = path.GetParent();
+            }
+            PAPath parent = path.GetParent();
+            int index = 0;
+            List<(int, JsonNode)> list = ListPool<(int, JsonNode)>.GetList();
+            Asset.Data.Nodes.GetAllInPath(ref parent, ref index, list);
+            JsonNode parentNode = list.Last().Item2;
+            PAPath local = path.GetSubPath(list.Last().Item1+1);
+            list.Release();
+            return NodeDic.TryGetValue(parentNode, out ViewNode viewNode) ? viewNode.GetChildPort(local): null;
+        }
 
         /// <summary>
         /// 验证 - 使用逻辑层验证

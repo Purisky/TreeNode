@@ -6,7 +6,10 @@ using TreeNode.Runtime;
 using TreeNode.Utility;
 using UnityEditor;
 using UnityEditor.Experimental.GraphView;
+using UnityEditor.PackageManager.UI;
+using UnityEditor.VersionControl;
 using UnityEngine;
+using static TreeNode.Runtime.JsonNodeTree;
 
 namespace TreeNode.Editor
 {
@@ -19,176 +22,93 @@ namespace TreeNode.Editor
             if (elements == null || !elements.Any())
                 return string.Empty;
 
-            try
-            {
-                // 1. 提取选中的JsonNode
-                var selectedNodes = ExtractSelectedNodes(elements);
-                if (!selectedNodes.Any())
-                    return string.Empty;
-
-                // 2. 构建选中节点的父子关系
-                var selectedParentChildMap = BuildSelectedParentChildMap(selectedNodes);
-
-                // 3. 识别顶层选中节点
-                var topLevelNodes = GetTopLevelSelectedNodes(selectedNodes);
-
-                // 4. 递归构建选中节点树
-                var rootNodeData = topLevelNodes.Select(node => 
-                    BuildSelectedNodeTree(node, selectedParentChildMap)).ToList();
-
-                // 5. 计算原始中心点
-                var positions = selectedNodes.Select(n => (Vector2)n.Position).ToList();
-                var originalCenter = CalculateCenter(positions);
-
-                // 6. 创建复制数据
-                var copyData = new CopyPasteData
-                {
-                    RootNodes = rootNodeData,
-                    OriginalCenter = originalCenter
-                };
-
-                // 7. 序列化为JSON
-                return Json.ToJson(copyData);
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"Copy操作失败: {ex.Message}");
-                return string.Empty;
-            }
-        }
-
-        private List<JsonNode> ExtractSelectedNodes(IEnumerable<GraphElement> elements)
-        {
             var viewNodes = elements.OfType<ViewNode>();
-            var selectedNodes = viewNodes.Select(vn => vn.Data).ToList();
-            return selectedNodes.Distinct().ToList();
-        }
-
-        private Dictionary<JsonNode, List<JsonNode>> BuildSelectedParentChildMap(List<JsonNode> selectedNodes)
-        {
-            var selectedSet = selectedNodes.ToHashSet();
-            var parentChildMap = new Dictionary<JsonNode, List<JsonNode>>();
-
-            foreach (var node in selectedNodes)
+            Dictionary<PAPath,ViewNode> nodes = viewNodes.ToDictionary(vn => vn.GetNodePath(), vn => vn);
+            Dictionary<ViewNode, List<ViewNode>> root = GetRoots(viewNodes);
+            CopyPasteData copyPasteData = new() { RootNodes = new()};
+            var list = ListPool<(PAPath, JsonNode)>.GetList();
+            foreach (var item in root)
             {
-                var allChildren = GetAllChildrenNodes(node);
-                var selectedChildren = allChildren.Where(child => selectedSet.Contains(child)).ToList();
-                
-                if (selectedChildren.Any())
-                {
-                    parentChildMap[node] = selectedChildren;
-                }
+                PAPath rootPath = item.Key.GetNodePath();
+                JsonNode rootNode = Json.DeepCopy(item.Key.Data);
+                IEnumerable<PAPath> children = item.Value.Select(n => n.GetNodePath());
+                HandleNode(children, list, rootPath, rootNode);
+                copyPasteData.RootNodes.Add(rootNode);
             }
 
-            return parentChildMap;
-        }
-
-        private List<JsonNode> GetTopLevelSelectedNodes(List<JsonNode> selectedNodes)
-        {
-            var selectedSet = selectedNodes.ToHashSet();
-            var topLevelNodes = new List<JsonNode>();
-
-            foreach (var node in selectedNodes)
+            for (int i = 0; i < root.Count; i++)
             {
-                var parentNode = GetParentNode(node);
-                if (parentNode == null || !selectedSet.Contains(parentNode))
-                {
-                    topLevelNodes.Add(node);
-                }
+
             }
-
-            return topLevelNodes;
-        }
-
-        private NodeCopyData BuildSelectedNodeTree(JsonNode node, Dictionary<JsonNode, List<JsonNode>> selectedParentChildMap)
-        {
-            var nodeData = new NodeCopyData
+            list.Release();
+            string json = Json.ToJson(copyPasteData);
+            Debug.Log(json);
+            return json;
+            static Dictionary<ViewNode, List<ViewNode>> GetRoots(IEnumerable<ViewNode> viewNodes)
             {
-                TypeName = node.GetType().AssemblyQualifiedName ?? string.Empty,
-                JsonData = SerializeNodeOnly(node),
-                Position = node.Position,
-                Children = new List<NodeCopyData>()
-            };
-
-            if (selectedParentChildMap.TryGetValue(node, out var selectedChildren))
-            {
-                foreach (var child in selectedChildren)
+                List<ViewNode> root = new(viewNodes);
+                var remove = new List<ViewNode>();
+                foreach (var item in viewNodes)
                 {
-                    var childData = BuildSelectedNodeTree(child, selectedParentChildMap);
-                    childData = childData with { PropertyPath = GetPropertyPath(node, child) };
-                    nodeData.Children.Add(childData);
-                }
-            }
-
-            return nodeData;
-        }
-
-        private Vector2 CalculateCenter(List<Vector2> positions)
-        {
-            if (!positions.Any()) return Vector2.zero;
-            
-            var sum = positions.Aggregate(Vector2.zero, (acc, pos) => acc + pos);
-            return sum / positions.Count;
-        }
-
-        private List<JsonNode> GetAllChildrenNodes(JsonNode node)
-        {
-            var children = new List<JsonNode>();
-            var nodeType = node.GetType();
-            var properties = nodeType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
-
-            foreach (var prop in properties)
-            {
-                if (prop.GetCustomAttribute<ChildAttribute>() != null)
-                {
-                    var value = prop.GetValue(node);
-                    if (value is JsonNode childNode)
+                    ViewNode parent = item.GetParent();
+                    if (parent != null && viewNodes.Contains(parent))
                     {
-                        children.Add(childNode);
-                    }
-                    else if (value is IEnumerable<JsonNode> childNodes)
-                    {
-                        children.AddRange(childNodes);
+                        remove.Add(item);
                     }
                 }
-            }
-
-            return children;
-        }
-
-        private JsonNode GetParentNode(JsonNode targetNode)
-        {
-            return NodeTree.GetNodeMetadata(targetNode)?.Parent?.Node;
-        }
-
-        private string SerializeNodeOnly(JsonNode node)
-        {
-            return JsonUtility.ToJson(node);
-        }
-
-        private string GetPropertyPath(JsonNode parent, JsonNode child)
-        {
-            var parentType = parent.GetType();
-            var properties = parentType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
-
-            foreach (var prop in properties)
-            {
-                if (prop.GetCustomAttribute<ChildAttribute>() != null)
+                for (int i = 0; i < remove.Count; i++)
                 {
-                    var value = prop.GetValue(parent);
-                    if (value == child)
+                    root.Remove(remove[i]);
+                }
+                Dictionary<ViewNode, List<ViewNode>> ChildrenDict = root.ToDictionary(
+                    r => r,
+                    r => new List<ViewNode>()
+                );
+                foreach (var item in viewNodes.Except(root))
+                {
+                    ViewNode current = item.GetParent();
+                    List<ViewNode> list_ = null;
+                    while (!ChildrenDict.TryGetValue(current, out list_))
                     {
-                        return prop.Name;
+                        current = current.GetParent();
                     }
-                    else if (value is IEnumerable<JsonNode> childNodes && childNodes.Contains(child))
+                    list_.Add(item);
+                }
+                return ChildrenDict;
+            }
+            static void HandleNode(IEnumerable<PAPath> children, List<(PAPath, JsonNode)> list, PAPath rootPath, JsonNode rootNode)
+            {
+                list.Clear();
+                rootNode.CollectNodes(list, rootPath, 1);
+                Stack<PAPath> remove = new();
+
+                var temp = ListPool<(PAPath, JsonNode)>.GetList();
+                for (int j = 0; j < list.Count; j++)
+                {
+                    PAPath itemPath = list[j].Item1;
+                    if (children.Any(n => n.StartsWith(itemPath)))
                     {
-                        return prop.Name;
+                        IEnumerable<PAPath> pAPaths = children.Where(n => n.IsChildOf(itemPath));
+                        HandleNode(pAPaths, temp, itemPath, list[j].Item2);
+                    }
+                    else
+                    {
+                        remove.Push(itemPath);
                     }
                 }
+                while (remove.Count > 0)
+                {
+                    PAPath item = remove.Pop();
+                    int index = rootPath.Depth;
+                    rootNode.RemoveValueInternal(ref item, ref index);
+                }
+                temp.Release();
             }
-
-            return string.Empty;
         }
+
+
+
+
 
         #endregion
 
@@ -196,8 +116,9 @@ namespace TreeNode.Editor
 
         public virtual bool CanPaste(string data)
         {
-            bool canPaste = CanPasteWithUserChoice(data, Asset, out _, out _);
-            return canPaste;
+            return true;
+            //bool canPaste = CanPasteWithUserChoice(data, Asset, out _, out _);
+            //return canPaste;
         }
 
         private bool CanPasteWithUserChoice(string data, JsonAsset currentAsset, out CopyPasteData finalData, out string errorMessage)
@@ -214,7 +135,7 @@ namespace TreeNode.Editor
                 if (copyData?.RootNodes == null || !copyData.RootNodes.Any())
                     return false;
 
-                var validationResult = ValidateAndPrepareData(copyData, currentAsset);
+                var validationResult = ValidateAndPrepareData(copyData, currentAsset.Data);
 
                 if (!validationResult.HasInvalidNodes)
                 {
@@ -249,10 +170,10 @@ namespace TreeNode.Editor
             }
         }
 
-        private PasteValidationResult ValidateAndPrepareData(CopyPasteData copyData, JsonAsset currentAsset)
+        private PasteValidationResult ValidateAndPrepareData(CopyPasteData copyData, TreeNodeAsset currentAsset)
         {
             var invalidTypes = new List<string>();
-            var validRootNodes = new List<NodeCopyData>();
+            var validRootNodes = new List<JsonNode>();
 
             foreach (var rootNode in copyData.RootNodes)
             {
@@ -274,78 +195,67 @@ namespace TreeNode.Editor
             };
         }
 
-        private List<NodeCopyData> ValidateAndCleanNodeWithPromotion(NodeCopyData nodeData, JsonAsset currentAsset, List<string> invalidTypes)
+        private List<JsonNode> ValidateAndCleanNodeWithPromotion(JsonNode node, TreeNodeAsset currentAsset, List<string> invalidTypes)
         {
-            var result = new List<NodeCopyData>();
-            var nodeType = Type.GetType(nodeData.TypeName);
-            var isCurrentNodeValid = nodeType != null && IsNodeTypeAllowedInAsset(nodeType, currentAsset);
-
-            if (!isCurrentNodeValid)
-            {
-                invalidTypes.Add($"{nodeData.TypeName} ({(nodeType == null ? "类型不存在" : "不符合Asset过滤规则")})");
-
-                foreach (var child in nodeData.Children)
-                {
-                    var promotedChildren = ValidateAndCleanNodeWithPromotion(child, currentAsset, invalidTypes);
-                    result.AddRange(promotedChildren);
-                }
-
-                return result;
-            }
-
-            var validChildren = new List<NodeCopyData>();
-
-            foreach (var child in nodeData.Children)
-            {
-                var childResults = ValidateAndCleanNodeWithPromotion(child, currentAsset, invalidTypes);
-                var childType = Type.GetType(child.TypeName);
-                var isChildValid = childType != null && IsNodeTypeAllowedInAsset(childType, currentAsset);
-
-                if (isChildValid)
-                {
-                    var validChild = child with { Children = childResults.ToList() };
-                    validChildren.Add(validChild);
-                }
-                else
-                {
-                    validChildren.AddRange(childResults);
-                }
-            }
-
-            var cleanedNode = nodeData with { Children = validChildren };
-            result.Add(cleanedNode);
-
+            var result = new List<JsonNode>();
+            HandleNode(node, PAPath.Empty);
             return result;
+
+            bool HandleNode(JsonNode node,PAPath parent)
+            {
+                Type type = node.GetType();
+                bool isValid = IsNodeTypeAllowedInAsset(type, currentAsset);
+                if (isValid)
+                {
+                    result.Add(node);
+                }
+                Debug.Log($"{type.Name}->{currentAsset.GetType().Name}:{isValid}");
+                List<(PAPath,JsonNode)> list = ListPool<(PAPath,JsonNode)>.GetList();
+                node.CollectNodes(list, parent, 1);
+                if (!isValid)
+                {
+                    invalidTypes.Add(type.Name);
+                    for (int i = 1; i <= list.Count; i++)
+                    {
+                        int index = parent.Depth;
+                        PAPath path = list[^i].Item1;
+                        node.RemoveValueInternal(ref path, ref index);
+                    }
+                }
+                for (int i = 1; i <= list.Count; i++)
+                {
+                    bool valid = HandleNode(list[^i].Item2, list[^i].Item1);
+                    if (!valid && isValid)
+                    {
+                        int index = parent.Depth;
+                        PAPath path = list[^i].Item1;
+                        node.RemoveValueInternal(ref path, ref index);
+                    }
+                }
+                list.Release();
+                return isValid;
+            }
         }
 
-        private bool IsNodeTypeAllowedInAsset(Type nodeType, JsonAsset asset)
+
+
+
+
+
+        private bool IsNodeTypeAllowedInAsset(Type nodeType, TreeNodeAsset asset)
         {
-            var assetFilterAttr = asset.GetType().GetCustomAttribute<AssetFilterAttribute>();
-            if (assetFilterAttr != null)
-            {
-                if (assetFilterAttr.Types.Contains(nodeType))
-                {
-                    return assetFilterAttr.Allowed;
-                }
-
-                if (assetFilterAttr.BanPrefab && IsPrefabNode(nodeType))
-                {
-                    return false;
-                }
-            }
-
+            Type assetType = asset.GetType();
             var nodeFilterAttr = nodeType.GetCustomAttribute<AssetFilterAttribute>();
             if (nodeFilterAttr != null)
             {
-                return nodeFilterAttr.Allowed;
+                if (nodeFilterAttr.BanPrefab && asset is NodePrefabAsset)
+                {
+                    return false;
+                }
+                return nodeFilterAttr.Types.Contains(assetType) == nodeFilterAttr.Allowed;
             }
 
             return true;
-        }
-
-        private bool IsPrefabNode(Type nodeType)
-        {
-            return nodeType.GetProperty("PrefabData") != null;
         }
 
         private PasteDecision ShowPasteDecisionDialog(List<string> invalidNodeTypes)
@@ -388,24 +298,34 @@ namespace TreeNode.Editor
         {
             try
             {
-                Window.History?.BeginBatch();
+                Window.History.BeginBatch();
 
-                var createdNodes = new List<JsonNode>();
-
-                foreach (var rootNodeData in cleanedData.RootNodes)
+                var createdNodes = cleanedData.RootNodes;
+                int count = 0;
+                ApplyPositionOffset(createdNodes);
+                List<(PAPath,JsonNode)> list = ListPool<(PAPath,JsonNode)>.GetList();
+                for (int i = 0; i < createdNodes.Count; i++)
                 {
-                    var createdNode = CreateNodeTreeRecursively(rootNodeData);
-                    createdNodes.Add(createdNode);
+                    PAPath path = PAPath.Index(Asset.Data.Nodes.Count);
+                    Asset.Data.Nodes.Add(createdNodes[i]);
+                    NodeTree.OnNodeAdded(createdNodes[i], path);
+                    ViewNode viewNode = AddViewNode(createdNodes[i]);
+                    Window.History.Record(NodeOperation.Create(createdNodes[i], path, Asset));
+                    list.Clear();
+                    count++;
+                    createdNodes[i].CollectNodes(list, path, -1);
+                    count+= list.Count;
+                    for (int j = 0; j < list.Count; j++)
+                    {
+                        AddViewNodeWithConnection(list[j].Item2, list[j].Item1);
+                        Window.History.Record(NodeOperation.Create(list[j].Item2, list[j].Item1, Asset));
+                    }
                 }
-
-                ApplyPositionOffset(createdNodes, cleanedData.OriginalCenter);
-                NodeTree.RefreshIfNeeded();
-                Redraw();
-
-                Window.History?.EndBatch();
+                list.Release();
+                Window.History.EndBatch();
                 MakeDirty();
 
-                Debug.Log($"成功粘贴 {createdNodes.Count} 个节点");
+                Debug.Log($"成功粘贴 {count} 个节点");
             }
             catch (Exception ex)
             {
@@ -415,59 +335,24 @@ namespace TreeNode.Editor
             }
         }
 
-        private JsonNode CreateNodeTreeRecursively(NodeCopyData nodeData)
+        private void ApplyPositionOffset(List<JsonNode> nodes)
         {
-            var nodeType = Type.GetType(nodeData.TypeName);
-            var node = JsonUtility.FromJson(nodeData.JsonData, nodeType) as JsonNode;
+            Vec2 originalCenter= nodes[0].Position; ;
 
-            node.Position = nodeData.Position;
-
-            foreach (var childData in nodeData.Children)
+            for (int i = 1; i < nodes.Count; i++)
             {
-                var childNode = CreateNodeTreeRecursively(childData);
-
-                if (!string.IsNullOrEmpty(childData.PropertyPath))
-                {
-                    SetChildNode(node, childData.PropertyPath, childNode);
-                }
-                else
-                {
-                    Asset.Data.Nodes.Add(childNode);
-                }
+                originalCenter = Vec2.Min(nodes[i].Position, originalCenter);
             }
-
-            Asset.Data.Nodes.Add(node);
-            return node;
-        }
-
-        private void SetChildNode(JsonNode parent, string propertyPath, JsonNode child)
-        {
-            var parentType = parent.GetType();
-            var property = parentType.GetProperty(propertyPath);
-
-            if (property != null && property.CanWrite)
-            {
-                if (property.PropertyType == typeof(JsonNode) || property.PropertyType.IsSubclassOf(typeof(JsonNode)))
-                {
-                    property.SetValue(parent, child);
-                }
-                else if (property.PropertyType.IsGenericType && 
-                         property.PropertyType.GetGenericTypeDefinition() == typeof(List<>))
-                {
-                    var list = property.GetValue(parent) as System.Collections.IList;
-                    list?.Add(child);
-                }
-            }
-        }
-
-        private void ApplyPositionOffset(List<JsonNode> nodes, Vector2 originalCenter)
-        {
-            var offset = GetMousePosition() - originalCenter + Vector2.one * 50; // 添加50像素偏移避免重叠
-
+            var offset = GetMousePosition() - originalCenter + new Vec2(50, 50); // 添加50像素偏移避免重叠
+            List<(PAPath, JsonNode)> list = ListPool<(PAPath, JsonNode)>.GetList();
             foreach (var node in nodes)
             {
-                node.Position = (Vector2)node.Position + offset;
+                list.Clear();
+                node.CollectNodes(list, PAPath.Empty, -1);
+                list.ForEach(n => n.Item2.Position = n.Item2.Position + offset);
+                node.Position = node.Position + offset;
             }
+            list.Release();
         }
 
         #endregion

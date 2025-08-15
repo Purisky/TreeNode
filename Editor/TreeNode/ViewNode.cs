@@ -566,6 +566,7 @@ namespace TreeNode.Editor
         
         public ChildPort GetChildPort(PAPath path)
         {
+            if (path.ItemOfCollection) { path = path.GetParent(); }
             if (ChildPorts == null) return null;
             if (ChildPorts.TryGetValue(path, out ChildPort childPort))
             {
@@ -741,6 +742,7 @@ namespace TreeNode.Editor
                 return PAPath.Index(index);
             }
             ChildPort childPort = ParentPort.connections.First().ChildPort();
+            if (childPort is MultiPort multi) { multi.SortIndex(); }
             PropertyElement element = childPort.GetFirstAncestorOfType<PropertyElement>();
             PAPath path = element.LocalPath;
             

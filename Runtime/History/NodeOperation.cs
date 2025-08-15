@@ -158,15 +158,8 @@ namespace TreeNode.Editor
         }
         public void Remove(PAPath path)
         {
-            if (path.ItemOfCollection)
-            {
-                IList collection = PropertyAccessor.GetParentObject(Nodes, path, out PAPart last) as IList;
-                collection.RemoveAt(last.Index);
-            }
-            else
-            {
-                PropertyAccessor.RemoveValue(Nodes, path);
-            }
+            int index = 0;
+            Nodes.RemoveValueInternal(ref path,ref index);
         }
 
         public override string ToString()

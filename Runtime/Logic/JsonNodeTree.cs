@@ -28,7 +28,6 @@ namespace TreeNode.Runtime
             public PAPath LocalPath { get; set; }
             public NodeMetadata Parent { get; set; }
             public List<NodeMetadata> Children { get; set; } = new();
-            public int ListIndex { get; set; } = 0;
             public bool IsMultiPort { get; set; }
             public bool IsRoot => Parent == null;
             public string DisplayName => Node.GetInfo();
@@ -76,16 +75,6 @@ namespace TreeNode.Runtime
         #endregion
 
         #region 公共查询接口
-
-        /// <summary>
-        /// 获取所有根节点
-        /// </summary>
-        public IReadOnlyList<NodeMetadata> GetRootNodes()
-        {
-            EnsureTreeBuilt();
-            return _rootNodes.AsReadOnly();
-        }
-
         /// <summary>
         /// 获取指定节点的元数据
         /// </summary>
