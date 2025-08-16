@@ -4,7 +4,6 @@ using System.Linq;
 using System.Reflection;
 using TreeNode.Runtime;
 using TreeNode.Utility;
-using Unity.Properties;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -142,7 +141,7 @@ namespace TreeNode.Editor
             }
             catch (Exception e)
             {
-                Debug.LogWarning($"完成ViewNode初始化失败: {e.Message}");
+                Debug.LogWarning(string.Format(I18n.Runtime.Warning.InitializationFailed, e.Message));
             }
         }
 
@@ -226,7 +225,7 @@ namespace TreeNode.Editor
                 }
                 catch (Exception e)
                 {
-                    Debug.LogWarning($"刷新单个属性元素失败 {path}: {e.Message}");
+                    Debug.LogWarning(string.Format(I18n.Runtime.Warning.PropertyRefreshFailed, path, e.Message));
                     // 单个属性刷新失败时，标记需要完整刷新
                     _needsFullRefresh = true;
                 }
@@ -610,14 +609,14 @@ namespace TreeNode.Editor
                 if (port == null)
                 {
                     invalidPorts.Add(path);
-                    Debug.LogWarning($"ViewNode: 发现空端口引用 {path}");
+                    Debug.LogWarning(string.Format(I18n.Runtime.Warning.InvalidPortReference, path));
                     continue;
                 }
                 
                 if (port.LocalPath != path)
                 {
                     invalidPorts.Add(path);
-                    Debug.LogWarning($"ViewNode: 发现不一致的端口 键:{path} 实际路径:{port.LocalPath}");
+                    Debug.LogWarning(string.Format(I18n.Runtime.Warning.PortInconsistency, path, port.LocalPath));
                 }
             }
             

@@ -146,7 +146,7 @@ namespace TreeNode.Editor
                 if (!validationResult.HasValidNodesAfterClean)
                 {
                     errorMessage = $"所有节点都不合法，无法粘贴:\n{string.Join("\n", validationResult.InvalidNodeTypes)}";
-                    EditorUtility.DisplayDialog("粘贴失败", errorMessage, "确定");
+                    EditorUtility.DisplayDialog(I18n.Editor.Dialog.PasteFailed, errorMessage, I18n.Editor.Button.Confirm);
                     return false;
                 }
 
@@ -263,10 +263,10 @@ namespace TreeNode.Editor
             var message = $"检测到以下不合法的节点类型:\n{string.Join("\n", invalidNodeTypes)}\n\n您希望如何处理?";
 
             var choice = EditorUtility.DisplayDialogComplex(
-                "粘贴节点验证",
+                I18n.Editor.Dialog.PasteValidation,
                 message,
-                "剔除不合法节点并继续",
-                "取消操作",
+                I18n.Editor.Button.RemoveInvalidAndContinue,
+                I18n.Editor.Button.Cancel,
                 ""
             );
 

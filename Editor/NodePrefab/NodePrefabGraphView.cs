@@ -68,7 +68,7 @@ namespace TreeNode.Editor
             base.BuildContextualMenu(evt);
             if (evt.target is ViewNode node)
             {
-                evt.menu.AppendAction(I18n.SetRoot, delegate
+                evt.menu.AppendAction(I18n.Editor.Menu.SetRoot, delegate
                 {
                     SetRoot(node);
                 }, SetRootAble(node) ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Hidden);

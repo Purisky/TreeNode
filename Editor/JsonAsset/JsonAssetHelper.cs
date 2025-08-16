@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -15,7 +15,7 @@ namespace TreeNode.Editor
     {
         static Dictionary<string, Texture2D> Icons;
         static Texture2D defaultIcon;
-        [MenuItem(I18n.TreeNode + "/" + I18n.ForceReloadIcon)]
+        [MenuItem(I18n.Editor.Menu.TreeNode + "/" + I18n.Editor.Menu.ForceReloadIcon)]
         public static void ReloadIcon()
         {
             Icons = new();

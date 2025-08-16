@@ -88,17 +88,17 @@ namespace TreeNode.Editor
             //Debug.Log(evt.target.GetType());
             if (evt.target is PrefabViewNode node)
             {
-                evt.menu.AppendAction(I18n.Goto, (d) => { node.OpenPrefabAsset(); }, DropdownMenuAction.AlwaysEnabled);
+                evt.menu.AppendAction(I18n.Editor.List.Goto, (d) => { node.OpenPrefabAsset(); }, DropdownMenuAction.AlwaysEnabled);
                 evt.menu.AppendSeparator();
             }
             if (evt.target is GraphView && nodeCreationRequest != null)
             {
-                evt.menu.AppendAction(I18n.CreateNode, OnContextMenuNodeCreate, DropdownMenuAction.AlwaysEnabled);
+                evt.menu.AppendAction(I18n.Editor.Menu.CreateNode, OnContextMenuNodeCreate, DropdownMenuAction.AlwaysEnabled);
                 evt.menu.AppendSeparator();
             }
             if (evt.target is PropertyElement element)
             {
-                evt.menu.AppendAction(I18n.PrintFieldPath, delegate
+                evt.menu.AppendAction(I18n.Editor.Menu.PrintFieldPath, delegate
                 {
                     string path = element.GetGlobalPath();
                     Debug.Log(path);
@@ -107,12 +107,12 @@ namespace TreeNode.Editor
             }
             if (evt.target is ViewNode viewNode)
             {
-                evt.menu.AppendAction(I18n.EditNode, delegate
+                evt.menu.AppendAction(I18n.Editor.Menu.EditNode, delegate
                 {
                     EditNodeScript(viewNode.Data.GetType());
                 });
                 evt.menu.AppendSeparator();
-                evt.menu.AppendAction(I18n.PrintNodePath, delegate
+                evt.menu.AppendAction(I18n.Editor.Menu.PrintNodePath, delegate
                 {
                     Debug.Log(viewNode.GetNodePath());
                 });
@@ -122,7 +122,7 @@ namespace TreeNode.Editor
 
             if (evt.target is GraphView || evt.target is Node || evt.target is Group || evt.target is Edge)
             {
-                evt.menu.AppendAction(I18n.Delete, delegate
+                evt.menu.AppendAction(I18n.Editor.Menu.Delete, delegate
                 {
                     DeleteSelectionCallback(AskUser.DontAskUser);
                 }, (DropdownMenuAction a) => canDeleteSelection ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
@@ -130,8 +130,8 @@ namespace TreeNode.Editor
             }
             if (evt.target is GraphView)
             {
-                evt.menu.AppendAction(I18n.Format, FormatAllNodes, DropdownMenuAction.AlwaysEnabled);
-                evt.menu.AppendAction("Show Tree View", ShowTreeView, DropdownMenuAction.AlwaysEnabled);
+                evt.menu.AppendAction(I18n.Editor.Menu.Format, FormatAllNodes, DropdownMenuAction.AlwaysEnabled);
+                evt.menu.AppendAction(I18n.Editor.Menu.ShowTreeView, ShowTreeView, DropdownMenuAction.AlwaysEnabled);
                 evt.menu.AppendSeparator();
             }
         }
@@ -173,7 +173,7 @@ namespace TreeNode.Editor
         private void ShowTreeView(DropdownMenuAction a)
         {
             string treeView = GetTreeView();
-            Debug.Log("Node Tree View:\n" + treeView);
+            Debug.Log(treeView);
         }
 
         private void OnContextMenuNodeCreate(DropdownMenuAction a)

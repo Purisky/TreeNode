@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
@@ -14,7 +14,7 @@ namespace TreeNode.Editor
     {
         public const string DefaultLanguage = nameof(English);
 
-        [MenuItem(I18n.TreeNode + "/" + I18n.ChangeLanguage)]
+        [MenuItem(I18n.Editor.Menu.TreeNode + "/" + I18n.ChangeLanguage)]
         public static void ShowWindow()
         {
             I18nWindow wnd = GetWindow<I18nWindow>();

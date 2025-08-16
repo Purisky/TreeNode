@@ -298,7 +298,7 @@ namespace TreeNode.Editor
                 {
                     if (index > 0)
                     {
-                        evt.menu.AppendAction($"▲{I18n.Move2Top}", delegate
+                        evt.menu.AppendAction($"▲{I18n.Editor.List.Move2Top}", delegate
                          {
                              NodePrefabInfo.Data.Remove(property.PrefabProperty);
                              NodePrefabInfo.Data.Insert(0,property.PrefabProperty);
@@ -308,7 +308,7 @@ namespace TreeNode.Editor
                              NodePrefabInfo.GraphView.Window.History.AddStep();
 
                          });
-                        evt.menu.AppendAction($"▲{I18n.MoveUp}", delegate
+                        evt.menu.AppendAction($"▲{I18n.Editor.List.MoveUp}", delegate
                         {
                             int index = NodePrefabInfo.Data.IndexOf(property.PrefabProperty);
                             (NodePrefabInfo.Data[index], NodePrefabInfo.Data[index-1]) = (NodePrefabInfo.Data[index - 1], NodePrefabInfo.Data[index]);
@@ -320,7 +320,7 @@ namespace TreeNode.Editor
                     }
                     if (index < count - 1)
                     {
-                        evt.menu.AppendAction($"▼{I18n.MoveDown}", delegate
+                        evt.menu.AppendAction($"▼{I18n.Editor.List.MoveDown}", delegate
                         {
                             int index = NodePrefabInfo.Data.IndexOf(property.PrefabProperty);
                             (NodePrefabInfo.Data[index], NodePrefabInfo.Data[index + 1]) = (NodePrefabInfo.Data[index + 1], NodePrefabInfo.Data[index]);
@@ -329,7 +329,7 @@ namespace TreeNode.Editor
                             NodePrefabInfo.PropertiesElement.Insert(index + 1, property);
                             NodePrefabInfo.GraphView.Window.History.AddStep();
                         });
-                        evt.menu.AppendAction($"▼{I18n.Move2Bottom}", delegate
+                        evt.menu.AppendAction($"▼{I18n.Editor.List.Move2Bottom}", delegate
                         {
                             NodePrefabInfo.Data.Remove(property.PrefabProperty);
                             NodePrefabInfo.Data.Add(property.PrefabProperty);
@@ -341,7 +341,7 @@ namespace TreeNode.Editor
                     }
                     evt.menu.AppendSeparator();
                 }
-                evt.menu.AppendAction($"✎{I18n.SetID}", delegate
+                evt.menu.AppendAction($"✎{I18n.Editor.List.SetID}", delegate
                 {
                     PropertyID.SetEnabled(true);
                     PropertyID.schedule.Execute(() =>
@@ -352,7 +352,7 @@ namespace TreeNode.Editor
 
                 });
                 evt.menu.AppendSeparator();
-                evt.menu.AppendAction($"✖{I18n.DeleteItem}/{I18n.Confirm}", delegate
+                evt.menu.AppendAction($"✖{I18n.Editor.List.DeleteItem}/{I18n.Editor.Button.Confirm}", delegate
                 {
                     PropertyElement.SetOutput(false);
                     NodePrefabInfo.GraphView.Window.History.AddStep();

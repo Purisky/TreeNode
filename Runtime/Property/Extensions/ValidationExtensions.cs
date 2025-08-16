@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using TreeNode.Utility;
 
 namespace TreeNode.Runtime.Property.Extensions
 {
@@ -60,12 +61,12 @@ namespace TreeNode.Runtime.Property.Extensions
             
             if (Errors.Any())
             {
-                messages.Add($"错误: {string.Join("; ", Errors)}");
+                messages.Add(string.Format(I18n.Runtime.Message.ErrorPrefix, string.Join("; ", Errors)));
             }
             
             if (Warnings.Any())
             {
-                messages.Add($"警告: {string.Join("; ", Warnings)}");
+                messages.Add(string.Format(I18n.Runtime.Message.WarningPrefix, string.Join("; ", Warnings)));
             }
             
             return string.Join("\n", messages);
@@ -89,13 +90,13 @@ namespace TreeNode.Runtime.Property.Extensions
 
             if (obj == null)
             {
-                result.AddError("目标对象为null");
+                result.AddError(I18n.Runtime.Error.TargetNull);
                 return result;
             }
 
             if (string.IsNullOrEmpty(path))
             {
-                result.AddError("属性路径不能为空");
+                result.AddError(I18n.Runtime.Validation.PathEmpty);
                 return result;
             }
 
@@ -110,12 +111,12 @@ namespace TreeNode.Runtime.Property.Extensions
                 }
                 else
                 {
-                    result.AddError($"路径无效，有效部分长度: {validLength}");
+                    result.AddError(string.Format(I18n.Runtime.Validation.PathInvalid, validLength));
                 }
             }
             catch (Exception ex)
             {
-                result.AddError($"验证异常: {ex.Message}");
+                result.AddError(string.Format(I18n.Runtime.Validation.ValidationException, ex.Message));
             }
 
             return result;
@@ -144,7 +145,7 @@ namespace TreeNode.Runtime.Property.Extensions
 
             if (obj == null)
             {
-                result.AddError("目标对象为null");
+                result.AddError(I18n.Runtime.Error.TargetNull);
                 return result;
             }
 
@@ -153,7 +154,7 @@ namespace TreeNode.Runtime.Property.Extensions
                 var pathResult = obj.ValidatePropertyPath(path);
                 if (!pathResult.IsValid)
                 {
-                    result.AddError($"必需路径 '{path}' 无效: {pathResult.GetAllMessages()}");
+                    result.AddError(string.Format(I18n.Runtime.Validation.RequiredPathInvalid, path, pathResult.GetAllMessages()));
                 }
                 else
                 {
@@ -163,12 +164,12 @@ namespace TreeNode.Runtime.Property.Extensions
                         var value = PropertyAccessor.GetValue<object>(obj, path);
                         if (value == null)
                         {
-                            result.AddWarning($"必需路径 '{path}' 的值为null");
+                            result.AddWarning(string.Format(I18n.Runtime.Validation.RequiredPathNull, path));
                         }
                     }
                     catch (Exception ex)
                     {
-                        result.AddError($"访问路径 '{path}' 时发生异常: {ex.Message}");
+                        result.AddError(string.Format(I18n.Runtime.Validation.AccessException, path, ex.Message));
                     }
                 }
             }
@@ -202,11 +203,11 @@ namespace TreeNode.Runtime.Property.Extensions
             }
             catch (InvalidCastException ex)
             {
-                result.AddError($"类型转换失败: {ex.Message}");
+                result.AddError(string.Format(I18n.Runtime.Validation.TypeConversionFailed, ex.Message));
             }
             catch (Exception ex)
             {
-                result.AddError($"类型验证异常: {ex.Message}");
+                result.AddError(string.Format(I18n.Runtime.Validation.ValidationException, ex.Message));
             }
 
             return result;
@@ -236,7 +237,7 @@ namespace TreeNode.Runtime.Property.Extensions
                 
                 if (collection == null)
                 {
-                    result.AddError("集合为null");
+                    result.AddError(I18n.Runtime.Error.CollectionNull);
                     return result;
                 }
 
@@ -251,13 +252,13 @@ namespace TreeNode.Runtime.Property.Extensions
                 }
                 else
                 {
-                    result.AddError("对象不是有效的集合类型");
+                    result.AddError(I18n.Runtime.Validation.InvalidCollectionType);
                     return result;
                 }
 
                 if (index < 0 || index >= count)
                 {
-                    result.AddError($"索引 {index} 超出范围 [0, {count})");
+                    result.AddError(string.Format(I18n.Runtime.Validation.IndexOutOfRange, index, count));
                 }
                 else
                 {
@@ -266,7 +267,7 @@ namespace TreeNode.Runtime.Property.Extensions
             }
             catch (Exception ex)
             {
-                result.AddError($"集合验证异常: {ex.Message}");
+                result.AddError(string.Format(I18n.Runtime.Validation.CollectionValidationException, ex.Message));
             }
 
             return result;

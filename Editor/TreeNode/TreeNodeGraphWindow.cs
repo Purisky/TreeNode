@@ -216,7 +216,7 @@ namespace TreeNode.Editor
         
         public virtual void AddItemsToMenu(GenericMenu menu)
         {
-            menu.AddItem(new(I18n.ForceReloadView), false, Refresh);
+            menu.AddItem(new(I18n.Editor.Menu.ForceReloadView), false, Refresh);
         }
         
         public void Refresh()

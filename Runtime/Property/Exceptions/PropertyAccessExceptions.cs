@@ -1,4 +1,5 @@
 ﻿using System;
+using TreeNode.Utility;
 
 namespace TreeNode.Runtime.Property.Exceptions
 {
@@ -33,7 +34,7 @@ namespace TreeNode.Runtime.Property.Exceptions
         public int ValidLength { get; }
 
         public PathNotFoundException(string propertyPath, Type targetType, int validLength)
-            : base($"路径 '{propertyPath}' 在类型 '{targetType.Name}' 中未找到，有效长度为 {validLength}", propertyPath, targetType)
+            : base(string.Format(I18n.Runtime.Error.PathNotFound, propertyPath, targetType.Name, validLength), propertyPath, targetType)
         {
             ValidLength = validLength;
         }
@@ -48,7 +49,7 @@ namespace TreeNode.Runtime.Property.Exceptions
         public Type ActualType { get; }
 
         public TypeMismatchException(string propertyPath, Type targetType, Type expectedType, Type actualType)
-            : base($"路径 '{propertyPath}' 类型不匹配: 期望 '{expectedType.Name}', 实际 '{actualType.Name}'", propertyPath, targetType)
+            : base(string.Format(I18n.Runtime.Error.TypeMismatch, propertyPath, expectedType.Name, actualType.Name), propertyPath, targetType)
         {
             ExpectedType = expectedType;
             ActualType = actualType;
@@ -63,7 +64,7 @@ namespace TreeNode.Runtime.Property.Exceptions
         public string MemberName { get; }
 
         public MemberInaccessibleException(string propertyPath, Type targetType, string memberName)
-            : base($"成员 '{memberName}' 在类型 '{targetType.Name}' 中不可访问", propertyPath, targetType)
+            : base(string.Format(I18n.Runtime.Error.MemberNotAccessible, memberName, targetType.Name), propertyPath, targetType)
         {
             MemberName = memberName;
         }
@@ -78,7 +79,7 @@ namespace TreeNode.Runtime.Property.Exceptions
         public int CollectionSize { get; }
 
         public IndexOutOfRangeException(string propertyPath, Type targetType, int index, int collectionSize)
-            : base($"索引 {index} 超出集合范围 [0, {collectionSize})", propertyPath, targetType)
+            : base(string.Format(I18n.Runtime.Validation.IndexOutOfRange, index, collectionSize), propertyPath, targetType)
         {
             Index = index;
             CollectionSize = collectionSize;
@@ -88,7 +89,7 @@ namespace TreeNode.Runtime.Property.Exceptions
     public class NestedCollectionException : PropertyAccessException
     {
         public NestedCollectionException(string propertyPath, Type targetType)
-            : base($"嵌套集合在路径 '{propertyPath}' 中不被支持,使用List<JsonNode>替代", propertyPath, targetType)
+            : base(string.Format(I18n.Runtime.Error.NestedCollectionNotSupported, propertyPath), propertyPath, targetType)
         {
         }
     }

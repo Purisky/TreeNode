@@ -1795,7 +1795,7 @@ namespace TreeNode.Editor
 
             if (showMoveUp)
             {
-                menu.AddItem(new GUIContent($"▲{I18n.MoveUp}"), false, () =>
+                menu.AddItem(new GUIContent($"▲{I18n.Editor.List.MoveUp}"), false, () =>
                 {
                     _parentList?.MoveItem(index, index - 1);
                     OnChange?.Invoke();
@@ -1803,18 +1803,18 @@ namespace TreeNode.Editor
             }
             if (showMoveDown)
             {
-                menu.AddItem(new GUIContent($"▼{I18n.MoveDown}"), false, () =>
+                menu.AddItem(new GUIContent($"▼{I18n.Editor.List.MoveDown}"), false, () =>
                 {
                     _parentList?.MoveItem(index, index + 1);
                     OnChange?.Invoke();
                 });
             }
-            menu.AddItem(new GUIContent($"✎{I18n.SetIndex}"), false, () =>
+            menu.AddItem(new GUIContent($"✎{I18n.Editor.List.SetIndex}"), false, () =>
             {
                 EditMode(true);
             });
             menu.AddSeparator("");
-            menu.AddItem(new GUIContent($"✖{I18n.DeleteItem}"), false, RemoveSelf);
+            menu.AddItem(new GUIContent($"✖{I18n.Editor.List.DeleteItem}"), false, RemoveSelf);
             menu.AddSeparator("");
         }
         #endregion

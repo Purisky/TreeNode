@@ -711,7 +711,7 @@ namespace TreeNode.Editor
             }
             DropdownList<T> items = GetList();
             DropMenu dropMenu = new(this);
-            dropMenu.Add(new DropdownItem<T>(I18n.EnumNothing, Nothing), () =>
+            dropMenu.Add(new DropdownItem<T>(I18n.Editor.Enum.Nothing, Nothing), () =>
             {
                 if (Dirty)
                 {
@@ -721,7 +721,7 @@ namespace TreeNode.Editor
 
                 Node.Data.SetValue(Path, Nothing);
                 SetValueWithoutNotify(Nothing);
-                TextElement.text = I18n.EnumNothing;
+                TextElement.text = I18n.Editor.Enum.Nothing;
                 dropMenu.UpdateSelection();
                 OnChange?.Invoke();
                 Node.PopupText();
@@ -753,7 +753,7 @@ namespace TreeNode.Editor
                     Node.PopupText();
                 });
             }
-            dropMenu.Add(new DropdownItem<T>(I18n.EnumEverything, Everything), () =>
+            dropMenu.Add(new DropdownItem<T>(I18n.Editor.Enum.Everything, Everything), () =>
             {
                 if (Dirty)
                 {
@@ -762,7 +762,7 @@ namespace TreeNode.Editor
                 }
                 Node.Data.SetValue(Path, Everything);
                 SetValueWithoutNotify(Everything);
-                TextElement.text = I18n.EnumEverything;
+                TextElement.text = I18n.Editor.Enum.Everything;
                 dropMenu.UpdateSelection();
                 OnChange?.Invoke();
                 Node.PopupText();
@@ -776,11 +776,11 @@ namespace TreeNode.Editor
             List<DropdownItem<T>> flags = GetFlagsValue (items, Value);
             if (flags.Count == 0)   
             {
-                return I18n.EnumNothing;
+                return I18n.Editor.Enum.Nothing;
             }
             if (flags.Count == items.Count)
             {
-                return I18n.EnumEverything;
+                return I18n.Editor.Enum.Everything;
             }
             return string.Join(",", flags.Select(x => x.FullText));
         }
