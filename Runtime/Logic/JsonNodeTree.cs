@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using TreeNode.Utility;
+using UnityEngine;
 using UnityEngine.Profiling.Memory.Experimental;
 
 namespace TreeNode.Runtime
@@ -247,11 +248,7 @@ namespace TreeNode.Runtime
                 PAPath path = parentPath.Append(i);
                 NodeMetadata metadata = BuildNode(path, nodeList[i].node, temp);
                 metadata.LocalPath = PAPath.Index(i);
-                if (parentPath.IsEmpty)
-                {
-                    _rootNodes.Add(metadata);
-                }
-                else
+                if (!parentPath.IsEmpty)
                 {
                     parentMeta.Children.Add(metadata);
                 }
