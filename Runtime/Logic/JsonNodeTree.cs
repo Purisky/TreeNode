@@ -513,8 +513,14 @@ namespace TreeNode.Runtime
             var sb = new StringBuilder();
             for (int i = 0; i < _rootNodes.Count; i++)
             {
-                bool isLast = i == _rootNodes.Count - 1;
-                BuildTreeView(_rootNodes[i], sb, "", isLast);
+                // 根节点之间添加分隔
+                if (i > 0)
+                {
+                    sb.AppendLine();
+                }
+                
+                // 构建根节点，isRoot=true表示这是根节点
+                BuildTreeView(_rootNodes[i], sb, "", true, true);
             }
             return sb.ToString();
         }
@@ -522,18 +528,44 @@ namespace TreeNode.Runtime
         /// <summary>
         /// 递归构建树形视图
         /// </summary>
-        private void BuildTreeView(NodeMetadata metadata, StringBuilder sb, string prefix, bool isLast)
+        /// <param name="metadata">节点元数据</param>
+        /// <param name="sb">字符串构建器</param>
+        /// <param name="prefix">前缀字符串</param>
+        /// <param name="isLast">是否是同级最后一个节点</param>
+        /// <param name="isRoot">是否是根节点</param>
+        private void BuildTreeView(NodeMetadata metadata, StringBuilder sb, string prefix, bool isLast, bool isRoot = false)
         {
-            string connector = isLast ? "└── " : "├── ";
             string typeName = metadata.Node?.GetType().Name ?? "Unknown";
-            sb.AppendLine($"{prefix}{connector}{metadata.DisplayName} ({typeName})");
+            
+            if (isRoot)
+            {
+                // 根节点没有连接符前缀
+                sb.AppendLine($"{metadata.DisplayName} ({typeName})");
+            }
+            else
+            {
+                // 非根节点使用连接符，使用制表符确保对齐一致
+                string connector = isLast ? "└─ " : "├─ ";
+                sb.AppendLine($"{prefix}{connector}{metadata.DisplayName} ({typeName})");
+            }
 
-            string childPrefix = prefix + (isLast ? "    " : "│   ");
+            // 计算子节点的前缀，使用制表符替代空格确保对齐
+            string childPrefix;
+            if (isRoot)
+            {
+                childPrefix = "";
+            }
+            else
+            {
+                // 使用制表符确保在不同环境下对齐一致
+                childPrefix = prefix + (isLast ? "\t" : "│\t");
+            }
 
+            // 递归处理子节点
             for (int i = 0; i < metadata.Children.Count; i++)
             {
                 bool isLastChild = i == metadata.Children.Count - 1;
-                BuildTreeView(metadata.Children[i], sb, childPrefix, isLastChild);
+                BuildTreeView(metadata.Children[i], sb, childPrefix, isLastChild, false);
             }
         }
 
