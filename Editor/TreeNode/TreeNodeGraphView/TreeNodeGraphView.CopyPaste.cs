@@ -42,7 +42,7 @@ namespace TreeNode.Editor
             }
             list.Release();
             string json = Json.ToJson(copyPasteData);
-            Debug.Log(json);
+            //Debug.Log(json);
             return json;
             static Dictionary<ViewNode, List<ViewNode>> GetRoots(IEnumerable<ViewNode> viewNodes)
             {
