@@ -53,6 +53,13 @@ namespace TreeNode.Runtime
             return GetValue<object>(parentPath);
         }
         public virtual string GetInfo() => GetType().Name;
+
+        public List<(PAPath, JsonNode)> CollectNodes(PAPath path, int depth = -1)
+        {
+            List<(PAPath, JsonNode)> list = ListPool<(PAPath, JsonNode)>.GetList();
+            CollectNodes(list, path, depth);
+            return list;
+        }
     }
 
 

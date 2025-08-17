@@ -37,33 +37,18 @@ namespace TreeNode.Editor
         // 新增：缓存统计信息（调试用）
         private int _cacheHits = 0;
         private int _cacheMisses = 0;
-        
-        // 新增：快速创建模式相关
-        private bool _isQuickMode = false;
-        private bool _isFullyInitialized = false;
 
-        public ViewNode(JsonNode data, TreeNodeGraphView view, bool quickMode = false)
+
+        public ViewNode(JsonNode data, TreeNodeGraphView view)
         {
             Data = data;
             View = view;
-            _isQuickMode = quickMode;
-            
+
             // 快速初始化基础UI结构
             InitializeUIStructure();
-            
-            if (!quickMode)
-            {
-                // 完整初始化模式
-                CompleteDraw();
-                OnChange();
-                _isFullyInitialized = true;
-            }
-            else
-            {
-                // 快速模式 - 只做最基础的初始化
-                QuickDraw();
-            }
-            
+
+            CompleteDraw();
+            OnChange();
             base.SetPosition(new Rect(data.Position, new Vector2()));
         }
 
@@ -99,24 +84,6 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 快速绘制模式 - 最小化的初始化
-        /// </summary>
-        private void QuickDraw()
-        {
-            NodeInfoAttribute nodeInfo = Data.GetType().GetCustomAttribute<NodeInfoAttribute>();
-            DrawParentPort(nodeInfo?.Type);
-            
-            // 延迟属性和端口的创建
-            schedule.Execute(() =>
-            {
-                if (!_isFullyInitialized)
-                {
-                    CompleteInitialization();
-                }
-            }).ExecuteLater(10); // 延迟10ms执行
-        }
-
-        /// <summary>
         /// 完整绘制模式 - 立即完成所有初始化
         /// </summary>
         private void CompleteDraw()
@@ -126,40 +93,10 @@ namespace TreeNode.Editor
             DrawPropertiesAndPorts();
         }
 
-        /// <summary>
-        /// 完成延迟初始化
-        /// </summary>
-        public void CompleteInitialization()
-        {
-            if (_isFullyInitialized) return;
-            
-            try
-            {
-                DrawPropertiesAndPorts();
-                OnChange();
-                _isFullyInitialized = true;
-            }
-            catch (Exception e)
-            {
-                Debug.LogWarning(string.Format(I18n.Runtime.Warning.InitializationFailed, e.Message));
-            }
-        }
-
-        /// <summary>
-        /// 检查是否完全初始化
-        /// </summary>
-        public bool IsFullyInitialized => _isFullyInitialized;
-
         public virtual void Draw()
         {
-            if (_isQuickMode && !_isFullyInitialized)
-            {
-                QuickDraw();
-            }
-            else
-            {
                 CompleteDraw();
-            }
+            
         }
 
         /// <summary>
@@ -167,12 +104,6 @@ namespace TreeNode.Editor
         /// </summary>
         public void RefreshPropertyElements()
         {
-            // 如果还未完全初始化，先完成初始化
-            if (!_isFullyInitialized)
-            {
-                CompleteInitialization();
-                return;
-            }
 
             // 检查是否需要完整刷新
             if (_needsFullRefresh)
@@ -192,14 +123,6 @@ namespace TreeNode.Editor
         /// <param name="path">属性路径，如果为null则执行常规刷新</param>
         public void RefreshPropertyElements(PAPath path)
         {
-            // 如果还未完全初始化，先完成初始化
-            if (!_isFullyInitialized)
-            {
-                CompleteInitialization();
-                return;
-            }
-
-            // 如果指定了路径，尝试精确刷新单个属性
             if (path.Valid)
             {
                 RefreshSingleProperty(path);
@@ -239,12 +162,6 @@ namespace TreeNode.Editor
 
         public void RefreshList(ViewChange viewChange)
         {
-            // 确保完全初始化
-            if (!_isFullyInitialized)
-            {
-                CompleteInitialization();
-            }
-
             if (_propertyElementCache.TryGetValue(viewChange.Path, out PropertyElement element) &&
                 element is ListElement listElement
                 )

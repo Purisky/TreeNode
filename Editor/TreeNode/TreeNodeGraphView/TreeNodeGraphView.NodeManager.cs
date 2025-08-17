@@ -2,6 +2,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using TreeNode.Runtime;
@@ -18,8 +19,8 @@ namespace TreeNode.Editor
         public Dictionary<JsonNode, ViewNode> NodeDic;
 
         // 逻辑层树结构处理器 - 改为立即初始化
-        private JsonNodeTree _nodeTree;
-        public JsonNodeTree NodeTree => _nodeTree;
+        //private JsonNodeTree _nodeTree;
+        //public JsonNodeTree NodeTree => _nodeTree;
 
         #region 节点管理
 
@@ -31,7 +32,7 @@ namespace TreeNode.Editor
             var createOperation =  NodeOperation.Create(node, path, Asset);
             Window.History.Record(createOperation);
 
-            NodeTree.OnNodeAdded(node, path);
+            //NodeTree.OnNodeAdded(node, path);
             AddViewNode(node);
         }
 
@@ -43,7 +44,7 @@ namespace TreeNode.Editor
                 Asset.Data.Nodes.Add(node);
                 var createOperation = NodeOperation.Create(node, path, this.Asset);
                 Window.History.Record(createOperation);
-                NodeTree.OnNodeAdded(node, path);
+                //NodeTree.OnNodeAdded(node, path);
                 return true;
             }
             try
@@ -95,7 +96,7 @@ namespace TreeNode.Editor
                 Debug.Log("setEnd");
                 var moveOperation = NodeOperation.Create(node, path_, this.Asset);
                 Window.History.Record(moveOperation);
-                NodeTree.RebuildTree();
+                //NodeTree.RebuildTree();
                 return true;
             }
             catch (Exception e)
@@ -115,7 +116,7 @@ namespace TreeNode.Editor
             Window.History.Record(deleteOperation);
             
             Asset.Data.Nodes.Remove(node);
-            NodeTree.OnNodeRemoved(node,path);
+            //NodeTree.OnNodeRemoved(node,path);
         }
 
         public ViewNode AddViewNode(JsonNode node)
@@ -220,136 +221,6 @@ namespace TreeNode.Editor
 
         #endregion
         #region Edge连接管理
-
-        /// <summary>
-        /// 批量创建Edge连接
-        /// </summary>
-        private void CreateEdgesAsync()
-        {
-            foreach (var metadata in _nodeTree.GetNodes())
-            {
-                if (metadata.Parent != null)
-                {
-                    CreateEdgeBatchAsync(metadata);
-                }
-            }
-            //PostRenderProcessAsync();
-        }
-
-        /// <summary>
-        /// 批量创建边连接 - 分批处理避免UI线程阻塞
-        /// </summary>
-        private void CreateEdgeBatchAsync(JsonNodeTree.NodeMetadata metadata)
-        {
-
-            if (NodeDic.TryGetValue(metadata.Node, out var childViewNode) &&
-                NodeDic.TryGetValue(metadata.Parent.Node, out var parentViewNode))
-            {
-                CreateEdgeConnection(parentViewNode, childViewNode, metadata);
-            }
-            else
-            {
-                Debug.LogWarning($"无法找到节点ViewNode进行边连接: 子节点={metadata.Node?.GetType().Name}, 父节点={metadata.Parent?.Node?.GetType().Name}");
-            }
-
-        }
-
-        /// <summary>
-        /// 渲染后处理
-        /// </summary>
-        private void PostRenderProcessAsync()
-        {
-            int fixedConnections = 0;
-            int missingConnections = 0;
-
-            // 检查所有节点的连接状态
-            foreach (var (node, viewNode) in NodeDic)
-            {
-                // 如果节点有ParentPort但没有连接，尝试修复
-                if (viewNode.ParentPort != null && !viewNode.ParentPort.connected)
-                {
-                    if (TryRestoreNodeConnection(node, viewNode))
-                    {
-                        fixedConnections++;
-                    }
-                    else
-                    {
-                        missingConnections++;
-                    }
-                }
-            }
-
-            if (fixedConnections > 0)
-            {
-                Debug.Log($"渲染后处理完成: 修复了 {fixedConnections} 个缺失连接");
-            }
-
-            if (missingConnections > 0)
-            {
-                Debug.LogWarning($"渲染后处理发现 {missingConnections} 个无法修复的缺失连接");
-            }
-
-        }
-
-        /// <summary>
-        /// 尝试恢复节点连接 (新增)
-        /// </summary>
-        private bool TryRestoreNodeConnection(JsonNode node, ViewNode viewNode)
-        {
-            try
-            {
-                // 通过NodeTree查找该节点应该连接的父节点
-                var nodeMetadata = NodeTree.GetNodeMetadata(node);
-                if (nodeMetadata?.Parent != null)
-                {
-                    if (NodeDic.TryGetValue(nodeMetadata.Parent.Node, out var parentViewNode))
-                    {
-                        CreateEdgeConnection(parentViewNode, viewNode, nodeMetadata);
-                        Debug.Log($"成功修复节点连接: {parentViewNode.Data.GetType().Name} -> {viewNode.Data.GetType().Name}");
-                        return true;
-                    }
-                }
-            }
-            catch (Exception e)
-            {
-                Debug.LogWarning($"尝试修复节点连接时发生异常: {e.Message}");
-            }
-            
-            return false;
-        }
-        /// <summary>
-        /// 创建具体的边连接
-        /// </summary>
-        private void CreateEdgeConnection(ViewNode parentViewNode, ViewNode childViewNode,JsonNodeTree.NodeMetadata childMetadata)
-        {
-            try
-            {
-                // 查找对应的ChildPort
-                PAPath path = childMetadata.LocalPath;
-                if (path.ItemOfCollection) { path = path.GetParent(); }
-                var childPort = parentViewNode.GetChildPort(path);
-                if (childPort != null && childViewNode.ParentPort != null)
-                {
-                    var edge = childPort.ConnectTo(childViewNode.ParentPort);
-                    AddElement(edge);
-
-                    // 设置多端口索引
-                    if (childMetadata.Path.ItemOfCollection)
-                    {
-                        childViewNode.ParentPort.SetIndex(childMetadata.Path.LastPart.Index);
-                    }
-                }
-                else
-                {
-                    Debug.LogWarning($"无法创建边连接: 端口查找失败 - 父节点={parentViewNode.Data.GetType().Name}, 端口名={childMetadata.LocalPath}, 子节点={childViewNode.Data.GetType().Name}");
-                }
-            }
-            catch (Exception e)
-            {
-                Debug.LogError($"创建边连接时发生异常: {e.Message}\n父节点={parentViewNode.Data.GetType().Name}, 子节点={childViewNode.Data.GetType().Name}");
-            }
-        }
-
         public virtual void CreateEdge(Edge edge)
         {
             //Debug.Log("CreateEdge");
@@ -445,22 +316,6 @@ namespace TreeNode.Editor
 
         #endregion
         #region 数据访问和查询
-
-        //public PropertyElement Find(PAPath path)
-        //{
-        //    int index = 0;
-        //    List<(int, JsonNode)> list = ListPool<(int, JsonNode)>.GetList();
-        //    Asset.Data.Nodes.GetAllInPath<JsonNode>(ref path,ref index,list);
-        //    if(list.Last().Item1== path.Depth-1)
-
-
-        //    list.Release();
-        //    if (node is null) { return null; }
-        //    if (index >= path.Length - 1) { return null; }
-        //    string local = path[index..];
-        //    return NodeDic[node]?.FindByLocalPath(local);
-        //}
-
         public ChildPort GetPort(PAPath path)
         {
             if (path.ItemOfCollection)
@@ -482,33 +337,19 @@ namespace TreeNode.Editor
         /// </summary>
         public virtual string Validate()
         {
-            return NodeTree.ValidateTree() ? null : "Tree validation failed";
+
+
+            return "false";
         }
 
         /// <summary>
         /// 获取所有节点路径 - 使用逻辑层实现
         /// </summary>
-        public virtual List<(string, string)> GetAllNodePaths()
-        {
-            return NodeTree.GetAllNodePaths();
-        }
-
-        /// <summary>
-        /// 获取节点总数 - 使用逻辑层实现
-        /// </summary>
-        public int GetTotalJsonNodeCount()
-        {
-            return NodeTree.TotalNodeCount;
-        }
-
+        public virtual List<(string, string)> GetAllNodePaths() => Asset?.Data.GetAllNodeInfo();
         /// <summary>
         /// 获取树视图 - 使用逻辑层实现
         /// </summary>
-        public virtual string GetTreeView()
-        {
-            return NodeTree.GetTreeView();
-        }
-
+        public virtual string GetTreeView() => Asset?.Data?.GetTreeView();
         #endregion
         #region 图表视图管理
         private GraphViewChange OnGraphViewChanged(GraphViewChange graphViewChange)
@@ -533,7 +374,6 @@ namespace TreeNode.Editor
             }
             //Debug.Log($"结束批量操作");
             Window.History.EndBatch();
-            NodeTree.RebuildTree();
             return graphViewChange;
         }
         private void ProcessRemoveOperations(List<ViewNode> nodesToRemove, List<Edge> edgesToRemove, 

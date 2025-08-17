@@ -6,10 +6,7 @@ using TreeNode.Runtime;
 using TreeNode.Utility;
 using UnityEditor;
 using UnityEditor.Experimental.GraphView;
-using UnityEditor.PackageManager.UI;
-using UnityEditor.VersionControl;
 using UnityEngine;
-using static TreeNode.Runtime.JsonNodeTree;
 
 namespace TreeNode.Editor
 {
@@ -308,7 +305,6 @@ namespace TreeNode.Editor
                 {
                     PAPath path = PAPath.Index(Asset.Data.Nodes.Count);
                     Asset.Data.Nodes.Add(createdNodes[i]);
-                    NodeTree.OnNodeAdded(createdNodes[i], path);
                     ViewNode viewNode = AddViewNode(createdNodes[i]);
                     Window.History.Record(NodeOperation.Create(createdNodes[i], path, Asset));
                     list.Clear();

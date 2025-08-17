@@ -1757,26 +1757,32 @@ namespace TreeNode.Editor
             // 记录删除前的状态，用于 History
             object removedValue = _parentList?.ItemsSource[index];
 
-            RemoveEdges();
+            //RemoveEdges();
             
             // 将ChildPort的子值添加回节点数据
             var childValues = new List<JsonNode>();
             ViewNode.View.Window.History.BeginBatch();
+            List<JsonNode> nodes = ViewNode.View.Asset.Data.Nodes;
             foreach (var port in ChildPorts)
             {
-                List<JsonNode> removeNodes = port.Value.GetChildValues();
-                if (removeNodes == null || removeNodes.Count == 0) continue;
-                List<JsonNode> nodes = ViewNode.View.Asset.Data.Nodes;
-                for (int i = 0; i < removeNodes.Count; i++)
+                foreach (Edge edge in port.Value.connections)
                 {
-                    PAPath from = ViewNode.View.NodeTree.GetNodeMetadata(removeNodes[i]).Path;
+                    ViewNode child = edge.ParentPort().node;
+                    PAPath from = child.GetNodePath();
                     PAPath to = PAPath.Index(nodes.Count);
-                    nodes.Add(removeNodes[i]);
-                    NodeOperation nodeOperation = NodeOperation.Move(removeNodes[i], from, to, ViewNode.View.Asset);
+                    nodes.Add(child.Data);
+                    NodeOperation nodeOperation = NodeOperation.Move(child.Data, from, to, ViewNode.View.Asset);
                     //Debug.Log(nodeOperation);
                     ViewNode.View.Window.History.Record(nodeOperation);
                 }
-                //Debug.Log($"Remove Port:{port.Value.LocalPath}");
+                List<Edge> remove = new (port.Value.connections);
+                for (int i = 0; i < remove.Count; i++)
+                {
+                    remove[i].ParentPort().DisconnectAll();
+                    ViewNode.View.RemoveElement(remove[i]);
+
+                }
+                port.Value.DisconnectAll();
                 ViewNode.RemoveChildPort(port.Value);
             }
 
