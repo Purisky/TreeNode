@@ -103,7 +103,7 @@ namespace TreeNode.Runtime
 
                 if (memberType != null &&
                     !IsJsonNodeType(memberType) &&
-                    HasValidParameterlessConstructor(memberType))
+                    (HasValidParameterlessConstructor(memberType)|| memberType.Inherited(typeof(IList))))
                 {
                     var newObj = Activator.CreateInstance(memberType);
                     var parentPath = fullPath.GetSubPath(0, partIndex + 1);
@@ -155,7 +155,7 @@ namespace TreeNode.Runtime
         /// 检查是否为JsonNode类型
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static bool IsJsonNodeType(Type type) => type == typeof(JsonNode);
+        private static bool IsJsonNodeType(Type type) => type.IsSubclassOf( typeof(JsonNode))|| type== typeof(JsonNode);
 
         /// <summary>
         /// 检查是否为数值类型

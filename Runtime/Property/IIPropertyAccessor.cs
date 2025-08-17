@@ -100,13 +100,21 @@ namespace TreeNode.Runtime
         }
         public static void ValidatePath(this IList list, ref PAPath path, ref int index)
         {
-            ref PAPart part = ref list.ValidIndex(ref path, ref index);
+            ref PAPart part = ref path.Parts[index];
+            if (!part.IsIndex) { index--; throw new NotSupportedException($"Non-index access not supported by {list.GetType().Name}"); }
+            if (part.Index < 0) { index--; throw new IndexOutOfRangeException(path, list.GetType(), part.Index, list.Count); }
+            if (index == path.Parts.Length - 1)
+            {
+                if (part.Index > list.Count) { index--; throw new IndexOutOfRangeException(path, list.GetType(), part.Index, list.Count); }
+                return;
+            }
+            if (part.Index >= list.Count) { index--; throw new IndexOutOfRangeException(path, list.GetType(), part.Index, list.Count); }
             object element = list[part.Index];
-            if (index == path.Parts.Length - 1) { return; }
             index++;
             if (element is IPropertyAccessor accessor) { accessor.ValidatePath(ref path, ref index); }
             else if (element is ICollection) { throw new NestedCollectionException(path.GetSubPath(0, index), list.GetType()); }
             else if (element != null) { PropertyAccessor.ValidatePath(element, ref path, ref index); }
+
         }
         public static void GetAllInPath<T>(this IList list, ref PAPath path, ref int index, List<(int depth, T value)> listValues) where T : class
         {

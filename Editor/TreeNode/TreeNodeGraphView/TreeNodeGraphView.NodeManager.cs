@@ -43,37 +43,59 @@ namespace TreeNode.Editor
                 Asset.Data.Nodes.Add(node);
                 var createOperation = NodeOperation.Create(node, path, this.Asset);
                 Window.History.Record(createOperation);
-
                 NodeTree.OnNodeAdded(node, path);
                 return true;
             }
             try
             {
                 PAPath path_ = path;
-                object parent = PropertyAccessor.GetParentObject(Asset.Data.Nodes, path, out PAPart last);
+                PAPath parentPath = path_.GetParent();
+                int index = 0;
+                object parent = Asset.Data.Nodes.GetValueInternal<object>(ref parentPath, ref index);
+                PAPart last = path_.LastPart;
+                Debug.Log($"parent:{parent}");
                 object oldValue = PropertyAccessor.GetValue<object>(parent, last);
+                
+                bool add = false;
                 if (oldValue is null)
                 {
                     Type parentType = parent.GetType();
-                    Type valueType = parentType.GetMember(last.Name).First().GetValueType();
+                    Type valueType = TypeCacheSystem.GetTypeInfo(parentType).GetMember(last.Name).ValueType;
                     if (valueType.Inherited(typeof(IList)))
                     {
                         oldValue = Activator.CreateInstance(valueType);
                         PropertyAccessor.SetValue(parent, last, oldValue);
                     }
                 }
-                if (oldValue is IList nodeList)
+                else if (oldValue is IList nodeList)
                 {
                     path_ = path_.Append(nodeList.Count);
                     nodeList.Add(node);
+                    add = true;
                 }
-                else
+                Debug.Log($"oldValue:{oldValue}");
+
+                if (!add)
                 {
-                    PropertyAccessor.SetValue(parent, last, node);
+                    PAPath lastPath = new(last);
+                    int index_ = 0;
+                    if (parent is IPropertyAccessor accessor)
+                    {
+                        accessor.SetValueInternal(ref lastPath, ref index_, node);
+                    }
+                    else if (parent is IList list)
+                    {
+                        list.SetValueInternal(ref lastPath, ref index_, node);
+                    }
+                    else
+                    {
+                        PropertyAccessor.SetValueInternal(parent, ref lastPath, ref index_, node);
+                    }
                 }
+                Debug.Log("setEnd");
                 var moveOperation = NodeOperation.Create(node, path_, this.Asset);
                 Window.History.Record(moveOperation);
-                NodeTree.OnNodeAdded(node, path_);
+                NodeTree.RebuildTree();
                 return true;
             }
             catch (Exception e)
@@ -511,6 +533,7 @@ namespace TreeNode.Editor
             }
             //Debug.Log($"结束批量操作");
             Window.History.EndBatch();
+            NodeTree.RebuildTree();
             return graphViewChange;
         }
         private void ProcessRemoveOperations(List<ViewNode> nodesToRemove, List<Edge> edgesToRemove, 

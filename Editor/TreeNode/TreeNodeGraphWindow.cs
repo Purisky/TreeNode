@@ -411,17 +411,17 @@ namespace TreeNode.Editor
             TWindow[] windows = Resources.FindObjectsOfTypeAll<TWindow>();
             for (int i = 0; i < windows.Length; i++)
             {
-                Debug.Log($"WindowManager.Open() - Checking existing window: {windows[i].Path} vs {path}");
+                //Debug.Log($"WindowManager.Open() - Checking existing window: {windows[i].Path} vs {path}");
                 if (windows[i].Path == path)
                 {
-                    Debug.Log($"WindowManager.Open() - Found existing window for: {path}");
+                    //Debug.Log($"WindowManager.Open() - Found existing window for: {path}");
                     windows[i].Show();
                     windows[i].Focus();
                     return windows[i];
                 }
             }
             
-            Debug.Log($"WindowManager.Open() - Creating new window for: {path}");
+            //Debug.Log($"WindowManager.Open() - Creating new window for: {path}");
             TWindow window = EditorWindow.CreateWindow<TWindow>(typeof(TWindow),typeof(SceneView));
             window.SetNotDeserializing(); // 明确标记这不是反序列化
             window.Init(target,path);
