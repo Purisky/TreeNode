@@ -58,14 +58,14 @@ namespace TreeNode.Editor
             }).StartingIn(200);
 
         }
-        public bool Validate(out string msg)
+        public virtual ValidationResult Validate(out string msg)
         {
-            msg = $"{Meta.Path}:{portType.Name} is null but required";
+            msg = $"{LocalPath}必须连接{portType.Name}节点";
             if (Require && !connected)
             {
-                return false;
+                return ValidationResult.Failure;
             }
-            return true;
+            return ValidationResult.Success;
         }
 
         public virtual PAPath LocalPath=> Meta.Path;

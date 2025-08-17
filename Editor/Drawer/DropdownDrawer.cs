@@ -148,7 +148,7 @@ namespace TreeNode.Editor
 
         }
 
-        public bool Validate(out string msg)
+        public ValidationResult Validate(out string msg)
         {
             DropdownList<T> list = GetList();
             T value = Node.Data.GetValue<T>(Path);
@@ -157,10 +157,10 @@ namespace TreeNode.Editor
             {
                 if (item.ValueEquals(value))
                 {
-                    return true;
+                    return ValidationResult.Success;
                 }
             }
-            return false;
+            return ValidationResult.Failure;
         }
 
 

@@ -16,14 +16,14 @@ namespace TreeNode.Runtime
         {
             return PropertyAccessor.GetValue<T>(Nodes, path);
         }
-        public virtual string GetTreeView()
+        public virtual string GetTreeView(Func<JsonNode,string> text = null)
         {
             // 直接使用新的递归实现，不再依赖JsonNodeTree
             if (Nodes == null || Nodes.Count == 0)
             {
                 return "Empty Tree";
             }
-
+            text ??= (n => n.GetInfo() ?? "Unknown");
             var sb = new StringBuilder();
 
             // 获取根节点 - Asset.Data.Nodes中的节点都是根节点
@@ -38,28 +38,26 @@ namespace TreeNode.Runtime
                 var rootPath = PAPath.Index(i);
 
                 // 构建根节点，从根节点开始递归
-                BuildTreeNodeRecursive(rootNode, sb, "", true, true, rootPath);
+                BuildTreeNodeRecursive(rootNode, sb, "", true, true, rootPath, text);
             }
 
             return sb.ToString();
         }
         private void BuildTreeNodeRecursive(JsonNode node, StringBuilder sb,
-            string prefix, bool isLast, bool isRoot, PAPath nodePath)
+            string prefix, bool isLast, bool isRoot, PAPath nodePath, Func<JsonNode, string> text)
         {
             // 输出当前节点信息
-            string displayName = node?.GetInfo() ?? "Unknown";
-            string typeName = node?.GetType().Name ?? "Unknown";
-
+            string displayName = text?.Invoke(node);
             if (isRoot)
             {
                 // 根节点没有连接符前缀
-                sb.AppendLine($"{displayName} ({typeName})");
+                sb.AppendLine($"{displayName}");
             }
             else
             {
                 // 非根节点使用连接符
                 string connector = isLast ? "└─ " : "├─ ";
-                sb.AppendLine($"{prefix}{connector}{displayName} ({typeName})");
+                sb.AppendLine($"{prefix}{connector}{displayName}");
             }
 
             // 获取直接子节点，深度为1只获取直接子节点
@@ -87,7 +85,7 @@ namespace TreeNode.Runtime
                         bool isLastChild = i == childrenList.Count - 1;
                         var (childPath, childNode) = childrenList[i];
 
-                        BuildTreeNodeRecursive(childNode, sb, childPrefix, isLastChild, false, childPath);
+                        BuildTreeNodeRecursive(childNode, sb, childPrefix, isLastChild, false, childPath, text);
                     }
                 }
             }

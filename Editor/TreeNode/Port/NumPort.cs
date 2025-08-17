@@ -147,5 +147,14 @@ namespace TreeNode.Editor
             Text.tooltip = Text.text;
         }
 
+        public override ValidationResult Validate(out string msg)
+        {
+            msg = $"{base.LocalPath}数值为0且无计算节点连接";
+            if (NumValue.Value == 0 && NumValue.Node == null)
+            {
+                return ValidationResult.Warning;
+            }
+            return ValidationResult.Success;
+        }
     }
 }

@@ -54,7 +54,6 @@ namespace TreeNode.Editor
                 int index = 0;
                 object parent = Asset.Data.Nodes.GetValueInternal<object>(ref parentPath, ref index);
                 PAPart last = path_.LastPart;
-                Debug.Log($"parent:{parent}");
                 object oldValue = PropertyAccessor.GetValue<object>(parent, last);
                 
                 bool add = false;
@@ -74,8 +73,6 @@ namespace TreeNode.Editor
                     nodeList.Add(node);
                     add = true;
                 }
-                Debug.Log($"oldValue:{oldValue}");
-
                 if (!add)
                 {
                     PAPath lastPath = new(last);
@@ -93,7 +90,6 @@ namespace TreeNode.Editor
                         PropertyAccessor.SetValueInternal(parent, ref lastPath, ref index_, node);
                     }
                 }
-                Debug.Log("setEnd");
                 var moveOperation = NodeOperation.Create(node, path_, this.Asset);
                 Window.History.Record(moveOperation);
                 //NodeTree.RebuildTree();
@@ -209,7 +205,7 @@ namespace TreeNode.Editor
                 //Debug.Log($"设置MultiPort索引: {newIndex}");
             }
             
-            Debug.Log($"立即创建工具节点连接: {childPort.node.Data.GetType().Name} -> {childViewNode.Data.GetType().Name}");
+            //Debug.Log($"立即创建工具节点连接: {childPort.node.Data.GetType().Name} -> {childViewNode.Data.GetType().Name}");
         }
 
         public virtual void RemoveViewNode(ViewNode node)
@@ -337,18 +333,33 @@ namespace TreeNode.Editor
         /// </summary>
         public virtual string Validate()
         {
+            return Asset?.Data?.GetTreeView((node) =>
+            {
+                ViewNode viewNode = NodeDic.GetValueOrDefault(node);
+                ValidationResult res = viewNode.Validate(out string error);
+                if (res == ValidationResult.Success)
+                {
+                    return $"{node.GetInfo()} ✔︎";
+                }
+                else
+                {
+                    string symbol = res switch
+                    {
+                        ValidationResult.Warning => "⚠️",
+                        ValidationResult.Failure => "✘",
+                        _ => ""
+                    };
+                    return $"{node.GetInfo()} {symbol} - {error}";
+                }
 
 
-            return "false";
+            });
         }
 
         /// <summary>
         /// 获取所有节点路径 - 使用逻辑层实现
         /// </summary>
         public virtual List<(string, string)> GetAllNodePaths() => Asset?.Data.GetAllNodeInfo();
-        /// <summary>
-        /// 获取树视图 - 使用逻辑层实现
-        /// </summary>
         public virtual string GetTreeView() => Asset?.Data?.GetTreeView();
         #endregion
         #region 图表视图管理

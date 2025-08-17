@@ -4,6 +4,13 @@ namespace TreeNode.Utility
 {
     public interface IValidator
     {
-        bool Validate(out string msg);
+        ValidationResult Validate(out string msg);
     }
+    public enum ValidationResult
+    {
+        Success,
+        Warning,
+        Failure,
+    }
+
 }

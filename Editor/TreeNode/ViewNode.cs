@@ -24,16 +24,16 @@ namespace TreeNode.Editor
 
         public JsonNode Data;
 
-        private Dictionary<PAPath, PropertyElement> _propertyElementCache = new ();
-        
+        private Dictionary<PAPath, PropertyElement> _propertyElementCache = new();
+
         // 新增：多层缓存架构
         private Dictionary<PAPath, PropertyElement> _localPathCache = new();
         private HashSet<PAPath> _invalidatedPaths = new();
-        
-        public Dictionary<PAPath,ChildPort> ChildPorts;
+
+        public Dictionary<PAPath, ChildPort> ChildPorts;
 
         private bool _needsFullRefresh = false;
-        
+
         // 新增：缓存统计信息（调试用）
         private int _cacheHits = 0;
         private int _cacheMisses = 0;
@@ -59,10 +59,10 @@ namespace TreeNode.Editor
         {
             styleSheets.Add(StyleSheet);
             AddToClassList("view-node");
-            
+
             Type typeInfo = Data.GetType();
             NodeInfoAttribute nodeInfo = typeInfo.GetCustomAttribute<NodeInfoAttribute>();
-            
+
             if (nodeInfo != null)
             {
                 title = nodeInfo.Title;
@@ -70,10 +70,10 @@ namespace TreeNode.Editor
                 titleContainer.style.backgroundColor = nodeInfo.Color;
                 titleContainer.Q<Label>().style.marginRight = 6;
             }
-            
+
             titleContainer.Q<Label>().style.unityFontStyleAndWeight = FontStyle.Bold;
             this.name = typeInfo.Name;
-            
+
             Content = this.Q<VisualElement>("contents");
             Content.style.backgroundColor = new Color(0.2f, 0.2f, 0.2f, 0.8f);
             Content.RemoveAt(1);
@@ -95,8 +95,8 @@ namespace TreeNode.Editor
 
         public virtual void Draw()
         {
-                CompleteDraw();
-            
+            CompleteDraw();
+
         }
 
         /// <summary>
@@ -138,7 +138,7 @@ namespace TreeNode.Editor
         /// </summary>
         private void RefreshSingleProperty(PAPath path)
         {
-            if (_propertyElementCache.TryGetValue(path, out var propertyElement) && 
+            if (_propertyElementCache.TryGetValue(path, out var propertyElement) &&
                 propertyElement?.parent != null)
             {
                 try
@@ -179,10 +179,10 @@ namespace TreeNode.Editor
         {
             // 清除旧的属性元素
             Content.Clear();
-            
+
             // 使用新的缓存失效机制
             InvalidateAllCaches();
-            
+
             // 重新绘制所有属性
             DrawPropertiesAndPorts();
         }
@@ -196,13 +196,13 @@ namespace TreeNode.Editor
             {
                 // 收集需要清理的无效缓存项
                 var itemsToRemove = new List<string>();
-                
+
                 // 遍历所有缓存的PropertyElement，检查是否需要更新
                 foreach (var kvp in _propertyElementCache)
                 {
                     var path = kvp.Key;
                     var propertyElement = kvp.Value;
-                    
+
                     if (propertyElement?.parent == null)
                     {
                         // PropertyElement已被移除，标记为待删除
@@ -247,7 +247,7 @@ namespace TreeNode.Editor
             {
                 // 根据不同的Drawer类型，使用不同的刷新策略
                 var drawerType = propertyElement.Drawer.GetType();
-                
+
                 if (drawerType.Name.Contains("StringDrawer"))
                 {
                     RefreshTextFieldValue(propertyElement, newValue?.ToString());
@@ -353,17 +353,17 @@ namespace TreeNode.Editor
         public void InvalidatePathCache(PAPath path)
         {
             if (path == null || !path.Valid) return;
-            
+
             // 标记路径为失效
             _invalidatedPaths.Add(path);
-            
+
             // 从所有缓存中移除
             _propertyElementCache.Remove(path);
             _localPathCache.Remove(path);
-            
+
             // 如果是父路径，失效所有子路径
             InvalidateChildPaths(path);
-            
+
             Debug.Log($"ViewNode: 失效缓存路径 {path}");
         }
 
@@ -373,7 +373,7 @@ namespace TreeNode.Editor
         private void InvalidateChildPaths(PAPath parentPath)
         {
             var childPathsToInvalidate = new List<PAPath>();
-            
+
             // 查找所有以parentPath开头的子路径
             foreach (var path in _propertyElementCache.Keys)
             {
@@ -382,14 +382,14 @@ namespace TreeNode.Editor
                     childPathsToInvalidate.Add(path);
                 }
             }
-            
+
             foreach (var childPath in childPathsToInvalidate)
             {
                 _propertyElementCache.Remove(childPath);
                 _localPathCache.Remove(childPath);
                 _invalidatedPaths.Add(childPath);
             }
-            
+
             if (childPathsToInvalidate.Count > 0)
             {
                 Debug.Log($"ViewNode: 级联失效了 {childPathsToInvalidate.Count} 个子路径");
@@ -402,15 +402,15 @@ namespace TreeNode.Editor
         public void InvalidateAllCaches()
         {
             var cacheCount = _propertyElementCache.Count + _localPathCache.Count;
-            
+
             _propertyElementCache.Clear();
             _localPathCache.Clear();
             _invalidatedPaths.Clear();
-            
+
             // 重置统计信息
             _cacheHits = 0;
             _cacheMisses = 0;
-            
+
             Debug.Log($"ViewNode: 清空所有缓存，共清理 {cacheCount} 个条目");
         }
 
@@ -424,24 +424,24 @@ namespace TreeNode.Editor
                 _cacheMisses++;
                 return null;
             }
-            
+
             // 第一层：检查路径是否已失效
             if (_invalidatedPaths.Contains(localPath))
             {
                 _cacheMisses++;
                 return null;
             }
-            
+
             // 第二层：本地路径缓存（最快）
-            if (_localPathCache.TryGetValue(localPath, out var localCachedElement) && 
+            if (_localPathCache.TryGetValue(localPath, out var localCachedElement) &&
                 localCachedElement?.parent != null)
             {
                 _cacheHits++;
                 return localCachedElement;
             }
-            
+
             // 第三层：主属性缓存
-            if (_propertyElementCache.TryGetValue(localPath, out var cachedElement) && 
+            if (_propertyElementCache.TryGetValue(localPath, out var cachedElement) &&
                 cachedElement?.parent != null)
             {
                 // 提升到本地缓存
@@ -449,7 +449,7 @@ namespace TreeNode.Editor
                 _cacheHits++;
                 return cachedElement;
             }
-            
+
             // 第四层：DOM查找（最慢，但更新缓存）
             var element = this.Q<PropertyElement>(localPath);
             if (element != null)
@@ -460,7 +460,7 @@ namespace TreeNode.Editor
                 // 从失效列表中移除（如果存在）
                 _invalidatedPaths.Remove(localPath);
             }
-            
+
             _cacheMisses++;
             return element;
         }
@@ -472,14 +472,14 @@ namespace TreeNode.Editor
         {
             int totalRequests = _cacheHits + _cacheMisses;
             float hitRate = totalRequests > 0 ? (float)_cacheHits / totalRequests * 100 : 0;
-            
+
             Debug.Log($"ViewNode缓存统计: " +
                      $"命中率={hitRate:F1}% ({_cacheHits}/{totalRequests}), " +
                      $"主缓存={_propertyElementCache.Count}项, " +
                      $"本地缓存={_localPathCache.Count}项, " +
                      $"失效路径={_invalidatedPaths.Count}个");
         }
-        
+
         public ChildPort GetChildPort(PAPath path)
         {
             if (path.ItemOfCollection) { path = path.GetParent(); }
@@ -497,7 +497,7 @@ namespace TreeNode.Editor
         public bool RemoveChildPort(ChildPort childPort)
         {
             if (childPort == null || ChildPorts == null) return false;
-            
+
             return ChildPorts.Remove(childPort.LocalPath);
         }
 
@@ -515,34 +515,34 @@ namespace TreeNode.Editor
         public void ValidateChildPortsDict()
         {
             if (ChildPorts == null) return;
-            
+
             var invalidPorts = new List<PAPath>();
-            
+
             foreach (var kvp in ChildPorts)
             {
                 var path = kvp.Key;
                 var port = kvp.Value;
-                
+
                 if (port == null)
                 {
                     invalidPorts.Add(path);
                     Debug.LogWarning(string.Format(I18n.Runtime.Warning.InvalidPortReference, path));
                     continue;
                 }
-                
+
                 if (port.LocalPath != path)
                 {
                     invalidPorts.Add(path);
                     Debug.LogWarning(string.Format(I18n.Runtime.Warning.PortInconsistency, path, port.LocalPath));
                 }
             }
-            
+
             // 清理无效端口
             foreach (var invalidPath in invalidPorts)
             {
                 ChildPorts.Remove(invalidPath);
             }
-            
+
             if (invalidPorts.Count > 0)
             {
                 Debug.Log($"ViewNode: 清理了 {invalidPorts.Count} 个无效端口");
@@ -559,7 +559,7 @@ namespace TreeNode.Editor
                     edges.AddRange(item.Value.connections);
                 }
             }
-            
+
             // 修复：获取ParentPort的所有连接，而不仅仅是第一个
             if (ParentPort != null && ParentPort.connected)
             {
@@ -571,8 +571,8 @@ namespace TreeNode.Editor
         public void DrawParentPort(Type parentType)
         {
             if (parentType == null) { return; }
-            
-            ParentPort = ParentPort.Create(this,parentType);
+
+            ParentPort = ParentPort.Create(this, parentType);
             ParentPort.OnChange = OnChange;
             titleContainer.Insert(1, ParentPort);
         }
@@ -582,7 +582,7 @@ namespace TreeNode.Editor
             if (ParentPort == null || !ParentPort.connected) { return this; }
             return (ParentPort.connections.First().ChildPort().node).GetRoot();
         }
-        
+
         public ViewNode GetParent()
         {
             if (ParentPort == null || !ParentPort.connected) { return null; }
@@ -594,7 +594,7 @@ namespace TreeNode.Editor
             if (ParentPort == null || !ParentPort.connected) { return 0; }
             return (ParentPort.connections.First().ChildPort().node).GetDepth() + 1;
         }
-        
+
         public int GetChildMaxDepth()
         {
             int maxDepth = GetDepth();
@@ -613,7 +613,7 @@ namespace TreeNode.Editor
             }
             return maxDepth;
         }
-        
+
         public override void BuildContextualMenu(ContextualMenuPopulateEvent evt)
         {
         }
@@ -661,7 +661,7 @@ namespace TreeNode.Editor
             if (childPort is MultiPort multi) { multi.SortIndex(); }
             PropertyElement element = childPort.GetFirstAncestorOfType<PropertyElement>();
             PAPath path = element.LocalPath;
-            
+
             if (childPort is NumPort)
             {
                 path = path.Append(nameof(NumValue.Node));
@@ -688,11 +688,11 @@ namespace TreeNode.Editor
         {
             List<ViewNode> nodes = new();
             if (ChildPorts == null) return nodes;
-            
+
             List<ChildPort> childPorts = ChildPorts.Values.Where(n => n.connected)
                                                    .OrderBy(n => n.worldBound.position.y)
                                                    .ToList();
-            
+
             for (int i = 0; i < childPorts.Count; i++)
             {
                 foreach (var item in childPorts[i].connections)
@@ -713,41 +713,52 @@ namespace TreeNode.Editor
                 item.Refresh();
             }
         }
-        
+
         /// <summary>
         /// 字符串重载版本 - 兼容现有代码
         /// </summary>
         public PropertyElement FindByLocalPath(string path)
         {
             if (string.IsNullOrEmpty(path)) return null;
-            
+
             // 转换为PAPath并使用优化的查找方法
             PAPath paPath = new PAPath(path);
             return FindByLocalPath(paPath);
         }
 
-        public bool Validate(out string msg)
+        public ValidationResult Validate(out string msg)
         {
-            msg = $"{GetNodePath()}:{Data.GetType().Name}";
+            msg = string.Empty;
             List<VisualElement> list = this.Query<VisualElement>().Where(n => n is IValidator).ToList();
-            bool success = true;
-            
+            ValidationResult result = ValidationResult.Success;
+            int count = 0;
             foreach (VisualElement item in list)
             {
-                if (item is IValidator validator && !validator.Validate(out string errorMsg))
+                if (item is IValidator validator)
                 {
-                    success = false;
-                    msg += $"\n  {errorMsg}";
+                    ValidationResult res = validator.Validate(out string errorMsg);
+                    if (res != ValidationResult.Success)
+                    {
+                        count++;
+                        result = (ValidationResult)(Mathf.Max((int)result, (int)res));
+                        string symbol = res switch
+                        {
+                            ValidationResult.Warning => "⚠️",
+                            ValidationResult.Failure => "✘",
+                            _=>""
+                        };
+                        msg += $" {count}.[{symbol}]{errorMsg}";
+                    }
                 }
             }
-            return success;
+            return result;
         }
-        
+
         public void PopupText()
         {
             JsonNode jsonNode = Data;
             ViewNode parent = GetParent();
-            if (jsonNode is IText && parent!=null)
+            if (jsonNode is IText && parent != null)
             {
                 Edge edge = ParentPort.connections.First();
                 if (edge.output is IPopupTextPort port)
@@ -757,19 +768,19 @@ namespace TreeNode.Editor
                 parent.PopupText();
             }
         }
-        
+
         public void Dispose()
         {
             // 清理所有缓存
             InvalidateAllCaches();
-            
+
             // 清理端口字典
             ClearChildPorts();
-            
+
             // 如果需要调试缓存性能，可以在这里输出统计信息
-            #if UNITY_EDITOR && DEBUG
+#if UNITY_EDITOR && DEBUG
             LogCacheStats();
-            #endif
+#endif
         }
     }
 }
