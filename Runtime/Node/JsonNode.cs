@@ -61,7 +61,7 @@ namespace TreeNode.Runtime
             return list;
         }
 
-        public abstract string GetText();
+        public abstract string GetText(int indent = 0);
     }
 
 

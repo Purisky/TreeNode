@@ -23,11 +23,11 @@ namespace TreeNode.Runtime
         public NumNode Node;
 
 
-        public string GetText()
+        public string GetText(int indent = 0)
         {
             if (Node != null)
             {
-                return Node.GetText();
+                return Node.GetText(indent);
             }
             return Value.ToString();
         }

@@ -39,6 +39,9 @@ namespace TreeNode.Runtime
 
                 // 构建根节点，从根节点开始递归
                 BuildTreeNodeRecursive(rootNode, sb, "", true, true, rootPath, text);
+
+                sb.AppendLine();
+                sb.AppendLine(Nodes[i].GetText());
             }
 
             return sb.ToString();
