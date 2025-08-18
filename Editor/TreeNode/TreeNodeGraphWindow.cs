@@ -91,6 +91,12 @@ namespace TreeNode.Editor
         // Serialization callback fields
         [SerializeField]
         protected bool _isDeserializing = false;
+        
+        // Performance optimization fields
+        [NonSerialized]
+        protected bool _isInitialized = false;
+        [NonSerialized]
+        protected bool _needsInitialization = false;
 
         public virtual TreeNodeGraphView CreateTreeNodeGraphView() => new (this);
 
@@ -126,6 +132,8 @@ namespace TreeNode.Editor
         public void SetNotDeserializing()
         {
             _isDeserializing = false;
+            _isInitialized = false;
+            _needsInitialization = false;
         }
 
 
@@ -135,14 +143,26 @@ namespace TreeNode.Editor
             JsonAsset = new JsonAsset() { Data = asset };
             Path = path;
             _isDeserializing = false; // 明确标记为用户主动打开
-            InitView();
+            _needsInitialization = true; // 标记需要初始化，但延迟到获得焦点时
+            
+            // 如果当前窗口已经有焦点，立即初始化
+            if (hasFocus)
+            {
+                InitView();
+            }
         }
         
         public void InitView()
         {
             //Debug.Log($"TreeNodeGraphWindow.InitView() - Path: {Path}, File exists: {(!string.IsNullOrEmpty(Path) ? File.Exists(Path) : "Path is null/empty")}");
             
-            if (rootView == null && Path != null)
+            if (_isInitialized || (rootView != null && Path != null))
+            {
+                //Debug.Log($"TreeNodeGraphWindow.InitView() skipped - Already initialized or RootView exists: {rootView != null}, Path: {Path}");
+                return;
+            }
+            
+            if (Path != null)
             {
                 // 改进的文件存在性检查
                 if (!string.IsNullOrEmpty(Path))
@@ -206,11 +226,9 @@ namespace TreeNode.Editor
                 rootView.RegisterCallback<KeyDownEvent>(OnKeyDown);
                 rootView.RegisterCallback<KeyUpEvent>(OnKeyUp);
                 
+                _isInitialized = true;
+                _needsInitialization = false;
                 //Debug.Log($"TreeNodeGraphWindow.InitView() completed successfully for: {Path}");
-            }
-            else
-            {
-                //Debug.Log($"TreeNodeGraphWindow.InitView() skipped - RootView exists: {rootView != null}, Path: {Path}");
             }
         }
         
@@ -223,10 +241,18 @@ namespace TreeNode.Editor
         {
             JsonAsset = null;
             rootView = null;
-            InitView();
+            _isInitialized = false;
+            _needsInitialization = true;
+            
+            // 只有当窗口有焦点时才立即初始化
+            if (hasFocus)
+            {
+                InitView();
+            }
+            
             //Debug.Log("Refresh");
             hasUnsavedChanges = false;
-            History.Clear();
+            History?.Clear();
         }
 
         public virtual void OnKeyDown(KeyDownEvent evt)
@@ -291,20 +317,35 @@ namespace TreeNode.Editor
             
             if (_isDeserializing)
             {
-                // 延迟初始化以确保文件系统和AssetDatabase准备就绪
+                // 标记需要初始化，但不立即执行
+                _needsInitialization = true;
+                
+                // 延迟处理反序列化的情况，确保文件系统和AssetDatabase准备就绪
                 EditorApplication.delayCall += () =>
                 {
                     if (this != null) // 确保窗口仍然存在
                     {
                         _isDeserializing = false;
                         //Debug.Log($"TreeNodeGraphWindow.DelayedInit() - Path: {Path}");
-                        InitView();
+                        
+                        // 只有当窗口有焦点时才初始化
+                        if (hasFocus && _needsInitialization)
+                        {
+                            InitView();
+                        }
                     }
                 };
             }
-            else
+            else if (!_isInitialized && !string.IsNullOrEmpty(Path))
             {
-                InitView();
+                // 对于新创建的窗口，标记需要初始化
+                _needsInitialization = true;
+                
+                // 只有当窗口有焦点时才初始化
+                if (hasFocus)
+                {
+                    InitView();
+                }
             }
         }
 
@@ -313,6 +354,17 @@ namespace TreeNode.Editor
             // Unregister this window when it's closed
             TreeNodeAssetPostprocessor.UnregisterWindow(this);
             //Debug.Log($"TreeNodeGraphWindow.OnDisable() - Path: {Path}, Reason: Window closing");
+        }
+
+        public void OnFocus()
+        {
+            //Debug.Log($"TreeNodeGraphWindow.OnFocus() - Path: {Path}, NeedsInit: {_needsInitialization}, IsInitialized: {_isInitialized}");
+            
+            // 当窗口获得焦点时，如果需要初始化且还未初始化，则进行初始化
+            if (_needsInitialization && !_isInitialized && !string.IsNullOrEmpty(Path))
+            {
+                InitView();
+            }
         }
 
         public void MakeDirty()
@@ -426,6 +478,7 @@ namespace TreeNode.Editor
             window.SetNotDeserializing(); // 明确标记这不是反序列化
             window.Init(target,path);
             window.Show();
+            window.Focus(); // 确保新创建的窗口获得焦点，触发初始化
             return window;
         }
     }
