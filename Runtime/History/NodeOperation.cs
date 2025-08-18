@@ -35,7 +35,7 @@ namespace TreeNode.Editor
             {
                 return null;
             }
-            Debug.Log($"Create Node: {node.GetType().Name} at {path}");
+            //Debug.Log($"Create Node: {node.GetType().Name} at {path}");
             return new NodeOperation
             {
                 Node = node,
@@ -49,7 +49,7 @@ namespace TreeNode.Editor
             {
                 return null;
             }
-            Debug.Log($"Delete Node: {node.GetType().Name} at {path}");
+            //Debug.Log($"Delete Node: {node.GetType().Name} at {path}");
             return new NodeOperation
             {
                 Node = node,
@@ -148,7 +148,9 @@ namespace TreeNode.Editor
             //Debug.Log($"Insert to {path}");
             if (path.ItemOfCollection)
             {
+                
                 IList collection = PropertyAccessor.GetParentObject(Nodes, path, out PAPart last) as IList;
+                Debug.Log($"collection[{collection.Count}]->[{last.Index}]");
                 collection.Insert(last.Index, Node);
             }
             else

@@ -10,6 +10,7 @@ using UnityEditor;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.Pool;
 using UnityEngine.UIElements;
 using Timer = TreeNode.Utility.Timer;
 
@@ -291,18 +292,19 @@ namespace TreeNode.Editor
                         }
                         break;
                     case ViewChangeType.EdgeCreate:
-
-
-
-
-                        //NodeMetadata metadata =  NodeTree.GetNodeMetadata(changes[i].Node);
-                        //if (NodeDic.TryGetValue(changes[i].Node, out viewNode) && NodeDic.TryGetValue(metadata.Parent.Node, out ViewNode parentNode))
-                        //{
-                        //    ChildPort childPort = parentNode.GetChildPort(metadata.LocalPath);
-                        //    Edge edge = childPort.ConnectTo(viewNode.ParentPort);
-                        //    childPort.OnAddEdge(edge);
-                        //    AddElement(edge);
-                        //}
+                        PAPath path = changes[i].Path;
+                        int index = 0;
+                        List<(int depth,JsonNode node)> list = Utility.ListPool <(int , JsonNode )>.GetList();
+                        Asset.Data.Nodes.GetAllInPath(ref path, ref index, list);
+                        JsonNode parentJsonNode = list[^2].node;
+                        if (NodeDic.TryGetValue(changes[i].Node, out viewNode) && NodeDic.TryGetValue(parentJsonNode, out ViewNode parentNode))
+                        {
+                            PAPath local = path.GetSubPath(list[^2].depth + 1);
+                            ChildPort childPort = parentNode.GetChildPort(local);
+                            Edge edge = childPort.ConnectTo(viewNode.ParentPort);
+                            childPort.OnAddEdge(edge);
+                            AddElement(edge);
+                        }
                         break;
                     case ViewChangeType.EdgeDelete:
                         if (NodeDic.TryGetValue(changes[i].Node, out viewNode))

@@ -82,7 +82,7 @@ namespace TreeNode.Utility
         /// <summary>
         /// 0=>Auto, (0~1]=>Percent, (1,∞)=>Pixel
         /// </summary>
-        public float Width = 0.5f;
+        public float Width = 0;
         public int Size = 11;
         public string Color = "#D2D2D2";
         public bool Hide;
@@ -99,8 +99,13 @@ namespace TreeNode.Utility
             Width = width;
         }
     }
-
-
+    [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
+    public class StyleAttribute : Attribute
+    {
+        public StyleAttribute()
+        {
+        }
+    }
     [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property)]
     public class GroupAttribute : Attribute
     {

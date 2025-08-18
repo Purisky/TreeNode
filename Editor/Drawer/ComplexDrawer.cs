@@ -267,6 +267,7 @@ namespace TreeNode.Editor
                     };
                     lineVE.style.flexGrow = 1;
                     lineVE.style.flexDirection = FlexDirection.RowReverse;
+                    lineVE.style.justifyContent = Justify.SpaceBetween;
                     groupVE.Add(lineVE);
                     if (PortMembers.Count > i)
                     {

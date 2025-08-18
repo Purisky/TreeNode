@@ -227,6 +227,7 @@ namespace TreeNode.Editor
         public LabelInfoAttribute LabelInfo;
         public ShowInNodeAttribute ShowInNode;
         public DropdownAttribute Dropdown;
+        public StyleAttribute Style;
         public bool Json;
         public MethodInfo OnChangeMethod;
         public string DropdownKey;
@@ -238,6 +239,7 @@ namespace TreeNode.Editor
             ShowInNode = member.GetCustomAttribute<ShowInNodeAttribute>();
             LabelInfo = member.GetLabelInfo();
             Dropdown = member.GetCustomAttribute<DropdownAttribute>();
+            Style = member.GetCustomAttribute<StyleAttribute>();
             if (Dropdown == null&& Type.IsSubclassOf(typeof(Enum)))
             {
                 Dropdown = new(null);
