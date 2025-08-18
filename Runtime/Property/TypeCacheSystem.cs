@@ -117,6 +117,45 @@ namespace TreeNode.Runtime
 
             #endregion
 
+            #region Attribute 信息
+
+            /// <summary>
+            /// ShowInNode Attribute 信息
+            /// </summary>
+            public ShowInNodeAttribute ShowInNodeAttribute { get; set; }
+
+            /// <summary>
+            /// LabelInfo Attribute 信息
+            /// </summary>
+            public LabelInfoAttribute LabelInfoAttribute { get; set; }
+
+            /// <summary>
+            /// Style Attribute 信息
+            /// </summary>
+            public StyleAttribute StyleAttribute { get; set; }
+
+            /// <summary>
+            /// Group Attribute 信息
+            /// </summary>
+            public GroupAttribute GroupAttribute { get; set; }
+
+            /// <summary>
+            /// OnChange Attribute 信息
+            /// </summary>
+            public OnChangeAttribute OnChangeAttribute { get; set; }
+
+            /// <summary>
+            /// Dropdown Attribute 信息
+            /// </summary>
+            public DropdownAttribute DropdownAttribute { get; set; }
+
+            /// <summary>
+            /// TitlePort Attribute 信息
+            /// </summary>
+            public TitlePortAttribute TitlePortAttribute { get; set; }
+
+            #endregion
+
             public Func<object, object> Getter { get; set; }
             public Action<object, object> Setter { get; set; }
 
@@ -127,6 +166,154 @@ namespace TreeNode.Runtime
             {
                 return $"{MemberType}.{Name}({ValueType.Name}) - {Category}";
             }
+
+            #region Attribute 查询方法
+
+            /// <summary>
+            /// 获取显示标签文本（优先使用 LabelInfoAttribute.Text，否则使用成员名称）
+            /// </summary>
+            public string GetDisplayLabel()
+            {
+                return LabelInfoAttribute?.Text ?? Name;
+            }
+
+            /// <summary>
+            /// 获取标签宽度
+            /// </summary>
+            public float GetLabelWidth()
+            {
+                return LabelInfoAttribute?.Width ?? 0f;
+            }
+
+            /// <summary>
+            /// 获取标签大小
+            /// </summary>
+            public int GetLabelSize()
+            {
+                return LabelInfoAttribute?.Size ?? 11;
+            }
+
+            /// <summary>
+            /// 获取标签颜色
+            /// </summary>
+            public string GetLabelColor()
+            {
+                return LabelInfoAttribute?.Color ?? "#D2D2D2";
+            }
+
+            /// <summary>
+            /// 检查标签是否隐藏
+            /// </summary>
+            public bool IsLabelHidden()
+            {
+                return LabelInfoAttribute?.Hide ?? false;
+            }
+
+            /// <summary>
+            /// 获取分组名称（优先使用 GroupAttribute.Name，否则使用从渲染信息中提取的组名）
+            /// </summary>
+            public string GetEffectiveGroupName()
+            {
+                return GroupAttribute?.Name ?? GroupName;
+            }
+
+            /// <summary>
+            /// 获取分组宽度
+            /// </summary>
+            public float GetGroupWidth()
+            {
+                return GroupAttribute?.Width ?? 0f;
+            }
+
+            /// <summary>
+            /// 获取分组显示条件
+            /// </summary>
+            public string GetGroupShowIf()
+            {
+                return GroupAttribute?.ShowIf ?? string.Empty;
+            }
+
+            /// <summary>
+            /// 获取显示顺序（优先使用 ShowInNodeAttribute.Order，否则使用渲染顺序）
+            /// </summary>
+            public int GetDisplayOrder()
+            {
+                return ShowInNodeAttribute?.Order ?? RenderOrder;
+            }
+
+            /// <summary>
+            /// 获取显示条件
+            /// </summary>
+            public string GetShowIf()
+            {
+                return ShowInNodeAttribute?.ShowIf ?? string.Empty;
+            }
+
+            /// <summary>
+            /// 检查是否为只读
+            /// </summary>
+            public bool IsReadOnly()
+            {
+                return ShowInNodeAttribute?.ReadOnly ?? false;
+            }
+
+            /// <summary>
+            /// 获取变化事件处理动作
+            /// </summary>
+            public string GetOnChangeAction()
+            {
+                return OnChangeAttribute?.Action ?? string.Empty;
+            }
+
+            /// <summary>
+            /// 检查变化事件是否包含子项
+            /// </summary>
+            public bool IsOnChangeIncludeChildren()
+            {
+                return OnChangeAttribute?.IncludeChildren ?? false;
+            }
+
+            /// <summary>
+            /// 获取下拉列表获取器
+            /// </summary>
+            public string GetDropdownListGetter()
+            {
+                return DropdownAttribute?.ListGetter ?? string.Empty;
+            }
+
+            /// <summary>
+            /// 检查下拉列表是否扁平化
+            /// </summary>
+            public bool IsDropdownFlat()
+            {
+                return DropdownAttribute?.Flat ?? false;
+            }
+
+            /// <summary>
+            /// 检查下拉列表是否跳过现有项
+            /// </summary>
+            public bool IsDropdownSkipExist()
+            {
+                return DropdownAttribute?.SkipExist ?? false;
+            }
+
+            /// <summary>
+            /// 检查是否有下拉列表
+            /// </summary>
+            public bool HasDropdown()
+            {
+                return DropdownAttribute != null && !string.IsNullOrEmpty(DropdownAttribute.ListGetter);
+            }
+
+            /// <summary>
+            /// 检查是否有样式设置
+            /// </summary>
+            public bool HasStyle()
+            {
+                return StyleAttribute != null;
+            }
+
+            #endregion
         }
 
 
@@ -166,6 +353,25 @@ namespace TreeNode.Runtime
             /// 无参构造函数委托
             /// </summary>
             public Func<object> Constructor { get; set; }
+
+            #endregion
+
+            #region Attribute 信息
+
+            /// <summary>
+            /// NodeInfo Attribute 信息
+            /// </summary>
+            public NodeInfoAttribute NodeInfo { get; set; }
+
+            /// <summary>
+            /// AssetFilter Attribute 信息
+            /// </summary>
+            public AssetFilterAttribute AssetFilter { get; set; }
+
+            /// <summary>
+            /// PortColor Attribute 信息
+            /// </summary>
+            public PortColorAttribute PortColor { get; set; }
 
             #endregion
 
@@ -224,6 +430,136 @@ namespace TreeNode.Runtime
             }
 
             #endregion
+
+            #region Attribute 查询方法
+
+            /// <summary>
+            /// 获取节点显示标题（优先使用 NodeInfo.Title，否则使用类型名称）
+            /// </summary>
+            public string GetDisplayTitle()
+            {
+                return NodeInfo?.Title ?? Type?.Name ?? "Unknown";
+            }
+
+            /// <summary>
+            /// 获取节点显示宽度（优先使用 NodeInfo.Width，否则使用默认值）
+            /// </summary>
+            public int GetDisplayWidth()
+            {
+                return NodeInfo?.Width ?? 200; // 默认宽度
+            }
+
+            /// <summary>
+            /// 获取节点颜色（优先使用 NodeInfo.Color，然后 PortColor.Color，否则使用默认颜色）
+            /// </summary>
+            public UnityEngine.Color GetDisplayColor()
+            {
+                if (NodeInfo != null)
+                {
+                    return NodeInfo.Color;
+                }
+                if (PortColor != null)
+                {
+                    return PortColor.Color;
+                }
+                return UnityEngine.Color.white; // 默认颜色
+            }
+
+            /// <summary>
+            /// 获取菜单项路径（来自 NodeInfo.MenuItem）
+            /// </summary>
+            public string GetMenuItemPath()
+            {
+                return NodeInfo?.MenuItem ?? string.Empty;
+            }
+
+            /// <summary>
+            /// 检查是否为唯一节点（来自 NodeInfo.Unique）
+            /// </summary>
+            public bool IsUniqueNode()
+            {
+                return NodeInfo?.Unique ?? false;
+            }
+
+            /// <summary>
+            /// 检查是否允许在指定类型的资源中使用（来自 AssetFilter）
+            /// </summary>
+            public bool IsAllowedInAsset(Type assetType)
+            {
+                if (AssetFilter == null)
+                {
+                    return true; // 没有过滤器时默认允许
+                }
+
+                if (AssetFilter.Types != null && AssetFilter.Types.Contains(assetType))
+                {
+                    return AssetFilter.Allowed;
+                }
+
+                return !AssetFilter.Allowed; // 不在指定类型中时取反
+            }
+
+            /// <summary>
+            /// 检查是否禁止在预制件中使用（来自 AssetFilter.BanPrefab）
+            /// </summary>
+            public bool IsBannedInPrefab()
+            {
+                return AssetFilter?.BanPrefab ?? false;
+            }
+
+            #endregion
+
+            #region 成员 Attribute 查询方法
+
+            /// <summary>
+            /// 获取 TitlePort 标记的成员
+            /// </summary>
+            public IEnumerable<UnifiedMemberInfo> GetTitlePortMembers()
+                => AllMembers.Where(m => m.IsTitlePort);
+
+            /// <summary>
+            /// 获取 Child 标记的成员
+            /// </summary>
+            public IEnumerable<UnifiedMemberInfo> GetChildMembers()
+                => AllMembers.Where(m => m.IsChild);
+
+            /// <summary>
+            /// 获取需要显示在节点中的成员
+            /// </summary>
+            public IEnumerable<UnifiedMemberInfo> GetVisibleMembers()
+                => AllMembers.Where(m => m.ShowInNode);
+
+            /// <summary>
+            /// 获取有下拉列表的成员
+            /// </summary>
+            public IEnumerable<UnifiedMemberInfo> GetDropdownMembers()
+                => AllMembers.Where(m => m.HasDropdown());
+
+            /// <summary>
+            /// 获取只读成员
+            /// </summary>
+            public IEnumerable<UnifiedMemberInfo> GetReadOnlyMembers()
+                => AllMembers.Where(m => m.IsReadOnly());
+
+            /// <summary>
+            /// 按分组获取成员
+            /// </summary>
+            public IEnumerable<IGrouping<string, UnifiedMemberInfo>> GetMembersByGroup()
+                => AllMembers.GroupBy(m => m.GetEffectiveGroupName());
+
+            /// <summary>
+            /// 获取指定分组的成员
+            /// </summary>
+            public IEnumerable<UnifiedMemberInfo> GetMembersInGroup(string groupName)
+                => AllMembers.Where(m => m.GetEffectiveGroupName() == groupName);
+
+            /// <summary>
+            /// 获取有变化事件的成员
+            /// </summary>
+            public IEnumerable<UnifiedMemberInfo> GetOnChangeMembers()
+                => AllMembers.Where(m => !string.IsNullOrEmpty(m.GetOnChangeAction()));
+
+            #endregion
         }
 
         #endregion
@@ -277,6 +613,36 @@ namespace TreeNode.Runtime
         private static readonly ConcurrentDictionary<Type, TypeReflectionInfo> _typeInfoCache = new();
 
         /// <summary>
+        /// 静态构造函数 - 自动预热 JsonNode 类型
+        /// </summary>
+        static TypeCacheSystem()
+        {
+            // 在 Unity 编辑器模式下自动预热
+            #if UNITY_EDITOR
+            try
+            {
+                // 延迟预热，避免影响编辑器启动性能
+                UnityEditor.EditorApplication.delayCall += () =>
+                {
+                    try
+                    {
+                        WarmupJsonNodeTypes();
+                        //UnityEngine.Debug.Log($"TypeCacheSystem: 自动预热完成，缓存了 {CacheStats.CachedTypeCount} 个类型");
+                    }
+                    catch (System.Exception ex)
+                    {
+                        UnityEngine.Debug.LogWarning($"TypeCacheSystem: 自动预热失败 - {ex.Message}");
+                    }
+                };
+            }
+            catch
+            {
+                // 静态构造函数中不处理异常，避免影响类型初始化
+            }
+            #endif
+        }
+
+        /// <summary>
         /// 缓存统计信息
         /// </summary>
         public static class CacheStats
@@ -312,12 +678,28 @@ namespace TreeNode.Runtime
                 GetTypeInfo(type);
             }
         }
-
         /// <summary>
-        /// 智能预热缓存 - 针对 JsonNode 相关类型的专用预热
+        /// 智能预热缓存 - 自动发现并预热所有 JsonNode 相关类型
         /// </summary>
         public static void WarmupJsonNodeTypes(params Type[] additionalTypes)
         {
+            // 自动发现所有 JsonNode 派生类型
+            var allJsonNodeTypes = System.AppDomain.CurrentDomain.GetAssemblies()
+                .Where(assembly => !assembly.IsDynamic)
+                .SelectMany(assembly => 
+                {
+                    try
+                    {
+                        return assembly.GetTypes();
+                    }
+                    catch
+                    {
+                        return System.Linq.Enumerable.Empty<Type>();
+                    }
+                })
+                .Where(type => typeof(JsonNode).IsAssignableFrom(type) && !type.IsAbstract)
+                .ToArray();
+
             var coreTypes = new[]
             {
                 typeof(JsonNode),
@@ -326,25 +708,42 @@ namespace TreeNode.Runtime
                 typeof(System.Collections.Generic.Dictionary<,>)
             };
 
-            var allTypes = coreTypes.Concat(additionalTypes ?? new Type[0]).Distinct();
+            var allTypes = coreTypes.Concat(allJsonNodeTypes).Concat(additionalTypes ?? new Type[0]).Distinct();
             
             foreach (var type in allTypes)
             {
                 try
                 {
-                    GetTypeInfo(type);
-                    
-                    // 预热常见的泛型实例化
+                    // 跳过泛型定义类型，它们无法直接实例化
                     if (type.IsGenericTypeDefinition)
                     {
-                        continue; // 跳过泛型定义类型，它们无法直接实例化
+                        continue;
                     }
+                    
+                    GetTypeInfo(type);
                 }
                 catch
                 {
                     // 忽略无法预热的类型
                 }
             }
+        }
+
+        /// <summary>
+        /// 获取所有带有 NodeInfo 的类型
+        /// </summary>
+        public static IEnumerable<Type> GetTypesWithNodeInfo()
+        {
+            // 先预热所有 JsonNode 类型（如果还没有预热）
+            if (CacheStats.CachedTypeCount == 0)
+            {
+                WarmupJsonNodeTypes();
+            }
+
+            // 从缓存中获取所有带有 NodeInfo 的类型
+            return _typeInfoCache
+                .Where(kvp => kvp.Value.NodeInfo != null)
+                .Select(kvp => kvp.Key);
         }
 
         /// <summary>
@@ -496,6 +895,13 @@ namespace TreeNode.Runtime
                             typeInfo.Type = type;
                         }
 
+                        // 提取 Attribute 信息（预编译信息可能不包含这些）
+                        if (typeInfo.NodeInfo == null || typeInfo.AssetFilter == null || 
+                            typeInfo.PortColor == null)
+                        {
+                            ExtractTypeAttributes(typeInfo);
+                        }
+
                         // 如果MemberLookup字典为空，从AllMembers构建
                         if (typeInfo.MemberLookup == null || typeInfo.MemberLookup.Count == 0)
                         {
@@ -533,6 +939,9 @@ namespace TreeNode.Runtime
                 HasParameterlessConstructor = HasParameterlessConstructor(type)
             };
 
+            // 解析 Attribute 信息
+            ExtractTypeAttributes(info);
+
             // 构建构造函数委托
             if (info.HasParameterlessConstructor)
             {
@@ -543,6 +952,35 @@ namespace TreeNode.Runtime
             BuildUnifiedMembers(info);
 
             return info;
+        }
+
+        #endregion
+
+        #region Attribute 解析方法
+
+        /// <summary>
+        /// 提取类型的 Attribute 信息
+        /// </summary>
+        private static void ExtractTypeAttributes(TypeReflectionInfo info)
+        {
+            var type = info.Type;
+
+            try
+            {
+                // 提取 NodeInfo Attribute
+                info.NodeInfo = type.GetCustomAttribute<NodeInfoAttribute>();
+
+                // 提取 AssetFilter Attribute
+                info.AssetFilter = type.GetCustomAttribute<AssetFilterAttribute>();
+
+                // 提取 PortColor Attribute
+                info.PortColor = type.GetCustomAttribute<PortColorAttribute>();
+            }
+            catch (Exception ex)
+            {
+                // Attribute 提取失败时记录警告，但不阻止类型信息构建
+                UnityEngine.Debug.LogWarning($"Failed to extract attributes for {type.Name}: {ex.Message}");
+            }
         }
 
         #endregion
@@ -615,7 +1053,16 @@ namespace TreeNode.Runtime
                 GroupName = GetGroupName(member),
                 IsMultiValue = IsCollectionType(valueType),
                 MayContainNestedStructure = MayContainNestedStructure(valueType),
-                MayContainNestedJsonNode = MayContainNestedJsonNode(valueType)
+                MayContainNestedJsonNode = MayContainNestedJsonNode(valueType),
+
+                // 提取 Attribute 信息
+                ShowInNodeAttribute = member.GetCustomAttribute<ShowInNodeAttribute>(),
+                LabelInfoAttribute = member.GetCustomAttribute<LabelInfoAttribute>(),
+                StyleAttribute = member.GetCustomAttribute<StyleAttribute>(),
+                GroupAttribute = member.GetCustomAttribute<GroupAttribute>(),
+                OnChangeAttribute = member.GetCustomAttribute<OnChangeAttribute>(),
+                DropdownAttribute = member.GetCustomAttribute<DropdownAttribute>(),
+                TitlePortAttribute = member.GetCustomAttribute<TitlePortAttribute>()
             };
 
             // 创建访问委托

@@ -47,6 +47,24 @@ namespace TreeNode.Editor
 
             public void OnDropOutsidePort(Edge edge, Vector2 position)
             {
+                // 检测是否从childPort（输出端口）拖拽
+                if (edge.output is ChildPort childPort)
+                {
+                    // 获取GraphView
+                    TreeNodeGraphView graphView = childPort.node.View;
+                    if (graphView != null)
+                    {
+                        // 设置类型过滤和待连接端口
+                        graphView.SearchProvider.SetTypeFilter(childPort.portType, childPort);
+                        
+                        // 计算屏幕坐标
+                        Vector2 screenPosition = graphView.Window.position.position + position;
+                        
+                        // 显示搜索窗口
+                        graphView.SearchProvider.Target = null;
+                        SearchWindow.Open(new SearchWindowContext(screenPosition), graphView.SearchProvider);
+                    }
+                }
             }
 
             public void OnDrop(GraphView graphView, Edge edge)

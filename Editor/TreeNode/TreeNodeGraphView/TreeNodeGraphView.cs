@@ -181,6 +181,7 @@ namespace TreeNode.Editor
 
         private void ShowSearchWindow(NodeCreationContext context)
         {
+            SearchProvider.ClearTypeFilter(); // 确保在正常右键创建节点时清除类型过滤
             SearchProvider.Target = (VisualElement)focusController.focusedElement;
             SearchWindow.Open(new SearchWindowContext(context.screenMousePosition), SearchProvider);
         }

@@ -63,6 +63,200 @@ namespace TreeNodeSourceGenerator
             {
                 sb.AppendLine("                Constructor = null,");
             }
+            
+            // 生成 Attribute 信息
+            GenerateAttributeInfo(sb, nodeType);
+        }
+
+        /// <summary>
+        /// 生成类型 Attribute 信息
+        /// </summary>
+        private void GenerateAttributeInfo(StringBuilder sb, INamedTypeSymbol nodeType)
+        {
+            // 生成 NodeInfo Attribute
+            var nodeInfoAttr = GetAttribute(nodeType, "NodeInfoAttribute");
+            if (nodeInfoAttr != null)
+            {
+                sb.AppendLine($"                NodeInfo = {GenerateAttributeInitializer(nodeInfoAttr)},");
+            }
+
+            // 生成 AssetFilter Attribute
+            var assetFilterAttr = GetAttribute(nodeType, "AssetFilterAttribute");
+            if (assetFilterAttr != null)
+            {
+                sb.AppendLine($"                AssetFilter = {GenerateAttributeInitializer(assetFilterAttr)},");
+            }
+
+            // 生成 PortColor Attribute
+            var portColorAttr = GetAttribute(nodeType, "PortColorAttribute");
+            if (portColorAttr != null)
+            {
+                sb.AppendLine($"                PortColor = {GenerateAttributeInitializer(portColorAttr)},");
+            }
+        }
+
+        /// <summary>
+        /// 获取指定名称的特性
+        /// </summary>
+        private AttributeData GetAttribute(INamedTypeSymbol type, string attributeName)
+        {
+            return type.GetAttributes().FirstOrDefault(attr => 
+                attr.AttributeClass?.Name == attributeName ||
+                attr.AttributeClass?.Name == attributeName.Replace("Attribute", ""));
+        }
+
+        /// <summary>
+        /// 生成 Attribute 的初始化代码
+        /// </summary>
+        private string GenerateAttributeInitializer(AttributeData attributeData)
+        {
+            if (attributeData?.AttributeClass == null)
+                return "null";
+
+            var attributeTypeName = attributeData.AttributeClass.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            var sb = new StringBuilder();
+            
+            sb.Append($"new {attributeTypeName}()");
+            
+            // 检查是否有构造函数参数
+            if (attributeData.ConstructorArguments.Length > 0)
+            {
+                sb.Clear();
+                sb.Append($"new {attributeTypeName}(");
+                
+                for (int i = 0; i < attributeData.ConstructorArguments.Length; i++)
+                {
+                    if (i > 0) sb.Append(", ");
+                    sb.Append(FormatAttributeValue(attributeData.ConstructorArguments[i]));
+                }
+                
+                sb.Append(")");
+            }
+            
+            // 检查是否有命名参数
+            if (attributeData.NamedArguments.Length > 0)
+            {
+                sb.Append(" { ");
+                
+                for (int i = 0; i < attributeData.NamedArguments.Length; i++)
+                {
+                    if (i > 0) sb.Append(", ");
+                    var namedArg = attributeData.NamedArguments[i];
+                    sb.Append($"{namedArg.Key} = {FormatAttributeValue(namedArg.Value)}");
+                }
+                
+                sb.Append(" }");
+            }
+            
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// 格式化 Attribute 参数值
+        /// </summary>
+        private string FormatAttributeValue(TypedConstant value)
+        {
+            if (value.IsNull)
+                return "null";
+                
+            switch (value.Kind)
+            {
+                case TypedConstantKind.Primitive:
+                    if (value.Type?.SpecialType == SpecialType.System_String)
+                        return $"\"{value.Value?.ToString().Replace("\"", "\\\"")}\"";
+                    if (value.Type?.SpecialType == SpecialType.System_Char)
+                        return $"'{value.Value}'";
+                    if (value.Type?.SpecialType == SpecialType.System_Boolean)
+                        return value.Value?.ToString().ToLower();
+                    return value.Value?.ToString();
+                    
+                case TypedConstantKind.Enum:
+                    var enumType = value.Type?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                    return $"{enumType}.{value.Value}";
+                    
+                case TypedConstantKind.Type:
+                    var typeValue = value.Value as ITypeSymbol;
+                    return $"typeof({typeValue?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)})";
+                    
+                case TypedConstantKind.Array:
+                    var arrayValues = value.Values;
+                    if (arrayValues.Length == 0)
+                        return "new object[0]";
+                    
+                    var elementType = ((IArrayTypeSymbol)value.Type).ElementType;
+                    var elementTypeName = elementType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                    
+                    var arrayContent = string.Join(", ", arrayValues.Select(FormatAttributeValue));
+                    return $"new {elementTypeName}[] {{ {arrayContent} }}";
+                    
+                default:
+                    return value.Value?.ToString() ?? "null";
+            }
+        }
+
+        /// <summary>
+        /// 生成成员 Attribute 信息
+        /// </summary>
+        private void GenerateMemberAttributeInfo(StringBuilder sb, AccessibleMemberInfo member, ISymbol memberSymbol)
+        {
+            // ShowInNodeAttribute
+            var showInNodeAttr = GetMemberAttribute(memberSymbol, "ShowInNodeAttribute");
+            if (showInNodeAttr != null)
+            {
+                sb.AppendLine($"                        ShowInNodeAttribute = {GenerateAttributeInitializer(showInNodeAttr)},");
+            }
+
+            // LabelInfoAttribute
+            var labelInfoAttr = GetMemberAttribute(memberSymbol, "LabelInfoAttribute");
+            if (labelInfoAttr != null)
+            {
+                sb.AppendLine($"                        LabelInfoAttribute = {GenerateAttributeInitializer(labelInfoAttr)},");
+            }
+
+            // StyleAttribute
+            var styleAttr = GetMemberAttribute(memberSymbol, "StyleAttribute");
+            if (styleAttr != null)
+            {
+                sb.AppendLine($"                        StyleAttribute = {GenerateAttributeInitializer(styleAttr)},");
+            }
+
+            // GroupAttribute
+            var groupAttr = GetMemberAttribute(memberSymbol, "GroupAttribute");
+            if (groupAttr != null)
+            {
+                sb.AppendLine($"                        GroupAttribute = {GenerateAttributeInitializer(groupAttr)},");
+            }
+
+            // OnChangeAttribute
+            var onChangeAttr = GetMemberAttribute(memberSymbol, "OnChangeAttribute");
+            if (onChangeAttr != null)
+            {
+                sb.AppendLine($"                        OnChangeAttribute = {GenerateAttributeInitializer(onChangeAttr)},");
+            }
+
+            // DropdownAttribute
+            var dropdownAttr = GetMemberAttribute(memberSymbol, "DropdownAttribute");
+            if (dropdownAttr != null)
+            {
+                sb.AppendLine($"                        DropdownAttribute = {GenerateAttributeInitializer(dropdownAttr)},");
+            }
+
+            // TitlePortAttribute
+            var titlePortAttr = GetMemberAttribute(memberSymbol, "TitlePortAttribute");
+            if (titlePortAttr != null)
+            {
+                sb.AppendLine($"                        TitlePortAttribute = {GenerateAttributeInitializer(titlePortAttr)},");
+            }
+        }
+
+        /// <summary>
+        /// 获取成员的指定特性
+        /// </summary>
+        private AttributeData GetMemberAttribute(ISymbol memberSymbol, string attributeName)
+        {
+            return memberSymbol?.GetAttributes().FirstOrDefault(attr => 
+                attr.AttributeClass?.Name == attributeName ||
+                attr.AttributeClass?.Name == attributeName.Replace("Attribute", ""));
         }
 
         /// <summary>
@@ -104,6 +298,9 @@ namespace TreeNodeSourceGenerator
             var groupName = GetGroupName(member);
             var memberValueTypeName = member.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
             
+            // 查找成员符号
+            var memberSymbol = ownerType.GetMembers(member.Name).FirstOrDefault();
+            
             sb.AppendLine("                    new UnifiedMemberInfo");
             sb.AppendLine("                    {");
             sb.AppendLine($"                        Member = currentType.GetMember(\"{member.Name}\")[0],");
@@ -118,6 +315,9 @@ namespace TreeNodeSourceGenerator
             sb.AppendLine($"                        IsMultiValue = {member.IsCollection.ToString().ToLower()},");
             sb.AppendLine($"                        MayContainNestedStructure = {AnalyzeMayContainNestedStructure(member.Type).ToString().ToLower()},");
             sb.AppendLine($"                        MayContainNestedJsonNode = {AnalyzeMayContainNestedJsonNode(member.Type).ToString().ToLower()},");
+            
+            // 生成成员 Attribute 信息
+            GenerateMemberAttributeInfo(sb, member, memberSymbol);
             
             // 生成Getter委托
             GenerateGetterInitializer(sb, member, ownerType);

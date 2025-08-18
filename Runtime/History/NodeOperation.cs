@@ -150,7 +150,6 @@ namespace TreeNode.Editor
             {
                 
                 IList collection = PropertyAccessor.GetParentObject(Nodes, path, out PAPart last) as IList;
-                Debug.Log($"collection[{collection.Count}]->[{last.Index}]");
                 collection.Insert(last.Index, Node);
             }
             else

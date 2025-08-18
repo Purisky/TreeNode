@@ -18,10 +18,6 @@ namespace TreeNode.Editor
         public List<ViewNode> ViewNodes;
         public Dictionary<JsonNode, ViewNode> NodeDic;
 
-        // 逻辑层树结构处理器 - 改为立即初始化
-        //private JsonNodeTree _nodeTree;
-        //public JsonNodeTree NodeTree => _nodeTree;
-
         #region 节点管理
 
         public virtual void AddNode(JsonNode node)
