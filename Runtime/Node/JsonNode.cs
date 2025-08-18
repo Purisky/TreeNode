@@ -11,7 +11,7 @@ using UnityEngine.UIElements;
 namespace TreeNode.Runtime
 {
     [Serializable, PortColor("#ffffff")]
-    public partial class JsonNode
+    public abstract partial class JsonNode:IText
     {
 
         [JsonProperty]
@@ -61,7 +61,9 @@ namespace TreeNode.Runtime
             return list;
         }
 
+        public abstract string GetText();
     }
+
 
 
 

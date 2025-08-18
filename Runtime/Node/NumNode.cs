@@ -8,14 +8,8 @@ using UnityEngine;
 namespace TreeNode.Runtime
 {
     [PortColor("#7CFC00")]
-    public abstract class NumNode : JsonNode, IText
+    public abstract class NumNode : JsonNode
     {
-        public abstract string GetText();
-
-
-
-
-
     }
     public class NumValue<T> : NumValue where T : NumNode
     {
