@@ -5,23 +5,23 @@ using UnityEngine.UIElements;
 
 namespace TreeNode.Editor
 {
-    public class PrefabViewNode : ViewNode
+    public class TemplateNode : ViewNode
     {
-        public PrefabViewNode(JsonNode data, TreeNodeGraphView view) : base(data, view)
+        public TemplateNode(JsonNode data, TreeNodeGraphView view) : base(data, view)
         {
         }
 
         public override void Draw()
         {
-            PrefabPreviewData ppData = NodePrefabManager.GetData(Data.PrefabData.ID);
+            TemplatePreviewData tpData = TemplateManager.GetData(Data.TemplateData.ID);
 
-            style.width = ppData.Width;
-            DrawParentPort(ppData.OutputType);
-            title = ppData.Name;
+            style.width = tpData.Width;
+            DrawParentPort(tpData.OutputType);
+            title = tpData.Name;
             ChildPorts = new();
-            for (int i = 0; i < ppData.Fields.Count; i++)
+            for (int i = 0; i < tpData.Fields.Count; i++)
             {
-                Type type = ppData.Fields[i].Type;
+                Type type = tpData.Fields[i].Type;
                 BaseDrawer baseDrawer = DrawerManager.Get(type);
                 if (baseDrawer == null && (type == typeof(NumValue) || type.Inherited(typeof(NumValue))))
                 {
@@ -29,13 +29,13 @@ namespace TreeNode.Editor
                 }
                 if (baseDrawer != null)
                 {
-                    string path = $"PrefabData._{ppData.Fields[i].ID}";
+                    string path = $"TemplateData._{tpData.Fields[i].ID}";
                     //MemberInfo memberInfo = new MemberInfo()
                     MemberMeta meta = new()
                     {
                         Path = path,
-                        Type = ppData.Fields[i].Type,
-                        LabelInfo = new() { Text = ppData.Fields[i].Name },
+                        Type = tpData.Fields[i].Type,
+                        LabelInfo = new() { Text = tpData.Fields[i].Name },
                         ShowInNode = new(),
                         Json = true,
                     };
@@ -45,10 +45,10 @@ namespace TreeNode.Editor
             }
 
         }
-        public void OpenPrefabAsset()
+        public void OpenTemplateAsset()
         {
-            PrefabPreviewData ppData = NodePrefabManager.GetData(Data.PrefabData.ID);
-            JsonAssetHandler.OpenPrefabJsonAsset(ppData.Path);
+            TemplatePreviewData ppData = TemplateManager.GetData(Data.TemplateData.ID);
+            JsonAssetHandler.OpenTemplateJsonAsset(ppData.Path);
         }
 
 

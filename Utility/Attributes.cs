@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -146,18 +146,18 @@ namespace TreeNode.Utility
     public class AssetFilterAttribute : Attribute
     {
         public bool Allowed;
-        public bool BanPrefab;
+        public bool BanTemplate;
         public HashSet<Type> Types;
-        public AssetFilterAttribute(bool allowed, bool banPrefab, params Type[] types)
+        public AssetFilterAttribute(bool allowed, bool banTemplate, params Type[] types)
         {
             Allowed = allowed;
-            BanPrefab = banPrefab;
+            BanTemplate = banTemplate;
             Types = new HashSet<Type>(types);
         }
         public AssetFilterAttribute(bool allowed, params Type[] types)
         {
             Allowed = allowed;
-            BanPrefab = false;
+            BanTemplate = false;
             Types = new HashSet<Type>(types);
         }
 

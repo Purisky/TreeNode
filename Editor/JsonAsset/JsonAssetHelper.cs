@@ -33,7 +33,7 @@ namespace TreeNode.Editor
 
             }
             defaultIcon = ResourcesUtil.DefaultIcon();
-            AssetDatabase.GetAllAssetPaths().Where(n => n.EndsWith(".ja") || n.EndsWith(".pja")).ToList().ForEach(n =>
+            AssetDatabase.GetAllAssetPaths().Where(n => n.EndsWith(".ja") || n.EndsWith(".tpl")).ToList().ForEach(n =>
             {
                 AssetDatabase.ImportAsset(n);
             });

@@ -1,20 +1,20 @@
-using TreeNode.Runtime;
+﻿using TreeNode.Runtime;
 using TreeNode.Utility;
 using UnityEditor;
 using UnityEngine.UIElements;
 
 namespace TreeNode.Editor
 {
-    [NodeAsset(typeof(NodePrefabAsset))]
-    public class NodePrefabWindow : TreeNodeGraphWindow
+    [NodeAsset(typeof(TemplateAsset))]
+    public class TemplateWindow : TreeNodeGraphWindow
     {
-        public new NodePrefabGraphView GraphView { get; private set; }
-        public override TreeNodeGraphView CreateTreeNodeGraphView() => new NodePrefabGraphView(this);
+        public new TemplateGraphView GraphView { get; private set; }
+        public override TreeNodeGraphView CreateTreeNodeGraphView() => new TemplateGraphView(this);
 
-        [MenuItem("Assets/Create/TreeNode/NodePrefab")]
+        [MenuItem("Assets/Create/TreeNode/Template")]
         public static void CreateFile()
         {
-            CreateFile<NodePrefabAsset>();
+            CreateFile<TemplateAsset>();
         }
 
         public override void Init(TreeNodeAsset asset, string path)

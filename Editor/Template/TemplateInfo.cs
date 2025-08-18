@@ -7,16 +7,16 @@ using UnityEngine.UIElements;
 
 namespace TreeNode.Editor
 {
-    public class NodePrefabInfo : VisualElement
+    public class TemplateInfo : VisualElement
     {
-        public NodePrefabGraphView GraphView;
+        public TemplateGraphView GraphView;
 
-        public List<PrefabProperty> Data => GraphView.AssetData.Properties;
+        public List<TemplateProperty> Data => GraphView.AssetData.Properties;
 
 
-        public List<NodePrefabInfoProperty> Properties;
+        public List<TemplateInfoProperty> Properties;
         public VisualElement PropertiesElement;
-        public NodePrefabInfo(NodePrefabGraphView graphView)
+        public TemplateInfo(TemplateGraphView graphView)
         {
             GraphView = graphView;
             Init();
@@ -24,7 +24,7 @@ namespace TreeNode.Editor
 
         public void Init()
         {
-            styleSheets.Add(ResourcesUtil.LoadStyleSheet("NodePrefabInfo"));
+            styleSheets.Add(ResourcesUtil.LoadStyleSheet("TemplateInfo"));
             TextField textField = new("Name");
             Add(textField);
             textField.value = GraphView.AssetData.Name;
@@ -45,7 +45,7 @@ namespace TreeNode.Editor
 
         public void UpdateProperties()
         {
-            List<NodePrefabInfoProperty> delete = new();
+            List<TemplateInfoProperty> delete = new();
             for (int i = 0; i < Properties.Count; i++)
             {
                 //Debug.Log(i);
@@ -56,7 +56,7 @@ namespace TreeNode.Editor
             }
             for (int i = 0; i < delete.Count; i++)
             {
-                Data.Remove(delete[i].PrefabProperty);
+                Data.Remove(delete[i].TemplateProperty);
                 Remove(delete[i]);
             }
         }
@@ -66,26 +66,26 @@ namespace TreeNode.Editor
         public void BuildContextualMenu(ContextualMenuPopulateEvent evt)
         {
         }
-        public void Add(PrefabProperty property)
+        public void Add(TemplateProperty property)
         {
-            NodePrefabInfoProperty nodePrefabInfoProperty = new(this, property);
-            Properties.Add(nodePrefabInfoProperty);
-            PropertiesElement.Add(nodePrefabInfoProperty);
+            TemplateInfoProperty templateInfoProperty = new(this, property);
+            Properties.Add(templateInfoProperty);
+            PropertiesElement.Add(templateInfoProperty);
         }
         public void Add(PropertyElement element)
         {
-            PrefabProperty property = element.PrefabProperty;
+            TemplateProperty property = element.TemplateProperty;
             property.ID = GetNewID();
-            NodePrefabInfoProperty nodePrefabInfoProperty = new(this, property)
+            TemplateInfoProperty templateInfoProperty = new(this, property)
             {
                 PropertyElement = element,
                 ViewNode = element.ViewNode
             };
 
-            List<NodePrefabInfoProperty> delete = new();
+            List<TemplateInfoProperty> delete = new();
             for (int i = 0; i < Properties.Count; i++)
             {
-                NodePrefabInfoProperty infoProperty = Properties[i];
+                TemplateInfoProperty infoProperty = Properties[i];
                 if (Check(Properties[i].PropertyElement))
                 {
                     delete.Add(Properties[i]);
@@ -96,8 +96,8 @@ namespace TreeNode.Editor
                 //Remove(delete[i]);
                 delete[i].PropertyElement.SetOutput(false);
             }
-            Properties.Add(nodePrefabInfoProperty);
-            PropertiesElement.Add(nodePrefabInfoProperty);
+            Properties.Add(templateInfoProperty);
+            PropertiesElement.Add(templateInfoProperty);
 
             bool Check(PropertyElement otherElement )
             {
@@ -126,7 +126,7 @@ namespace TreeNode.Editor
             while(true)
             {
                 string id = $"{index:x2}";
-                if (Properties.Find(p => p.PrefabProperty.ID == id) == null)
+                if (Properties.Find(p => p.TemplateProperty.ID == id) == null)
                 {
                     return id;
                 }
@@ -135,26 +135,26 @@ namespace TreeNode.Editor
         }
 
 
-        public void Remove(PrefabProperty property)
+        public void Remove(TemplateProperty property)
         {
-            NodePrefabInfoProperty prefabInfoProperty = FindProperty(property);
-            if (prefabInfoProperty != null)
+            TemplateInfoProperty infoProperty = FindProperty(property);
+            if (infoProperty != null)
             {
-                Properties.Remove(prefabInfoProperty);
-                PropertiesElement.Remove(prefabInfoProperty);
+                Properties.Remove(infoProperty);
+                PropertiesElement.Remove(infoProperty);
             }
         }
-        public void Remove(NodePrefabInfoProperty property)
+        public void Remove(TemplateInfoProperty property)
         {
             Properties.Remove(property);
             PropertiesElement.Remove(property);
         }
 
-        public NodePrefabInfoProperty FindProperty(PrefabProperty property)
+        public TemplateInfoProperty FindProperty(TemplateProperty property)
         {
-            return Properties.Find(p => p.PrefabProperty == property);
+            return Properties.Find(p => p.TemplateProperty == property);
         }
-        public PropertyElement FindPropertyElement(PrefabProperty property)
+        public PropertyElement FindPropertyElement(TemplateProperty property)
         {
             (string node, string local) = DividePath(property.Path);
             JsonNode jsonNode = GraphView.AssetData.GetValue<JsonNode>(node);
@@ -192,20 +192,20 @@ namespace TreeNode.Editor
 
 
 
-    public class NodePrefabInfoProperty : VisualElement
+    public class TemplateInfoProperty : VisualElement
     {
-        public PrefabProperty PrefabProperty;
-        public NodePrefabInfo NodePrefabInfo;
+        public TemplateProperty TemplateProperty;
+        public TemplateInfo TemplateInfo;
         public ViewNode ViewNode;
         public PropertyElement PropertyElement;
 
         public TextField PropertyName;
         public TextField PropertyID;
         //bool inited;
-        public NodePrefabInfoProperty(NodePrefabInfo nodePrefabInfo, PrefabProperty property)
+        public TemplateInfoProperty(TemplateInfo templateInfo, TemplateProperty property)
         {
-            NodePrefabInfo = nodePrefabInfo;
-            PrefabProperty = property;
+            TemplateInfo = templateInfo;
+            TemplateProperty = property;
             //Label label = new(property.Name);
             //Add(label);
             this.AddManipulator(new ContextualMenuManipulator(BuildContextualMenu));
@@ -217,8 +217,7 @@ namespace TreeNode.Editor
             PropertyName.value = property.Name;
             PropertyName.RegisterValueChangedCallback(evt =>
             {
-                PrefabProperty.Name = evt.newValue;
-                NodePrefabInfo.GraphView.Window.History.AddStep();
+                TemplateProperty.Name = evt.newValue;
             });
 
             PropertyID = new TextField
@@ -236,21 +235,20 @@ namespace TreeNode.Editor
         public void CommitEdit()
         {
             PropertyID.SetEnabled(false);
-            if (string.IsNullOrEmpty(PropertyID.value)) { PropertyID.value = PrefabProperty.ID; return; }
+            if (string.IsNullOrEmpty(PropertyID.value)) { PropertyID.value = TemplateProperty.ID; return; }
             string value = PropertyID.value.Trim();
-            if (string.IsNullOrWhiteSpace(value)) { PropertyID.value = PrefabProperty.ID; return; }
-            if (value == PrefabProperty.ID) { return; }
-            for (int i = 0; i < NodePrefabInfo.Properties.Count; i++)
+            if (string.IsNullOrWhiteSpace(value)) { PropertyID.value = TemplateProperty.ID; return; }
+            if (value == TemplateProperty.ID) { return; }
+            for (int i = 0; i < TemplateInfo.Properties.Count; i++)
             {
-                if (NodePrefabInfo.Properties[i] != this && NodePrefabInfo.Properties[i].PrefabProperty.ID == value)
+                if (TemplateInfo.Properties[i] != this && TemplateInfo.Properties[i].TemplateProperty.ID == value)
                 {
-                    PropertyID.value = PrefabProperty.ID;
+                    PropertyID.value = TemplateProperty.ID;
                     return;
                 }
             }
-            PrefabProperty.ID = value;
+            TemplateProperty.ID = value;
             PropertyID.value = value;
-            NodePrefabInfo.GraphView.Window.History.AddStep();
         }
 
 
@@ -266,10 +264,10 @@ namespace TreeNode.Editor
         }
         public bool UpdatePath()
         {
-            if (NodePrefabInfo.GraphView.ViewNodes.Contains(ViewNode))
+            if (TemplateInfo.GraphView.ViewNodes.Contains(ViewNode))
             {
-                PropertyElement.PrefabProperty.Path = PropertyElement.GetGlobalPath();
-                PropertyName.label = GetPathName(PrefabProperty.Path);
+                PropertyElement.TemplateProperty.Path = PropertyElement.GetGlobalPath();
+                PropertyName.label = GetPathName(TemplateProperty.Path);
                 return true;
             }
             return false;
@@ -277,66 +275,62 @@ namespace TreeNode.Editor
         private void OnMouseOut(MouseOutEvent evt)
         {
             //InitPropertyElement();
-            PropertyElement.RemoveFromClassList("PrefabPropertyHover");
+            PropertyElement.RemoveFromClassList("TemplatePropertyHover");
         }
 
         private void OnMouseEnter(MouseOverEvent evt)
         {
             //InitPropertyElement();
-            PropertyElement.AddToClassList("PrefabPropertyHover");
+            PropertyElement.AddToClassList("TemplatePropertyHover");
         }
 
         public void BuildContextualMenu(ContextualMenuPopulateEvent evt)
         {
-            if (evt.target is NodePrefabInfoProperty property)
+            if (evt.target is TemplateInfoProperty property)
             {
 
 
-                int count = NodePrefabInfo.Data.Count;
-                int index = NodePrefabInfo.Data.IndexOf(property.PrefabProperty);
+                int count = TemplateInfo.Data.Count;
+                int index = TemplateInfo.Data.IndexOf(property.TemplateProperty);
                 if (count > 1)
                 {
                     if (index > 0)
                     {
                         evt.menu.AppendAction($"▲{I18n.Editor.List.Move2Top}", delegate
                          {
-                             NodePrefabInfo.Data.Remove(property.PrefabProperty);
-                             NodePrefabInfo.Data.Insert(0,property.PrefabProperty);
-                             NodePrefabInfo.Properties.Remove(property);
-                             NodePrefabInfo.Properties.Insert(0,property);
+                             TemplateInfo.Data.Remove(property.TemplateProperty);
+                             TemplateInfo.Data.Insert(0,property.TemplateProperty);
+                             TemplateInfo.Properties.Remove(property);
+                             TemplateInfo.Properties.Insert(0,property);
                              property.SendToBack();
-                             NodePrefabInfo.GraphView.Window.History.AddStep();
 
                          });
                         evt.menu.AppendAction($"▲{I18n.Editor.List.MoveUp}", delegate
                         {
-                            int index = NodePrefabInfo.Data.IndexOf(property.PrefabProperty);
-                            (NodePrefabInfo.Data[index], NodePrefabInfo.Data[index-1]) = (NodePrefabInfo.Data[index - 1], NodePrefabInfo.Data[index]);
-                            (NodePrefabInfo.Properties[index], NodePrefabInfo.Properties[index - 1]) = (NodePrefabInfo.Properties[index - 1], NodePrefabInfo.Properties[index]);
-                            NodePrefabInfo.PropertiesElement.Remove(property);
-                            NodePrefabInfo.PropertiesElement.Insert(index - 1, property);
-                            NodePrefabInfo.GraphView.Window.History.AddStep();
+                            int index = TemplateInfo.Data.IndexOf(property.TemplateProperty);
+                            (TemplateInfo.Data[index], TemplateInfo.Data[index-1]) = (TemplateInfo.Data[index - 1], TemplateInfo.Data[index]);
+                            (TemplateInfo.Properties[index], TemplateInfo.Properties[index - 1]) = (TemplateInfo.Properties[index - 1], TemplateInfo.Properties[index]);
+                            TemplateInfo.PropertiesElement.Remove(property);
+                            TemplateInfo.PropertiesElement.Insert(index - 1, property);
                         });
                     }
                     if (index < count - 1)
                     {
                         evt.menu.AppendAction($"▼{I18n.Editor.List.MoveDown}", delegate
                         {
-                            int index = NodePrefabInfo.Data.IndexOf(property.PrefabProperty);
-                            (NodePrefabInfo.Data[index], NodePrefabInfo.Data[index + 1]) = (NodePrefabInfo.Data[index + 1], NodePrefabInfo.Data[index]);
-                            (NodePrefabInfo.Properties[index], NodePrefabInfo.Properties[index + 1]) = (NodePrefabInfo.Properties[index + 1], NodePrefabInfo.Properties[index]);
-                            NodePrefabInfo.PropertiesElement.Remove(property);
-                            NodePrefabInfo.PropertiesElement.Insert(index + 1, property);
-                            NodePrefabInfo.GraphView.Window.History.AddStep();
+                            int index = TemplateInfo.Data.IndexOf(property.TemplateProperty);
+                            (TemplateInfo.Data[index], TemplateInfo.Data[index + 1]) = (TemplateInfo.Data[index + 1], TemplateInfo.Data[index]);
+                            (TemplateInfo.Properties[index], TemplateInfo.Properties[index + 1]) = (TemplateInfo.Properties[index + 1], TemplateInfo.Properties[index]);
+                            TemplateInfo.PropertiesElement.Remove(property);
+                            TemplateInfo.PropertiesElement.Insert(index + 1, property);
                         });
                         evt.menu.AppendAction($"▼{I18n.Editor.List.Move2Bottom}", delegate
                         {
-                            NodePrefabInfo.Data.Remove(property.PrefabProperty);
-                            NodePrefabInfo.Data.Add(property.PrefabProperty);
-                            NodePrefabInfo.Properties.Remove(property);
-                            NodePrefabInfo.Properties.Add( property);
+                            TemplateInfo.Data.Remove(property.TemplateProperty);
+                            TemplateInfo.Data.Add(property.TemplateProperty);
+                            TemplateInfo.Properties.Remove(property);
+                            TemplateInfo.Properties.Add( property);
                             property.BringToFront();
-                            NodePrefabInfo.GraphView.Window.History.AddStep();
                         });
                     }
                     evt.menu.AppendSeparator();
@@ -355,7 +349,6 @@ namespace TreeNode.Editor
                 evt.menu.AppendAction($"✖{I18n.Editor.List.DeleteItem}/{I18n.Editor.Button.Confirm}", delegate
                 {
                     PropertyElement.SetOutput(false);
-                    NodePrefabInfo.GraphView.Window.History.AddStep();
                 });
                 evt.menu.AppendSeparator();
             }

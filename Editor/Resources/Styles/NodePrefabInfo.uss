@@ -1,4 +1,4 @@
-NodePrefabInfo
+﻿TemplateInfo
 {
     border-width:2px;
     border-color:rgba(127,127,127,0.5);
@@ -8,7 +8,7 @@ NodePrefabInfo
     background-color:rgba(127,127,127,0.5);
     margin:10px;
 }
-NodePrefabInfoProperty
+TemplateInfoProperty
 {    
     border-width:2px;
     border-color:rgba(200,200,200,0.7);
@@ -18,19 +18,19 @@ NodePrefabInfoProperty
     height:25px;
     flex-direction:row;
 }
-NodePrefabInfoProperty:hover
+TemplateInfoProperty:hover
 {    
         background-color:rgba(26,188,156,0.5);
 }
-NodePrefabInfoProperty.NodePrefabInfoPropertyHover
+TemplateInfoProperty.TemplateInfoPropertyHover
 {    
         background-color:rgba(26,188,156,0.7);
 }
-NodePrefabInfoProperty.Link2Node
+TemplateInfoProperty.Link2Node
 {    
     background-color:rgba(26,188,156,0.7);
 }
-NodePrefabInfoProperty #PropertyID>#unity-text-input:disabled
+TemplateInfoProperty #PropertyID>#unity-text-input:disabled
 {    
     border-width:0px;
     background-color:rgba(0,0,0,0);

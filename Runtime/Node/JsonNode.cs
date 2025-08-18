@@ -17,7 +17,7 @@ namespace TreeNode.Runtime
         [JsonProperty]
         public Vec2 Position;
         [JsonProperty]
-        public PrefabData PrefabData;
+        public TemplateData TemplateData;
         public virtual T GetValue<T>(string path) => PropertyAccessor.GetValue<T>(this, path);
         public virtual void SetValue<T>(string path, T value) => PropertyAccessor.SetValue<T>(this, path, value);
         public bool SetValue(Type type, string key, JToken value)
@@ -138,7 +138,7 @@ namespace TreeNode.Runtime
 
     }
     [NoJsonNodeContainer]
-    public abstract class PrefabData {
+    public abstract class TemplateData {
         public abstract string ID { get; }
         public abstract string Name { get; }
     }

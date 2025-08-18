@@ -1,4 +1,4 @@
-using UnityEditor;
+﻿using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
 namespace TreeNode.Editor
@@ -15,7 +15,7 @@ namespace TreeNode.Editor
         private void OnEnable()
         {
             string path = AssetDatabase.GetAssetPath(target);
-            IsJsonAsset = path.EndsWith(".ja") || path.EndsWith(".pja");
+            IsJsonAsset = path.EndsWith(".ja") || path.EndsWith(".tpl");
         }
 
 

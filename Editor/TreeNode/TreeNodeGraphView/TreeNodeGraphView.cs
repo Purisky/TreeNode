@@ -70,9 +70,9 @@ namespace TreeNode.Editor
         public override void BuildContextualMenu(ContextualMenuPopulateEvent evt)
         {
             //Debug.Log(evt.target.GetType());
-            if (evt.target is PrefabViewNode node)
+            if (evt.target is TemplateNode node)
             {
-                evt.menu.AppendAction(I18n.Editor.List.Goto, (d) => { node.OpenPrefabAsset(); }, DropdownMenuAction.AlwaysEnabled);
+                evt.menu.AppendAction(I18n.Editor.List.Goto, (d) => { node.OpenTemplateAsset(); }, DropdownMenuAction.AlwaysEnabled);
                 evt.menu.AppendSeparator();
             }
             if (evt.target is GraphView && nodeCreationRequest != null)
@@ -226,9 +226,9 @@ namespace TreeNode.Editor
         ViewNode DrawNode(JsonNode node, PAPath path)
         {
             ViewNode viewNode;
-            //if (node.PrefabData != null)
+            //if (node.TemplateData != null)
             //{
-            //    viewNode = new PrefabViewNode(node, this);
+            //    viewNode = new TemplateViewNode(node, this);
             //}
             //else
             {
@@ -343,9 +343,9 @@ namespace TreeNode.Editor
             try
             {
                 ViewNode viewNode;
-                if (node.PrefabData != null)
+                if (node.TemplateData != null)
                 {
-                    viewNode = new PrefabViewNode(node, this);
+                    viewNode = new TemplateNode(node, this);
                 }
                 else
                 {
@@ -423,18 +423,5 @@ namespace TreeNode.Editor
             return graphMousePosition;
         }
         
-    }
-
-    /// <summary>
-    /// 节点预准备数据结构
-    /// </summary>
-    public class NodePrepData
-    {
-        public JsonNode Node { get; set; }
-        public Type NodeType { get; set; }
-        public bool IsPrefab { get; set; }
-        public BaseDrawer Drawer { get; set; }
-        public NodeInfoAttribute NodeInfo { get; set; }
-        public Vec2 Position { get; set; }
     }
 }

@@ -35,29 +35,29 @@ namespace TreeNode.Editor
             _isBatchMode = false;
         }
 
-        /// <summary>
-        /// 添加步骤（保持兼容性）
-        /// </summary>
-        public void AddStep(bool dirty = true)
-        {
-            if (dirty)
-            {
-                MakeDirty?.Invoke();
-            }
+        ///// <summary>
+        ///// 添加步骤（保持兼容性）
+        ///// </summary>
+        //public void AddStep(bool dirty = true)
+        //{
+        //    if (dirty)
+        //    {
+        //        MakeDirty?.Invoke();
+        //    }
 
-            // 如果在批量模式中，不创建新步骤
-            if (_isBatchMode && _currentBatch != null)
-            {
-                return;
-            }
+        //    // 如果在批量模式中，不创建新步骤
+        //    if (_isBatchMode && _currentBatch != null)
+        //    {
+        //        return;
+        //    }
 
-            Steps.Add(new HistoryStep());
-            if (Steps.Count > 20) // 简化的最大步骤数
-            {
-                Steps.RemoveAt(0);
-            }
-            RedoSteps.Clear();
-        }
+        //    Steps.Add(new HistoryStep());
+        //    if (Steps.Count > 20) // 简化的最大步骤数
+        //    {
+        //        Steps.RemoveAt(0);
+        //    }
+        //    RedoSteps.Clear();
+        //}
 
         /// <summary>
         /// 记录原子操作

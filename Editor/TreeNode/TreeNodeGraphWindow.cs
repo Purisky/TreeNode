@@ -359,7 +359,7 @@ namespace TreeNode.Editor
             {
                 Data = Activator.CreateInstance<T>()
             };
-            string ext = jsonAsset.Data.GetType().Name == "NodePrefabAsset" ? ".pja" : ".ja";
+            string ext = jsonAsset.Data.GetType().Name == "TemplateAsset" ? ".tpl" : ".ja";
             string name = $"new_{jsonAsset.Data.GetType().Name}";
             string filename = $"{path}/{name}{ext}";
             int index = 0;
@@ -377,7 +377,7 @@ namespace TreeNode.Editor
             {
                 Data = Activator.CreateInstance<T>()
             };
-            string ext = jsonAsset.Data.GetType().Name == "NodePrefabAsset" ? ".pja" : ".ja";
+            string ext = jsonAsset.Data.GetType().Name == "TemplateAsset" ? ".tpl" : ".ja";
             string filename = $"{path}/{id}{ext}";
             if (File.Exists(filename))
             {

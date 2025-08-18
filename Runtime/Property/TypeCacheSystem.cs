@@ -499,12 +499,9 @@ namespace TreeNode.Runtime
                 return !AssetFilter.Allowed; // 不在指定类型中时取反
             }
 
-            /// <summary>
-            /// 检查是否禁止在预制件中使用（来自 AssetFilter.BanPrefab）
-            /// </summary>
-            public bool IsBannedInPrefab()
+            public bool IsBannedInTemplate()
             {
-                return AssetFilter?.BanPrefab ?? false;
+                return AssetFilter?.BanTemplate ?? false;
             }
 
             #endregion

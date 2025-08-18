@@ -20,9 +20,9 @@ namespace TreeNode.Editor
 
         public BaseDrawer Drawer;
 
-        public PrefabProperty PrefabProperty;
-        public NodePrefabAsset NodePrefabAsset => GraphView.AssetData;
-        public NodePrefabGraphView GraphView;
+        public TemplateProperty TemplateProperty;
+        public TemplateAsset TemplateAsset => GraphView.AssetData;
+        public TemplateGraphView GraphView;
         static readonly StyleSheet StyleSheet = ResourcesUtil.LoadStyleSheet("PropertyElement");
         
         public PropertyElement(MemberMeta memberMeta, ViewNode viewNode, string path, BaseDrawer drawer, VisualElement visualElement = null)
@@ -64,23 +64,23 @@ namespace TreeNode.Editor
                 }
             }
             this.AddManipulator(new ContextualMenuManipulator(BuildContextualMenu));
-            RegisterPrefab();
+            RegisterTemplate();
            
         }
 
-        public void RegisterPrefab()
+        public void RegisterTemplate()
         {
-            if (ViewNode.View is not NodePrefabGraphView) { return; }
-            GraphView = ViewNode.View as NodePrefabGraphView;
+            if (ViewNode.View is not TemplateGraphView) { return; }
+            GraphView = ViewNode.View as TemplateGraphView;
             RegisterCallback<MouseOverEvent>(OnMouseEnter);
             RegisterCallback<MouseOutEvent>(OnMouseOut);
             RegisterCallback<MouseDownEvent>(OnMouseDown);
-            InitPrefabProperty();
+            InitTemplateProperty();
         }
-        public void InitPrefabProperty()
+        public void InitTemplateProperty()
         {
             //Debug.Log(MemberMeta);
-            PrefabProperty = new()
+            TemplateProperty = new()
             {
                 Path = GetGlobalPath(),
                 Name = MemberMeta.LabelInfo.Text,
@@ -88,21 +88,19 @@ namespace TreeNode.Editor
             };
             if (MemberMeta.Type.Inherited(typeof(IList)) && Drawer is not ListDrawer)
             {
-                PrefabProperty.Type = MemberMeta.Type.GenericTypeArguments[0].FullName;
+                TemplateProperty.Type = MemberMeta.Type.GenericTypeArguments[0].FullName;
             }
 
-            //Debug.Log(PrefabProperty.Path);
-            for (int i = 0; i < NodePrefabAsset.Properties.Count; i++)
+            for (int i = 0; i < TemplateAsset.Properties.Count; i++)
             {
-                //Debug.Log($"{NodePrefabAsset.Properties[i].Path}=>{PrefabProperty.Path}");
-                if (NodePrefabAsset.Properties[i].Path == PrefabProperty.Path)
+                if (TemplateAsset.Properties[i].Path == TemplateProperty.Path)
                 {
-                    PrefabProperty = NodePrefabAsset.Properties[i];
-                    AddToClassList("PrefabPropertySelected");
+                    TemplateProperty = TemplateAsset.Properties[i];
+                    AddToClassList("TemplatePropertySelected");
                     Output = true;
-                    NodePrefabInfoProperty nodePrefabInfoProperty = GraphView.NodePrefabInfo.FindProperty(PrefabProperty);
-                    nodePrefabInfoProperty.ViewNode = ViewNode;
-                    nodePrefabInfoProperty.PropertyElement = this;
+                    TemplateInfoProperty templateInfoProperty = GraphView.TemplateInfo.FindProperty(TemplateProperty);
+                    templateInfoProperty.ViewNode = ViewNode;
+                    templateInfoProperty.PropertyElement = this;
                     break;
                 }
             }
@@ -120,18 +118,18 @@ namespace TreeNode.Editor
             Selected = selected;
             if (Selected)
             {
-                AddToClassList("PrefabPropertyHover");
+                AddToClassList("TemplatePropertyHover");
                 if (Output)
                 {
-                    GraphView.NodePrefabInfo.FindProperty(PrefabProperty)?.AddToClassList("Link2Node");
+                    GraphView.TemplateInfo.FindProperty(TemplateProperty)?.AddToClassList("Link2Node");
                 }
             }
             else
             {
-                RemoveFromClassList("PrefabPropertyHover");
+                RemoveFromClassList("TemplatePropertyHover");
                 if (Output)
                 {
-                    GraphView.NodePrefabInfo.FindProperty(PrefabProperty)?.RemoveFromClassList("Link2Node");
+                    GraphView.TemplateInfo.FindProperty(TemplateProperty)?.RemoveFromClassList("Link2Node");
                 }
             }
         }
@@ -141,22 +139,22 @@ namespace TreeNode.Editor
             Output = output;
             if (Output)
             {
-                AddToClassList("PrefabPropertySelected");
-                PrefabProperty.Path = GetGlobalPath();
-                if (!NodePrefabAsset.Properties.Contains(PrefabProperty))
+                AddToClassList("TemplatePropertySelected");
+                TemplateProperty.Path = GetGlobalPath();
+                if (!TemplateAsset.Properties.Contains(TemplateProperty))
                 {
-                    NodePrefabAsset.Properties.Add(PrefabProperty);
-                    GraphView.NodePrefabInfo.Add(this);
+                    TemplateAsset.Properties.Add(TemplateProperty);
+                    GraphView.TemplateInfo.Add(this);
                     return true;
                 }
 
             }
             else
             {
-                RemoveFromClassList("PrefabPropertySelected");
-                if (NodePrefabAsset.Properties.Remove(PrefabProperty))
+                RemoveFromClassList("TemplatePropertySelected");
+                if (TemplateAsset.Properties.Remove(TemplateProperty))
                 {
-                    GraphView.NodePrefabInfo.Remove(PrefabProperty);
+                    GraphView.TemplateInfo.Remove(TemplateProperty);
                     return true;
                 }
             }
@@ -185,8 +183,8 @@ namespace TreeNode.Editor
                 evt.StopPropagation();
                 return;
             }
-            NodePrefabWindow.CurrentHover?.SetSelection(false);
-            NodePrefabWindow.CurrentHover = this;
+            TemplateWindow.CurrentHover?.SetSelection(false);
+            TemplateWindow.CurrentHover = this;
             evt.StopPropagation();
 
             if (evt.ctrlKey)
@@ -201,10 +199,10 @@ namespace TreeNode.Editor
         void OnMouseOut(MouseOutEvent evt)
         {
             if (!Valid()) { return; }
-            if (NodePrefabWindow.CurrentHover == this)
+            if (TemplateWindow.CurrentHover == this)
             {
                 SetSelection(false);
-                NodePrefabWindow.CurrentHover = null;
+                TemplateWindow.CurrentHover = null;
             }
         }
         void OnMouseDown(MouseDownEvent evt)
@@ -213,7 +211,7 @@ namespace TreeNode.Editor
             if (!Selected || !evt.ctrlKey) { return; }
             if (SetOutput(!Output))
             {
-                Debug.Log($"PropertyElement输出状态变化: {PrefabProperty.Path} -> {Output}");
+                Debug.Log($"PropertyElement输出状态变化: {TemplateProperty.Path} -> {Output}");
             }
         }
     }

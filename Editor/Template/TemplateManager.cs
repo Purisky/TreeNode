@@ -1,4 +1,4 @@
-using Newtonsoft.Json.Linq;
+﻿using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -12,20 +12,20 @@ using UnityEditor;
 using UnityEngine;
 namespace TreeNode.Editor
 {
-    public static class NodePrefabManager
+    public static class TemplateManager
     {
-        public static Dictionary<string, PrefabPreviewData> Previews = Init();
+        public static Dictionary<string, TemplatePreviewData> Previews = Init();
 
 
-        public static Dictionary<string, PrefabPreviewData> Init()
+        public static Dictionary<string, TemplatePreviewData> Init()
         {
-            Dictionary<string, PrefabPreviewData> dic = new();
-            List<string> paths = AssetDatabase.GetAllAssetPaths().Where(n => n.EndsWith(".pja")).ToList();
+            Dictionary<string, TemplatePreviewData> dic = new();
+            List<string> paths = AssetDatabase.GetAllAssetPaths().Where(n => n.EndsWith(".tpl")).ToList();
             for (int i = 0; i < paths.Count; i++)
             {
                 try
                 {
-                    PrefabPreviewData data = GetDataByPath(paths[i]);
+                    TemplatePreviewData data = GetDataByPath(paths[i]);
                     dic[data.ID] = data;
                 }
                 catch (Exception e)
@@ -40,25 +40,25 @@ namespace TreeNode.Editor
 
 
 
-        public static PrefabPreviewData GetData(string id)
+        public static TemplatePreviewData GetData(string id)
         {
-            Previews.TryGetValue(id, out PrefabPreviewData previewData);
+            Previews.TryGetValue(id, out TemplatePreviewData previewData);
             return previewData;
         }
 
-        static PrefabPreviewData GetDataByPath(string path)
+        static TemplatePreviewData GetDataByPath(string path)
         {
-            JsonAsset jsonAsset = JsonAsset.GetJsonAsset(path) ?? throw new NodePrefabAssetException.JsonEmpty(path);
-            if (jsonAsset.Data is NodePrefabAsset nodePrefabAsset)
+            JsonAsset jsonAsset = JsonAsset.GetJsonAsset(path) ?? throw new TemplateAssetException.JsonEmpty(path);
+            if (jsonAsset.Data is TemplateAsset templateAsset)
             {
-                if (!nodePrefabAsset.Nodes.Any())
+                if (!templateAsset.Nodes.Any())
                 {
-                    throw new NodePrefabAssetException.NodeEmpty(path);
+                    throw new TemplateAssetException.NodeEmpty(path);
                 }
-                PrefabPreviewData prefabPreviewData = new(path, nodePrefabAsset);
-                return prefabPreviewData;
+                TemplatePreviewData previewData = new(path, templateAsset);
+                return previewData;
             }
-            throw new NodePrefabAssetException.DataTypeError(path);
+            throw new TemplateAssetException.DataTypeError(path);
         }
 
 
@@ -66,7 +66,7 @@ namespace TreeNode.Editor
 
 
     }
-    public class PrefabPreviewData
+    public class TemplatePreviewData
     {
         public string ID;
         public string Path;
@@ -75,13 +75,13 @@ namespace TreeNode.Editor
         public List<PreviewField> Fields;
         public int Width;
 
-        public PrefabPreviewData(string path, NodePrefabAsset asset)
+        public TemplatePreviewData(string path, TemplateAsset asset)
         {
             Path = path;
             ID = System.IO.Path.GetFileNameWithoutExtension(Path);
             Name = asset.Name;
             Width = asset.Width;
-            Debug.Log(Width);
+            //Debug.Log(Width);
             //NodeInfoAttribute nodeInfo = asset.RootNode.GetType().GetCustomAttribute<NodeInfoAttribute>();
             OutputType = asset.RootNode.GetType();
             Fields = new();
@@ -133,22 +133,14 @@ namespace TreeNode.Editor
         {
             Debug.Log(OutputType);
             JsonNode node = Activator.CreateInstance(OutputType) as JsonNode;
-            node.PrefabData = Activator.CreateInstance(ByName(ID)) as PrefabData;
+            node.TemplateData = Activator.CreateInstance(ByName(ID)) as TemplateData;
             for (int i = 0; i < Fields.Count; i++)
             {
-                PropertyAccessor.SetValue(node.PrefabData, $"_{Fields[i].ID}", Fields[i].DeepClone());
+                PropertyAccessor.SetValue(node.TemplateData, $"_{Fields[i].ID}", Fields[i].DeepClone());
             }
 
 
 
-
-
-            //node.PrefabId = ID;
-            //node.Dic = new();
-            //for (int i = 0; i < Fields.Count; i++)
-            //{
-            //    node.Dic[Fields[i].ID] = Fields[i].DeepClone();
-            //}
             return node;
         }
 

@@ -43,9 +43,9 @@ namespace TreeNode.Editor
                 OpenJsonAsset(filePath);
                 return true;
             }
-            if (filePath.EndsWith(".pja"))
+            if (filePath.EndsWith(".tpl"))
             {
-                OpenPrefabJsonAsset(filePath);
+                OpenTemplateJsonAsset(filePath);
                 return true;
             }
             return false;
@@ -70,13 +70,13 @@ namespace TreeNode.Editor
             MethodInfo method = typeof(WindowManager).GetMethod("Open");
            return  method.MakeGenericMethod(window, assetType).Invoke(null, new object[] { jsonAsset.Data, filePath }) as TreeNodeGraphWindow;
         }
-        public static void OpenPrefabJsonAsset(string filePath)
+        public static void OpenTemplateJsonAsset(string filePath)
         {
             JsonAsset jsonAsset = JsonAsset. GetJsonAsset(filePath);
             if (jsonAsset == null) { return; }
-            if (jsonAsset.Data is NodePrefabAsset nodePrefabAsset)
+            if (jsonAsset.Data is TemplateAsset templateAsset)
             {
-                WindowManager.Open<NodePrefabWindow, NodePrefabAsset>(nodePrefabAsset, filePath);
+                WindowManager.Open<TemplateWindow, TemplateAsset>(templateAsset, filePath);
                 return;
             }
             Debug.LogError($"Asset data type error");

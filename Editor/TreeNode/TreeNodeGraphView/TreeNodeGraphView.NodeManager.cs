@@ -115,9 +115,9 @@ namespace TreeNode.Editor
         {
             if (NodeDic.TryGetValue(node, out ViewNode viewNode)) { return viewNode; }
 
-            if (node.PrefabData != null)
+            if (node.TemplateData != null)
             {
-                viewNode = new PrefabViewNode(node, this);
+                viewNode = new TemplateNode(node, this);
             }
             else
             {

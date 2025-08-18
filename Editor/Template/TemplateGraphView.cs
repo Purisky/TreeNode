@@ -10,12 +10,12 @@ using UnityEngine.UIElements;
 namespace TreeNode.Editor
 {
     [Serializable]
-    public class NodePrefabGraphView : TreeNodeGraphView
+    public class TemplateGraphView : TreeNodeGraphView
     {
-        public NodePrefabAsset AssetData => (NodePrefabAsset)Asset.Data;
+        public TemplateAsset AssetData => (TemplateAsset)Asset.Data;
 
-        public NodePrefabInfo NodePrefabInfo;
-        public NodePrefabGraphView(TreeNodeGraphWindow window) : base(window)
+        public TemplateInfo TemplateInfo;
+        public TemplateGraphView(TreeNodeGraphWindow window) : base(window)
         {
 
 
@@ -29,7 +29,7 @@ namespace TreeNode.Editor
             {
                 SetRoot(edge.ChildPort().node.GetRoot());
             }
-            NodePrefabInfo.UpdateProperties();
+            TemplateInfo.UpdateProperties();
         }
 
         public override void RemoveViewNode(ViewNode node)
@@ -40,15 +40,15 @@ namespace TreeNode.Editor
             {
                 if (AssetData.RootNode != null)
                 {
-                    NodeDic[AssetData.RootNode].AddToClassList("PrefabRoot");
+                    NodeDic[AssetData.RootNode].AddToClassList("TemplateRoot");
                 }
             }
-            NodePrefabInfo.UpdateProperties();
+            TemplateInfo.UpdateProperties();
         }
         public override void RemoveEdge(Edge edge)
         {
             base.RemoveEdge(edge);
-            NodePrefabInfo.UpdateProperties();
+            TemplateInfo.UpdateProperties();
         }
 
 
@@ -57,7 +57,7 @@ namespace TreeNode.Editor
             base.AddNode(node);
             if (AssetData.Nodes.Count == 1)
             {
-                ViewNodes[0].AddToClassList("PrefabRoot");
+                ViewNodes[0].AddToClassList("TemplateRoot");
             }
         }
 
@@ -91,26 +91,26 @@ namespace TreeNode.Editor
             if (index == -1) { return; }
             for (int i = 0; i < ViewNodes.Count; i++)
             {
-                ViewNodes[i].RemoveFromClassList("PrefabRoot");
+                ViewNodes[i].RemoveFromClassList("TemplateRoot");
             }
             JsonNode jsonNode = AssetData.Nodes[index];
             AssetData.Nodes.Remove(jsonNode);
             AssetData.Nodes.Insert(0, jsonNode);
-            node.AddToClassList("PrefabRoot");
+            node.AddToClassList("TemplateRoot");
         }
 
         public override void OnSave()
         {
             if (AssetData.RootNode == null) { return; }
-            for (int i = 0; i < NodePrefabInfo.Properties.Count; i++)
+            for (int i = 0; i < TemplateInfo.Properties.Count; i++)
             {
-                NodePrefabInfoProperty property = NodePrefabInfo.Properties[i];
-                Debug.Log(property.PropertyElement.layout.width);
+                TemplateInfoProperty property = TemplateInfo.Properties[i];
+                //Debug.Log(property.PropertyElement.layout.width);
                 AssetData.Width = Math.Max(AssetData.Width, (int)property.PropertyElement.layout.width);
             }
-            PrefabPreviewData prefabPreviewData = new(Window.Path, AssetData);
-            NodePrefabManager.Previews[Window.Path] = prefabPreviewData;
-            PrefabDataCodeGen.GenCode(Path.GetFileNameWithoutExtension(Window.Path), AssetData);
+            TemplatePreviewData templatePreviewData = new(Window.Path, AssetData);
+            TemplateManager.Previews[Window.Path] = templatePreviewData;
+            TemplateDataCodeGen.GenCode(Path.GetFileNameWithoutExtension(Window.Path), AssetData);
 
 
             //AssetDatabase.ImportAsset("Assets/TreeNode/Runtime/Plugins/TreeNodeCodeGen.dll");

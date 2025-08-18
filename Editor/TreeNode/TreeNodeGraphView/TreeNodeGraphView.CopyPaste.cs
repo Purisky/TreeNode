@@ -245,7 +245,7 @@ namespace TreeNode.Editor
             var nodeFilterAttr = nodeType.GetCustomAttribute<AssetFilterAttribute>();
             if (nodeFilterAttr != null)
             {
-                if (nodeFilterAttr.BanPrefab && asset is NodePrefabAsset)
+                if (nodeFilterAttr.BanTemplate && asset is TemplateAsset)
                 {
                     return false;
                 }

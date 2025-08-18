@@ -467,10 +467,10 @@ namespace TreeNode.Editor
             }
             return tree;
 #pragma warning disable CS0162 // 检测到无法访问的代码
-            if (Graph is not NodePrefabGraphView)//todo not ready
+            if (Graph is not TemplateGraphView)//todo not ready
             {
-                tree.Add(new SearchTreeGroupEntry(new GUIContent("NodePrefab"), 1));
-                foreach (var item in NodePrefabManager.Previews)
+                tree.Add(new SearchTreeGroupEntry(new GUIContent("Template"), 1));
+                foreach (var item in TemplateManager.Previews)
                 {
                     Debug.Log(item.Value.Name);
                     tree.Add(new SearchTreeEntry(new GUIContent($"{item.Value.Name}"))
@@ -489,7 +489,7 @@ namespace TreeNode.Editor
             JsonNode node = SearchTreeEntry.userData switch
             {
                 SearchContextElement sce => Activator.CreateInstance(sce.Type) as JsonNode,
-                PrefabPreviewData ppd => ppd.CreateNode(),
+                TemplatePreviewData ppd => ppd.CreateNode(),
                 _ => null
             };
             if (node == null) { return false; }
@@ -582,7 +582,7 @@ namespace TreeNode.Editor
             AssetFilterAttribute filter = typeInfo.AssetFilter;
             if (filter != null)
             {
-                if (graph.Asset.Data is NodePrefabAsset && filter.BanPrefab) { return false; }
+                if (graph.Asset.Data is TemplateAsset && filter.BanTemplate) { return false; }
                 if (filter.Allowed == !filter.Types.Contains(graph.Asset.Data.GetType())) { return false; }
             }
             NodeInfoAttribute attribute = typeInfo.NodeInfo;

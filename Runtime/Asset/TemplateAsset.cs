@@ -1,4 +1,4 @@
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 using System.Collections.Generic;
 using TreeNode.Utility;
 using Unity.Properties;
@@ -6,10 +6,10 @@ using Unity.Properties;
 namespace TreeNode.Runtime
 {
     [Icon]
-    public class NodePrefabAsset : TreeNodeAsset
+    public class TemplateAsset : TreeNodeAsset
     {
         public string Name;
-        public List<PrefabProperty> Properties = new();
+        public List<TemplateProperty> Properties = new();
 
 
 
@@ -32,7 +32,7 @@ namespace TreeNode.Runtime
 
 
     }
-    public class PrefabProperty
+    public class TemplateProperty
     {
         public string ID;
         public string Path;
