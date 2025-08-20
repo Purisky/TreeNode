@@ -586,18 +586,11 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 核心刷新逻辑 - 增强版本，支持增量更新
+        /// 核心刷新逻辑 - 修复版本，避免递归调用
         /// </summary>
         private void RefreshItemsCore()
         {
-            // 如果有缓存的数据，尝试增量更新
-            if (_lastKnownItems != null && ItemsSource != null)
-            {
-                UpdateItems(ItemsSource);
-                return;
-            }
-
-            // 传统的完全刷新
+            // 传统的完全刷新 - 移除递归调用避免栈溢出
             ClearExistingItems();
             
             if (ItemsSource?.Count > 0)
@@ -882,12 +875,24 @@ namespace TreeNode.Editor
         }
 
         /// <summary>
-        /// 使用新数据执行完全刷新
+        /// 使用新数据执行完全刷新 - 修复版本，避免递归调用
         /// </summary>
         private void RefreshItemsWithNewData(IList newItems)
         {
             ItemsSource = newItems;
-            RefreshItemsCore();
+            
+            // 直接执行完全刷新，避免通过RefreshItemsCore造成递归
+            ClearExistingItems();
+            
+            if (ItemsSource?.Count > 0)
+            {
+                CreateNewItems();
+            }
+            
+            UpdateUIState();
+            
+            // 更新缓存
+            _lastKnownItems = CreateSnapshot(ItemsSource);
         }
 
         /// <summary>
