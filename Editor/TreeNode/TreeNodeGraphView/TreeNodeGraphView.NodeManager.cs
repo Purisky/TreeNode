@@ -314,6 +314,10 @@ namespace TreeNode.Editor
             { 
                 path = path.GetParent();
             }
+            if (path.IsEmpty)
+            {
+                return null;
+            }
             PAPath parent = path.GetParent();
             int index = 0;
             List<(int, JsonNode)> list = ListPool<(int, JsonNode)>.GetList();
