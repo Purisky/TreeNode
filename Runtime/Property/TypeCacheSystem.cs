@@ -429,6 +429,94 @@ namespace TreeNode.Runtime
                 return member;
             }
 
+            /// <summary>
+            /// 根据值类型获取兼容的成员
+            /// </summary>
+            public List<UnifiedMemberInfo> GetMembersByValueType(Type valueType)
+            {
+                if (valueType == null)
+                {
+                    return new List<UnifiedMemberInfo>();
+                }
+
+                return AllMembers.Where(member => IsTypeCompatible(member.ValueType, valueType)).ToList();
+            }
+
+            /// <summary>
+            /// 获取可移除的成员（用于Remove操作）
+            /// </summary>
+            public List<UnifiedMemberInfo> GetRemovableMembers()
+            {
+                // 可移除的成员：非必需字段，集合类型，或可空类型
+                return AllMembers.Where(member => 
+                    IsRemovableType(member.ValueType) || 
+                    member.Category == MemberCategory.Collection ||
+                    member.Category == MemberCategory.JsonNode).ToList();
+            }
+
+            /// <summary>
+            /// 检查类型兼容性
+            /// </summary>
+            private static bool IsTypeCompatible(Type memberType, Type targetType)
+            {
+                if (memberType == null || targetType == null)
+                {
+                    return false;
+                }
+
+                // 直接类型匹配
+                if (memberType == targetType)
+                {
+                    return true;
+                }
+
+                // 继承关系匹配
+                if (memberType.IsAssignableFrom(targetType))
+                {
+                    return true;
+                }
+
+                // 处理可空类型
+                var memberNullableType = Nullable.GetUnderlyingType(memberType);
+                if (memberNullableType != null && memberNullableType == targetType)
+                {
+                    return true;
+                }
+
+                var targetNullableType = Nullable.GetUnderlyingType(targetType);
+                if (targetNullableType != null && memberType == targetNullableType)
+                {
+                    return true;
+                }
+
+                return false;
+            }
+
+            /// <summary>
+            /// 检查是否为可移除类型
+            /// </summary>
+            private static bool IsRemovableType(Type type)
+            {
+                if (type == null)
+                {
+                    return false;
+                }
+
+                // 可空类型
+                if (Nullable.GetUnderlyingType(type) != null)
+                {
+                    return true;
+                }
+
+                // 引用类型（除了字符串，字符串通常不应该被"移除"）
+                if (!type.IsValueType && type != typeof(string))
+                {
+                    return true;
+                }
+
+                return false;
+            }
+
             #endregion
 
             #region Attribute 查询方法

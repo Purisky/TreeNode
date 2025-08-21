@@ -7,6 +7,7 @@ using TreeNode.Utility;
 using Unity.Properties;
 using UnityEngine;
 using UnityEngine.UIElements;
+using static TreeNode.Runtime.TypeCacheSystem;
 
 namespace TreeNode.Runtime
 {
@@ -20,29 +21,7 @@ namespace TreeNode.Runtime
         public TemplateData TemplateData;
         public virtual T GetValue<T>(string path) => PropertyAccessor.GetValue<T>(this, path);
         public virtual void SetValue<T>(string path, T value) => PropertyAccessor.SetValue<T>(this, path, value);
-        public bool SetValue(Type type, string key, JToken value)
-        {
-            if (type == null || string.IsNullOrEmpty(key))
-            {
-                return false;
-            }
-            MemberInfo memberInfo = type.GetMember(key)[0];
-            if (memberInfo == null)
-            {
-                return false;
-            }
-            try
-            {
-                object obj = value.ToObject(memberInfo.GetValueType());
-                memberInfo.SetValue(this, obj);
-            }
-            catch (Exception e)
-            {
-                Debug.LogError($"Error setting value: {e.Message}");
-                return false;
-            }
-            return true;
-        }
+
         public object GetParent(string path)
         {
             string parentPath = PropertyAccessor.ExtractParentPath(path);
