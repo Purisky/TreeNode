@@ -49,7 +49,7 @@ namespace TreeNode.Runtime
                 if (targetType == typeof(object))
                     return Expression.Convert(valueParam, typeof(object));
 
-                throw PropertyAccessorErrors.CreateTypeMismatch<T>(targetType);
+                throw new InvalidCastException($"无法将类型 {typeof(T).Name} 转换为 {targetType.Name}");
             }
 
             /// <summary>
@@ -71,43 +71,6 @@ namespace TreeNode.Runtime
         #region 错误处理工具类
 
         /// <summary>
-        /// 统一的错误处理工具
-        /// </summary>
-        private static class PropertyAccessorErrors
-        {
-            public static InvalidOperationException CreateMemberNotFound(Type type, PAPart part)
-            {
-                return new InvalidOperationException(
-                    $"成员 '{part}' 在类型 '{type.Name}' 中未找到");
-            }
-
-            public static InvalidCastException CreateTypeMismatch<T>(Type targetType)
-            {
-                return new InvalidCastException(
-                    $"无法将类型 {typeof(T).Name} 转换为 {targetType.Name}");
-            }
-
-            public static InvalidOperationException CreateReadOnlyMember(Type type, PAPart part)
-            {
-                return new InvalidOperationException(
-                    $"成员 '{part}' 在类型 '{type.Name}' 中为只读或不可写");
-            }
-
-            public static InvalidOperationException CreateMemberAccessError(Type type, PAPart part, Exception innerException)
-            {
-                return new InvalidOperationException(
-                    $"无法构建成员访问表达式: 类型={type.Name}, 成员={part}, 错误={innerException.Message}", 
-                    innerException);
-            }
-
-            public static InvalidOperationException CreateSetterError(Type type, PAPart part, Type valueType, Type targetType, Exception innerException)
-            {
-                return new InvalidOperationException(
-                    $"创建Setter失败: 类型={type.Name}, 成员={part}, 值类型={valueType.Name}, 目标类型={targetType.Name}, 错误={innerException.Message}", 
-                    innerException);
-            }
-        }
-
         #endregion
 
         #region 缓存管理器
@@ -223,7 +186,7 @@ namespace TreeNode.Runtime
             var target = BuildMemberAccess(current, part, ref type);
 
             if (!typeof(T).IsAssignableFrom(type))
-                throw PropertyAccessorErrors.CreateTypeMismatch<T>(type);
+                throw new InvalidCastException($"无法将类型 {type.Name} 转换为 {typeof(T).Name}");
 
             var finalConvert = Expression.Convert(target, typeof(T));
             return Expression.Lambda<Func<object, T>>(finalConvert, param).Compile();
@@ -266,7 +229,7 @@ namespace TreeNode.Runtime
             }
             catch (Exception ex)
             {
-                throw PropertyAccessorErrors.CreateMemberAccessError(type, part, ex);
+                throw new InvalidOperationException($"无法构建成员访问表达式: 类型={type.Name}, 成员={part}, 错误={ex.Message}", ex);
             }
         }
 
@@ -277,7 +240,7 @@ namespace TreeNode.Runtime
         {
             if (!ValidationStrategy.CanWriteToMember(type, part))
             {
-                throw PropertyAccessorErrors.CreateReadOnlyMember(type, part);
+                throw new InvalidOperationException($"成员 '{part}' 在类型 '{type.Name}' 中为只读或不可写");
             }
         }
 

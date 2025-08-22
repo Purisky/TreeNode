@@ -33,7 +33,7 @@ namespace TreeNode.Runtime
                 }
 
                 var indexer = type.GetProperty("Item") 
-                    ?? throw PropertyAccessorErrors.CreateMemberNotFound(type, PAPart.FromIndex(index));
+                    ?? throw new ArgumentException($"索引器 '[{index}]' 在类型 '{type.Name}' 中未找到");
                 
                 var result2 = Expression.MakeIndex(target, indexer, new[] { Expression.Constant(index) });
                 type = indexer.PropertyType;
@@ -54,7 +54,7 @@ namespace TreeNode.Runtime
                 else
                 {
                     var indexer = structType.GetProperty("Item") 
-                        ?? throw PropertyAccessorErrors.CreateMemberNotFound(structType, PAPart.FromIndex(index));
+                        ?? throw new ArgumentException($"索引器 '[{index}]' 在类型 '{structType.Name}' 中未找到");
                     var indexAccess = Expression.MakeIndex(structVariable, indexer, new[] { Expression.Constant(index) });
                     return Expression.Assign(indexAccess, TypeConverter.CreateConversion<T>(valueParam, indexAccess.Type));
                 }
@@ -104,7 +104,7 @@ namespace TreeNode.Runtime
             
             if (memberInfo == null)
             {
-                throw PropertyAccessorErrors.CreateMemberNotFound(type, PAPart.FromString(memberName));
+                throw new ArgumentException($"成员 '{memberName}' 在类型 '{type.Name}' 中未找到");
             }
 
             // 根据成员类型选择对应的访问方式
@@ -123,7 +123,7 @@ namespace TreeNode.Runtime
                     break;
 
                 default:
-                    throw PropertyAccessorErrors.CreateMemberNotFound(type, PAPart.FromString(memberName));
+                    throw new ArgumentException($"成员 '{memberName}' 在类型 '{type.Name}' 中未找到");
             }
 
             return current;
@@ -207,7 +207,7 @@ namespace TreeNode.Runtime
                 return Expression.Assign(fieldAccess, TypeConverter.CreateConversion<T>(valueParam, field.FieldType));
             }
 
-            throw PropertyAccessorErrors.CreateMemberNotFound(structType, PAPart.FromString(memberName));
+            throw new ArgumentException($"成员 '{memberName}' 在类型 '{structType.Name}' 中未找到");
         }
 
         #endregion
