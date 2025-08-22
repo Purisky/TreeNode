@@ -94,7 +94,7 @@ namespace TreeNode.Editor
             }
             catch (Exception e)
             {
-                Debug.LogError($"Error setting node by path: {e.Message}");
+                Debug.LogError($"Error setting node by path: {e}");
                 return false;
             }
         }

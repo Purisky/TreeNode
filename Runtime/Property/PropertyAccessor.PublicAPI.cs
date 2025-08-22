@@ -267,6 +267,7 @@ namespace TreeNode.Runtime
                 var singleSetter = CacheManager.GetOrCreateSetter<T>(type, first);
                 Debug.Log($"singleSetter {singleSetter} ( {obj} ,{value} )");
                 singleSetter(obj,value);
+                return;
             }
             index++;
             object nextObj = GetOrCreateGetter<object>(type, first)(obj);
@@ -325,7 +326,7 @@ namespace TreeNode.Runtime
             try
             {
                 var nextObj = NavigationStrategy.NavigateToNext(obj, obj, path, index);
-                if (nextObj == null) { index--; return; }
+                if (nextObj == null) {  return; }
                 if (index == path.Parts.Length - 1) { return; }
                 index++;
                 if (nextObj is IPropertyAccessor accessor) { accessor.ValidatePath(ref path, ref index); }
