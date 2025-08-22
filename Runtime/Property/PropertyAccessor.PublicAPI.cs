@@ -25,8 +25,10 @@ namespace TreeNode.Runtime
         public static T GetValue<T>(object obj, PAPart part)
         {
             if (!part.Valid) { return (T)obj; }
-            var singleGetter = GetOrCreateGetter<T>(obj.GetType(), part);
-            return singleGetter(obj);
+            Type type = obj.GetType();
+            var typeInfo = TypeCacheSystem.GetTypeInfo(type);
+            var memberInfo = typeInfo.GetMember(part.Name);
+            return (T)memberInfo.Getter(obj);
         }
 
 
@@ -325,9 +327,20 @@ namespace TreeNode.Runtime
         {
             try
             {
-                var nextObj = NavigationStrategy.NavigateToNext(obj, obj, path, index);
-                if (nextObj == null) {  return; }
-                if (index == path.Parts.Length - 1) { return; }
+                Type type = obj.GetType();
+                var typeInfo = TypeCacheSystem.GetTypeInfo(type);
+                var memberInfo = typeInfo.GetMember(path.Parts[index].Name);
+                if (index == path.Parts.Length - 1)
+                {
+                    if (memberInfo == null)
+                    {
+                        index--;
+                    }
+                    return;
+                }
+                
+                var nextObj = memberInfo.Getter(obj);
+                if (nextObj == null) { return; }
                 index++;
                 if (nextObj is IPropertyAccessor accessor) { accessor.ValidatePath(ref path, ref index); }
                 else if (nextObj is IList list) { list.ValidatePath(ref path, ref index); }
