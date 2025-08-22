@@ -87,10 +87,10 @@ namespace TreeNodeSourceGenerator
             // 过滤类型，只处理本程序集的类型
             var currentAssembly = context.Compilation.Assembly;
 
-            TypeDict = new();
+            TypeDict = new(SymbolEqualityComparer.Default);
 
             List<INamedTypeSymbol> list = new(propertyAccessorTypes);
-            HashSet<INamedTypeSymbol> newTypes = new();
+            HashSet<INamedTypeSymbol> newTypes = new(SymbolEqualityComparer.Default);
             while (list.Count > 0)
             {
                 var current = list[0];

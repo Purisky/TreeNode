@@ -168,7 +168,7 @@ namespace TreeNodeSourceGenerator
                 //Debug.Log($"  {currentType.ToDisplayString()}");
                 foreach (var member in currentType.GetMembers())
                 {
-                    bool added = false;
+                    //bool added = false;
                     if (!IsMemberValid(member))
                     {
                         //Debug.Log($"     {member.ToDisplayString()} :false");
@@ -181,7 +181,7 @@ namespace TreeNodeSourceGenerator
                         memberInfo.DeclarationIndex = declarationIndex++;
                         dic.Add(field.Name, memberInfo);
 
-                        added = true;
+                        //added = true;
 
                         if (memberInfo.HasNestedAccess &&
                             !memberInfo.IsJsonNodeType &&
@@ -200,7 +200,7 @@ namespace TreeNodeSourceGenerator
                         var memberInfo = AnalyzePropertyMember(property);
                         memberInfo.DeclarationIndex = declarationIndex++;
                         dic.Add(property.Name, memberInfo);
-                        added = true;
+                        //added = true;
 
                         if (memberInfo.HasNestedAccess &&
                             !memberInfo.IsJsonNodeType &&
