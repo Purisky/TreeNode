@@ -12,28 +12,94 @@ using UnityEngine.UIElements;
 
 namespace TreeNode.Editor
 {
-    // 缓存反射获取的成员信息
+    // 优化的反射缓存 - 使用 TypeCacheSystem 作为后端
     public static class ReflectionCache
     {
-        private static readonly ConcurrentDictionary<Type, MemberInfo[]> _membersCache = new();
-        private static readonly ConcurrentDictionary<MemberInfo, Attribute[]> _attributesCache = new();
-        
+        /// <summary>
+        /// 获取带有指定 Attribute 的成员 - 使用 TypeCacheSystem 优化
+        /// </summary>
         public static MemberInfo[] GetCachedMembers<T>(Type type) where T : Attribute
         {
-            return _membersCache.GetOrAdd(type, t => t.GetAll<T>().ToArray());
+            var typeInfo = TypeCacheSystem.GetTypeInfo(type);
+            
+            // 根据 Attribute 类型返回对应的成员
+            return typeof(T).Name switch
+            {
+                nameof(ShowInNodeAttribute) => typeInfo.GetVisibleMembers().Select(m => m.Member).ToArray(),
+                nameof(ChildAttribute) => typeInfo.GetChildMembers().Select(m => m.Member).ToArray(),
+                nameof(TitlePortAttribute) => typeInfo.GetTitlePortMembers().Select(m => m.Member).ToArray(),
+                nameof(DropdownAttribute) => typeInfo.GetDropdownMembers().Select(m => m.Member).ToArray(),
+                nameof(OnChangeAttribute) => typeInfo.GetOnChangeMembers().Select(m => m.Member).ToArray(),
+                _ => GetMembersByAttributeFallback<T>(typeInfo) // 回退到通用方法
+            };
         }
         
+        /// <summary>
+        /// 获取成员的指定 Attribute - 使用 TypeCacheSystem 预解析的信息
+        /// </summary>
         public static T GetCachedAttribute<T>(MemberInfo member) where T : Attribute
         {
-            var attributes = _attributesCache.GetOrAdd(member, m => m.GetCustomAttributes().ToArray());
-            return attributes.OfType<T>().FirstOrDefault();
+            // 首先尝试从 TypeCacheSystem 获取预解析的 Attribute
+            var typeInfo = TypeCacheSystem.GetTypeInfo(member.DeclaringType);
+            var unifiedMember = typeInfo.GetMember(member.Name);
+            
+            if (unifiedMember != null)
+            {
+                return typeof(T).Name switch
+                {
+                    nameof(ShowInNodeAttribute) => unifiedMember.ShowInNodeAttribute as T,
+                    nameof(LabelInfoAttribute) => unifiedMember.LabelInfoAttribute as T,
+                    nameof(StyleAttribute) => unifiedMember.StyleAttribute as T,
+                    nameof(GroupAttribute) => unifiedMember.GroupAttribute as T,
+                    nameof(OnChangeAttribute) => unifiedMember.OnChangeAttribute as T,
+                    nameof(DropdownAttribute) => unifiedMember.DropdownAttribute as T,
+                    nameof(TitlePortAttribute) => unifiedMember.TitlePortAttribute as T,
+                    _ => member.GetCustomAttribute<T>() // 回退到反射
+                };
+            }
+            
+            // 如果 TypeCacheSystem 中没有找到，回退到直接反射
+            return member.GetCustomAttribute<T>();
         }
         
+        /// <summary>
+        /// 通用方法：从 UnifiedMemberInfo 中查找带有指定 Attribute 的成员
+        /// </summary>
+        private static MemberInfo[] GetMembersByAttributeFallback<T>(TypeCacheSystem.TypeReflectionInfo typeInfo) where T : Attribute
+        {
+            var attributeName = typeof(T).Name;
+            return typeInfo.AllMembers
+                .Where(member => HasAttributeByName(member, attributeName))
+                .Select(member => member.Member)
+                .ToArray();
+        }
+        
+        /// <summary>
+        /// 检查 UnifiedMemberInfo 是否有指定名称的 Attribute
+        /// </summary>
+        private static bool HasAttributeByName(TypeCacheSystem.UnifiedMemberInfo member, string attributeName)
+        {
+            return attributeName switch
+            {
+                nameof(ShowInNodeAttribute) => member.ShowInNodeAttribute != null,
+                nameof(LabelInfoAttribute) => member.LabelInfoAttribute != null,
+                nameof(StyleAttribute) => member.StyleAttribute != null,
+                nameof(GroupAttribute) => member.GroupAttribute != null,
+                nameof(OnChangeAttribute) => member.OnChangeAttribute != null,
+                nameof(DropdownAttribute) => member.DropdownAttribute != null,
+                nameof(TitlePortAttribute) => member.TitlePortAttribute != null,
+                nameof(ChildAttribute) => member.IsChild,
+                _ => member.Member.GetCustomAttribute(Type.GetType($"TreeNode.Runtime.{attributeName}") ?? 
+                                                    Type.GetType($"TreeNode.{attributeName}")) != null
+            };
+        }
 
+        /// <summary>
+        /// 清理缓存 - 现在委托给 TypeCacheSystem
+        /// </summary>
         public static void ClearCache()
         {
-            _membersCache.Clear();
-            _attributesCache.Clear();
+            TypeCacheSystem.ClearAllCache();
         }
     }
 
@@ -112,32 +178,64 @@ namespace TreeNode.Editor
             return drawer;
         }
 
-        // 清理缓存方法
+        // 统一的缓存清理方法
         public static void ClearCache()
         {
             _drawerCache.Clear();
+            // 注意：不清理 Drawers，因为那是静态注册的基础 Drawer 映射
+        }
+        
+        /// <summary>
+        /// 完全重新初始化 DrawerManager（慎用）
+        /// </summary>
+        public static void Reset()
+        {
+            _drawerCache.Clear();
+            InitDrawers(); // 重新初始化基础 Drawer 映射
         }
 
 
 
         public static bool TryGet(MemberInfo member, out BaseDrawer drawer)
         {
-            Type type = member.GetValueType();
-            if (type.IsEnum)
+            // 使用 TypeCacheSystem 优化的版本
+            var typeInfo = TypeCacheSystem.GetTypeInfo(member.DeclaringType);
+            var unifiedMember = typeInfo.GetMember(member.Name);
+            
+            if (unifiedMember != null)
             {
-                drawer = GetEnumDrawer(type);
+                Type type = unifiedMember.ValueType;
+                if (type.IsEnum)
+                {
+                    drawer = GetEnumDrawer(type);
+                    return true;
+                }
+                
+                // 检查是否有下拉列表（使用预解析的 DropdownAttribute）
+                if (unifiedMember.HasDropdown() && !type.Inherited(typeof(IList)))
+                {
+                    drawer = GetDropdownDrawer(type);
+                    return true;
+                }
+                
+                return TryGet(type, out drawer);
+            }
+            
+            // 回退到原始逻辑
+            Type memberType = member.GetValueType();
+            if (memberType.IsEnum)
+            {
+                drawer = GetEnumDrawer(memberType);
                 return true;
             }
             DropdownAttribute dropdown = member.GetCustomAttribute<DropdownAttribute>();
-            if (dropdown != null && !type.Inherited(typeof(IList)))
+            if (dropdown != null && !memberType.Inherited(typeof(IList)))
             {
-                drawer = GetDropdownDrawer(type);
+                drawer = GetDropdownDrawer(memberType);
                 return true;
             }
-            else
-            {
-                return TryGet(type, out drawer);
-            }
+            
+            return TryGet(memberType, out drawer);
         }
         public static bool TryGet(Type type, out BaseDrawer drawer)
         {

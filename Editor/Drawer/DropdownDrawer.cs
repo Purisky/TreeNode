@@ -188,17 +188,52 @@ namespace TreeNode.Editor
 
         private void InitializeListGetterForEnum(MemberMeta meta, DropdownAttribute dropdownAttribute)
         {
-            MemberInfo member = GetMemberInfo(meta, dropdownAttribute.ListGetter);
+            // 尝试从 TypeCacheSystem 获取缓存的访问器
+            var typeInfo = TypeCacheSystem.GetTypeInfo(meta.DeclaringType);
+            var cachedAccessor = typeInfo.GetSpecialMemberAccessor<object>(dropdownAttribute.ListGetter);
+            
+            if (cachedAccessor == null)
+            {
+                // 创建并缓存访问器
+                cachedAccessor = typeInfo.GetOrCreateSpecialMemberAccessor(dropdownAttribute.ListGetter, null, Data);
+            }
+            
+            if (cachedAccessor == null)
+            {
+                SetLabelError($"{dropdownAttribute.ListGetter} not found");
+                return;
+            }
+
+            // 确定返回类型并设置 ListGetter
+            var member = GetMemberInfo(meta, dropdownAttribute.ListGetter);
             if (member == null) return;
 
             Type memberType = member.GetValueType();
             if (memberType == typeof(DropdownList<T>))
             {
-                ListGetter = member.GetMemberGetter<DropdownList<T>>(Data);
+                var accessor = cachedAccessor as MemberGetter<DropdownList<T>>;
+                if (accessor != null)
+                {
+                    ListGetter = (Type type) => accessor(type);
+                }
+                else
+                {
+                    // 回退到原始方法
+                    ListGetter = member.GetMemberGetter<DropdownList<T>>(Data);
+                }
             }
             else if (memberType == typeof(List<T>))
             {
-                ListGetter = (Type type) => EnumList<T>.GetList(Node.View.Asset.Data.GetType(), member.GetMemberGetter<List<T>>(Data).Invoke(type));
+                var accessor = cachedAccessor as MemberGetter<List<T>>;
+                if (accessor != null)
+                {
+                    ListGetter = (Type type) => EnumList<T>.GetList(Node.View.Asset.Data.GetType(), accessor(type));
+                }
+                else
+                {
+                    // 回退到原始方法
+                    ListGetter = (Type type) => EnumList<T>.GetList(Node.View.Asset.Data.GetType(), member.GetMemberGetter<List<T>>(Data).Invoke(type));
+                }
             }
             else
             {
@@ -208,26 +243,52 @@ namespace TreeNode.Editor
 
         private void InitializeListGetterForNonEnum(MemberMeta meta, DropdownAttribute dropdownAttribute)
         {
-            MemberInfo member = GetMemberInfo(meta, dropdownAttribute.ListGetter);
-            if (member == null) return;
-
-            if (member.GetValueType() != typeof(DropdownList<T>))
+            // 尝试从 TypeCacheSystem 获取缓存的访问器
+            var typeInfo = TypeCacheSystem.GetTypeInfo(meta.DeclaringType);
+            var cachedAccessor = typeInfo.GetSpecialMemberAccessor<MemberGetter<DropdownList<T>>>(dropdownAttribute.ListGetter);
+            
+            if (cachedAccessor == null)
             {
-                SetLabelError($"{dropdownAttribute.ListGetter} is not {typeof(DropdownList<T>).Name}");
-                return;
+                // 创建并缓存访问器
+                var accessor = typeInfo.GetOrCreateSpecialMemberAccessor(dropdownAttribute.ListGetter, null, Data);
+                cachedAccessor = accessor as MemberGetter<DropdownList<T>>;
             }
+            
+            if (cachedAccessor != null)
+            {
+                ListGetter = (Type type) => cachedAccessor(type);
+            }
+            else
+            {
+                // 回退到原始方法
+                var member = GetMemberInfo(meta, dropdownAttribute.ListGetter);
+                if (member == null) return;
 
-            ListGetter = member.GetMemberGetter<DropdownList<T>>(Data);
+                if (member.GetValueType() != typeof(DropdownList<T>))
+                {
+                    SetLabelError($"{dropdownAttribute.ListGetter} is not {typeof(DropdownList<T>).Name}");
+                    return;
+                }
+
+                ListGetter = member.GetMemberGetter<DropdownList<T>>(Data);
+            }
         }
 
-        private MemberInfo GetMemberInfo(MemberMeta meta, string listGetter)
+        private MemberInfo GetMemberInfo(MemberMeta meta, string memberName)
         {
+            // ListGetter 指向的成员通常是：
+            // 1. 静态方法或属性
+            // 2. 不用于渲染的数据提供方法  
+            // 3. 可能只读的属性
+            // 这些成员不会被 TypeCacheSystem 收录，所以直接使用反射
             Type type = meta.DeclaringType;
-            MemberInfo member = type.GetMember(listGetter, BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic).FirstOrDefault();
+            MemberInfo member = type.GetMember(memberName, BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic).FirstOrDefault();
+            
             if (member == null)
             {
-                SetLabelError($"{listGetter} not found");
+                SetLabelError($"{memberName} not found");
             }
+            
             return member;
         }
 

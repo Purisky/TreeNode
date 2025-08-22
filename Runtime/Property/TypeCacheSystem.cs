@@ -98,7 +98,7 @@ namespace TreeNode.Runtime
             /// <summary>
             /// 分组名称
             /// </summary>
-            public string GroupName { get; set; }
+            public string GroupName => GroupAttribute?.Name??Name;
 
             /// <summary>
             /// 是否为多值类型
@@ -207,14 +207,6 @@ namespace TreeNode.Runtime
             public bool IsLabelHidden()
             {
                 return LabelInfoAttribute?.Hide ?? false;
-            }
-
-            /// <summary>
-            /// 获取分组名称（优先使用 GroupAttribute.Name，否则使用从渲染信息中提取的组名）
-            /// </summary>
-            public string GetEffectiveGroupName()
-            {
-                return GroupAttribute?.Name ?? GroupName;
             }
 
             /// <summary>
@@ -387,6 +379,12 @@ namespace TreeNode.Runtime
             /// </summary>
             public Dictionary<string, UnifiedMemberInfo> MemberLookup { get; set; } = new();
 
+            /// <summary>
+            /// 特殊用途成员访问器缓存（如 ListGetter、OnChange 方法等）
+            /// Key: 成员名称, Value: 泛型访问器委托
+            /// </summary>
+            public Dictionary<string, object> SpecialMemberAccessors { get; set; } = new();
+
             #endregion
 
             #region 查询方法
@@ -440,6 +438,68 @@ namespace TreeNode.Runtime
                 }
 
                 return AllMembers.Where(member => IsTypeCompatible(member.ValueType, valueType)).ToList();
+            }
+
+            /// <summary>
+            /// 获取特殊成员的访问器委托（如 ListGetter、OnChange 方法等）
+            /// </summary>
+            public T GetSpecialMemberAccessor<T>(string memberName) where T : class
+            {
+                if (SpecialMemberAccessors.TryGetValue(memberName, out var accessor))
+                {
+                    return accessor as T;
+                }
+                return null;
+            }
+
+            /// <summary>
+            /// 创建并缓存特殊成员的访问器委托
+            /// </summary>
+            public object GetOrCreateSpecialMemberAccessor(string memberName, Type expectedDelegateType, object context = null)
+            {
+                // 先尝试从缓存获取
+                if (SpecialMemberAccessors.TryGetValue(memberName, out var cachedAccessor))
+                {
+                    return cachedAccessor;
+                }
+
+                // 查找成员
+                var member = Type.GetMember(memberName, BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic).FirstOrDefault();
+                if (member == null)
+                {
+                    return null;
+                }
+
+                // 创建访问器委托 - 使用现有的扩展方法
+                object accessor = null;
+                try
+                {
+                    var memberType = GetMemberValueType(member);
+                    if (memberType != null)
+                    {
+                        // 使用反射调用 GetMemberGetter 扩展方法
+                        var methodInfo = typeof(TreeNode.ReflectionExtensions).GetMethods()
+                            .FirstOrDefault(m => m.Name == "GetMemberGetter" && m.IsGenericMethodDefinition);
+                        
+                        if (methodInfo != null)
+                        {
+                            var genericMethod = methodInfo.MakeGenericMethod(memberType);
+                            accessor = genericMethod.Invoke(null, new[] { member, context });
+                        }
+                    }
+                }
+                catch
+                {
+                    return null;
+                }
+
+                // 缓存并返回
+                if (accessor != null)
+                {
+                    SpecialMemberAccessors[memberName] = accessor;
+                }
+
+                return accessor;
             }
 
             /// <summary>
@@ -630,13 +690,13 @@ namespace TreeNode.Runtime
             /// 按分组获取成员
             /// </summary>
             public IEnumerable<IGrouping<string, UnifiedMemberInfo>> GetMembersByGroup()
-                => AllMembers.GroupBy(m => m.GetEffectiveGroupName());
+                => AllMembers.GroupBy(m => m.GroupName);
 
             /// <summary>
             /// 获取指定分组的成员
             /// </summary>
             public IEnumerable<UnifiedMemberInfo> GetMembersInGroup(string groupName)
-                => AllMembers.Where(m => m.GetEffectiveGroupName() == groupName);
+                => AllMembers.Where(m => m.GroupName == groupName);
 
             /// <summary>
             /// 获取有变化事件的成员
@@ -1136,7 +1196,6 @@ namespace TreeNode.Runtime
 
                 // 渲染信息
                 RenderOrder = CalculateRenderOrder(member, declarationIndex),
-                GroupName = GetGroupName(member),
                 IsMultiValue = IsCollectionType(valueType),
                 MayContainNestedStructure = MayContainNestedStructure(valueType),
                 MayContainNestedJsonNode = MayContainNestedJsonNode(valueType),

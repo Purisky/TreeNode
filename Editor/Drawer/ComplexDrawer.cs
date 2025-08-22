@@ -45,7 +45,7 @@ namespace TreeNode.Editor
             ChildDrawers = metadata.ChildDrawers;
         }
 
-        // 优化的元数据构建，一次性构建所有元数据
+        // 优化的元数据构建，直接使用 TypeCacheSystem
         private static ComplexDrawerMetadata BuildMetadata(Type drawType)
         {
             var metadata = new ComplexDrawerMetadata
@@ -54,55 +54,64 @@ namespace TreeNode.Editor
                 ChildDrawers = new HashSet<ComplexDrawer>()
             };
 
-            // 使用反射缓存替代直接调用DrawType.GetAll<ShowInNodeAttribute>()
-            List<MemberInfo> members = ReflectionCache.GetCachedMembers<ShowInNodeAttribute>(drawType).ToList();
+            // 直接使用 TypeCacheSystem 获取预解析的类型信息
+            var typeInfo = TypeCacheSystem.GetTypeInfo(drawType);
+            var visibleMembers = typeInfo.GetVisibleMembers().ToList();
             bool rootDrawer = drawType.Inherited(typeof(JsonNode));
 
-            for (int i = 0; i < members.Count; i++)
+            foreach (var unifiedMember in visibleMembers)
             {
-                MemberInfo member = members[i];
+                var member = unifiedMember.Member;
+                
+                // 检查是否为 TitlePort（只对根节点）
                 if (rootDrawer && metadata.TitlePortMember == null)
                 {
-                    // 使用缓存的属性获取
-                    if (ReflectionCache.GetCachedAttribute<TitlePortAttribute>(member) != null && 
-                        ReflectionCache.GetCachedAttribute<ChildAttribute>(member) != null && 
-                        member.GetValueType() != typeof(NumValue))
+                    if (unifiedMember.IsTitlePort && unifiedMember.IsChild && 
+                        unifiedMember.ValueType != typeof(NumValue))
                     {
                         metadata.TitlePortMember = member;
                         continue;
                     }
                 }
-                // 使用缓存的属性获取
-                GroupAttribute groupAttribute = ReflectionCache.GetCachedAttribute<GroupAttribute>(member);
-                string groupName = member.Name;
-                if (groupAttribute != null && groupAttribute.Name != null)
-                {
-                    groupName = groupAttribute.Name;
-                }
+                
+                // 获取分组信息（使用预解析的 GroupAttribute）
+                string groupName = unifiedMember.GroupName;
                 MemberGroup tempGroup = GetTempGroup(metadata.Groups, groupName);
-                tempGroup.ShowIf ??= groupAttribute?.ShowIf;
-                if (tempGroup.Add(member))
+                
+                // 设置分组的显示条件
+                if (tempGroup.ShowIf == null && unifiedMember.GroupAttribute != null)
+                {
+                    tempGroup.ShowIf = unifiedMember.GetGroupShowIf();
+                }
+                
+                // 添加成员到分组，检查是否为端口 - 直接使用 UnifiedMemberInfo 的信息
+                if (tempGroup.Add(member, unifiedMember))
                 {
                     metadata.HasPort = true;
                 }
                 else
                 {
-                    Type type = member.GetValueType();
-                    if (type.Inherited(typeof(IList)))
+                    // 处理复杂类型的子 Drawer
+                    Type memberType = unifiedMember.ValueType;
+                    if (memberType.Inherited(typeof(IList)))
                     {
-                        type = type.GetGenericArguments()[0];
+                        memberType = memberType.GetGenericArguments()[0];
                     }
-                    if (type.IsComplex() && DrawerManager.TryGet(type, out BaseDrawer drawer) && drawer is ComplexDrawer complex)
+                    if (memberType.IsComplex() && DrawerManager.TryGet(memberType, out BaseDrawer drawer) && drawer is ComplexDrawer complex)
                     {
                         metadata.ChildDrawers.Add(complex);
                     }
                 }
             }
+            
+            // 排序和计算高度
             metadata.Groups.Sort((a, b) => a.MinOrder.CompareTo(b.MinOrder));
             metadata.Height = metadata.Groups.Sum(n => Mathf.Max(1, n.PortMembers.Count)) * 24;
+            
+            // 递归检查子 Drawer 的端口
             if (!metadata.HasPort && metadata.ChildDrawers.Any())
             {
-                metadata.HasPort = CheckPortRecursive(metadata.ChildDrawers, new HashSet<ComplexDrawer> { });
+                metadata.HasPort = CheckPortRecursive(metadata.ChildDrawers, new HashSet<ComplexDrawer>());
             }
             
             return metadata;
@@ -178,7 +187,12 @@ namespace TreeNode.Editor
                 string propertyPath = $"{path}{TitlePortMember.Name}";
                 MemberMeta meta = new(TitlePortMember, propertyPath);
                 meta.LabelInfo.Hide = true;
-                bool multi = TitlePortMember.GetValueType().Inherited(typeof(IList));
+                
+                // 使用 TypeCacheSystem 获取类型信息
+                var typeInfo = TypeCacheSystem.GetTypeInfo(TitlePortMember.DeclaringType);
+                var unifiedMember = typeInfo.GetMember(TitlePortMember.Name);
+                bool multi = unifiedMember?.ValueType.Inherited(typeof(IList)) ?? TitlePortMember.GetValueType().Inherited(typeof(IList));
+                
                 ChildPort port = multi ? MultiPort.Create(node, meta) : SinglePort.Create(node,meta);
                 port.Q<Label>().style.marginLeft = 0;
                 port.Q<Label>().style.marginRight = 0;
@@ -211,12 +225,13 @@ namespace TreeNode.Editor
                 Members = new();
                 PortMembers = new();
             }
-            public bool Add(MemberInfo memberInfo)
+            public bool Add(MemberInfo memberInfo, TypeCacheSystem.UnifiedMemberInfo unifiedMember)
             {
-                // 使用缓存的属性获取
-                ShowInNodeAttribute showInNodeAttribute = ReflectionCache.GetCachedAttribute<ShowInNodeAttribute>(memberInfo);
-                MinOrder = Math.Min(MinOrder, showInNodeAttribute.Order);
-                if (showInNodeAttribute is ChildAttribute || memberInfo.GetValueType() == typeof(NumValue) || memberInfo.GetValueType().Inherited(typeof(NumValue)))
+                // 直接使用 UnifiedMemberInfo 中预解析的信息
+                MinOrder = Math.Min(MinOrder, unifiedMember.GetDisplayOrder());
+                
+                // 判断是否为端口：Child 属性或 NumValue 类型
+                if (unifiedMember.IsChild || unifiedMember.ValueType == typeof(NumValue) || unifiedMember.ValueType.Inherited(typeof(NumValue)))
                 {
                     PortMembers.Add(memberInfo);
                     return true;

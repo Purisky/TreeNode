@@ -311,7 +311,6 @@ namespace TreeNodeSourceGenerator
             sb.AppendLine($"                        IsTitlePort = {member.IsTitlePort.ToString().ToLower()},");
             sb.AppendLine($"                        ShowInNode = {member.ShowInNode.ToString().ToLower()},");
             sb.AppendLine($"                        RenderOrder = {renderOrder},");
-            sb.AppendLine($"                        GroupName = \"{groupName}\",");
             sb.AppendLine($"                        IsMultiValue = {member.IsCollection.ToString().ToLower()},");
             sb.AppendLine($"                        MayContainNestedStructure = {AnalyzeMayContainNestedStructure(member.Type).ToString().ToLower()},");
             sb.AppendLine($"                        MayContainNestedJsonNode = {AnalyzeMayContainNestedJsonNode(member.Type).ToString().ToLower()},");

@@ -208,19 +208,19 @@ namespace TreeNode.Runtime
         }
         public static void SetValueInternal<T>(object obj, ref PAPath path, ref int index, T value)
         {
-            Debug.Log($"SetValueInternal<{typeof(T).Name}>({obj}({obj.GetType().Name}),{path},{value})");
+            //Debug.Log($"SetValueInternal<{typeof(T).Name}>({obj}({obj.GetType().Name}),{path},{value})");
             ref PAPart first = ref path.Parts[index];
             Type type = obj.GetType();
             var typeInfo = TypeCacheSystem.GetTypeInfo(type);
-            Debug.Log(typeInfo.Type.Name);
+            //Debug.Log(typeInfo.Type.Name);
             var memberInfo = typeInfo.GetMember(first.Name);
-            Debug.Log(memberInfo?.Name ?? "null");
+            //Debug.Log(memberInfo?.Name ?? "null");
             
             if (index == path.Parts.Length - 1)
             {
                 // 单级设置 - 使用统一的访问器设置策略
                 var singleSetter = GetUnifiedSetter<T>(type, first);
-                Debug.Log($"singleSetter {singleSetter} ( {obj} ,{value} )");
+                //Debug.Log($"singleSetter {singleSetter} ( {obj} ,{value} )");
                 singleSetter(obj, value);
                 return;
             }
