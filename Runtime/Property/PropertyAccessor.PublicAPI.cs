@@ -11,6 +11,7 @@ using System.Runtime.CompilerServices;
 using TreeNode.Runtime.Property.Exceptions;
 using TreeNode.Utility;
 using UnityEngine;
+using static TreeNode.Runtime.MultiLevelNavigationEngine;
 using Debug = UnityEngine.Debug;
 using IndexOutOfRangeException = TreeNode.Runtime.Property.Exceptions.IndexOutOfRangeException;
 
@@ -242,18 +243,9 @@ namespace TreeNode.Runtime
             }
             index++;
             object nextObj = GetOrCreateGetter<object>(obj.GetType(), first)(obj);
-            if (nextObj is IPropertyAccessor accessor)
-            {
-                return accessor.GetValueInternal<T>(ref path, ref index);
-            }
-            else if (nextObj is IList list)
-            {
-                return list.GetValueInternal<T>(ref path, ref index);
-            }
-            else
-            {
-                return GetValueInternal<T>(nextObj, ref path, ref index);
-            }
+            
+            // 使用统一的多层链路处理引擎
+            return ProcessMultiLevel_GetValue<T>(nextObj, ref path, ref index);
         }
         public static void SetValueInternal<T>(object obj, ref PAPath path, ref int index, T value)
         {
@@ -273,22 +265,17 @@ namespace TreeNode.Runtime
             }
             index++;
             object nextObj = GetOrCreateGetter<object>(type, first)(obj);
-            if (nextObj is IPropertyAccessor accessor)
+            
+            // 使用统一的多层链路处理引擎
+            ProcessMultiLevel_SetValue<T>(nextObj, ref path, ref index, value);
+            
+            // 处理值类型的特殊情况
+            if (nextObj is IPropertyAccessor accessor && 
+                memberInfo.ValueType.IsValueType && 
+                memberInfo.MemberType == TypeCacheSystem.MemberType.Property)
             {
-                accessor.SetValueInternal<T>(ref path, ref index,value);
-                if (memberInfo.ValueType.IsValueType && memberInfo.MemberType == TypeCacheSystem.MemberType.Property)
-                {
-                    var singleSetter = CacheManager.GetOrCreateSetter<object>(type, first);
-                    singleSetter(obj, accessor);
-                }
-            }
-            else if (nextObj is IList list)
-            {
-                 list.SetValueInternal<T>(ref path, ref index, value);
-            }
-            else
-            {
-                GetValueInternal<T>(nextObj, ref path, ref index);
+                var singleSetter = CacheManager.GetOrCreateSetter<object>(type, first);
+                singleSetter(obj, accessor);
             }
         }
         public static void RemoveValueInternal(object obj, ref PAPath path, ref int index)
@@ -305,22 +292,17 @@ namespace TreeNode.Runtime
             }
             index++;
             object nextObj = GetOrCreateGetter<object>(type, first)(obj);
-            if (nextObj is IPropertyAccessor accessor)
+            
+            // 使用统一的多层链路处理引擎
+            ProcessMultiLevel_RemoveValue(nextObj, ref path, ref index);
+            
+            // 处理值类型的特殊情况
+            if (nextObj is IPropertyAccessor accessor && 
+                memberInfo.ValueType.IsValueType && 
+                memberInfo.MemberType == TypeCacheSystem.MemberType.Property)
             {
-                accessor.RemoveValueInternal(ref path, ref index);
-                if (memberInfo.ValueType.IsValueType && memberInfo.MemberType == TypeCacheSystem.MemberType.Property)
-                {
-                    var singleSetter = CacheManager.GetOrCreateSetter<object>(type, first);
-                    singleSetter(obj, accessor);
-                }
-            }
-            else if (nextObj is IList list)
-            {
-                list.RemoveValueInternal(ref path, ref index);
-            }
-            else
-            {
-                RemoveValueInternal(nextObj, ref path, ref index);
+                var singleSetter = CacheManager.GetOrCreateSetter<object>(type, first);
+                singleSetter(obj, accessor);
             }
         }
         public static void ValidatePath(object obj, ref PAPath path, ref int index)
@@ -342,9 +324,9 @@ namespace TreeNode.Runtime
                 var nextObj = memberInfo.Getter(obj);
                 if (nextObj == null) { return; }
                 index++;
-                if (nextObj is IPropertyAccessor accessor) { accessor.ValidatePath(ref path, ref index); }
-                else if (nextObj is IList list) { list.ValidatePath(ref path, ref index); }
-                else { ValidatePath(nextObj, ref path, ref index); }
+                
+                // 使用统一的多层链路处理引擎
+                ProcessMultiLevel_ValidatePath(nextObj, ref path, ref index);
             }
             catch
             {
@@ -360,9 +342,9 @@ namespace TreeNode.Runtime
                 if (nextObj is T value) { list.Add((index, value)); }
                 if (index == path.Parts.Length - 1) { return; }
                 index++;
-                if (nextObj is IPropertyAccessor accessor){accessor.GetAllInPath<T>(ref path, ref index, list);}
-                else if (nextObj is IList listObj){listObj.GetAllInPath<T>(ref path, ref index, list);}
-                else{GetAllInPath<T>(nextObj, ref path, ref index, list);}
+                
+                // 使用统一的多层链路处理引擎
+                ProcessMultiLevel_GetAllInPath<T>(nextObj, ref path, ref index, list);
             }
             catch
             {
@@ -400,20 +382,8 @@ namespace TreeNode.Runtime
                         if (depth_ > 0) { depth_--; }
                     }
                     
-                    // 处理特殊接口类型
-                    if (value is IPropertyAccessor accessor) 
-                    { 
-                        accessor.CollectNodes(listNodes, memberPath, depth_); 
-                    }
-                    else if (value is IList list) 
-                    { 
-                        list.CollectNodes(listNodes, memberPath, depth_); 
-                    }
-                    // 只对可能包含嵌套JsonNode的成员进行递归
-                    else if (memberInfo.MayContainNestedJsonNode) 
-                    { 
-                        CollectNodes(value, listNodes, memberPath, depth_); 
-                    }
+                    // 处理特殊接口类型 - 使用统一的多层链路处理引擎
+                    ProcessMultiLevel_CollectNodes(value, listNodes, memberPath, depth_);
                 }
                 catch
                 {

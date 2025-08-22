@@ -33,6 +33,7 @@ namespace TreeNodeSourceGenerator
             sb.AppendLine("using TreeNode.Utility;");
             sb.AppendLine("using System.Collections.Generic;");
             sb.AppendLine("using static TreeNode.Runtime.TypeCacheSystem;");
+            sb.AppendLine("using static TreeNode.Runtime.MultiLevelNavigationEngine;");
             sb.AppendLine();
             sb.AppendLine($"namespace {namespaceName}");
             sb.AppendLine("{");
@@ -302,43 +303,27 @@ namespace TreeNodeSourceGenerator
 
         private string GetNestedAccessMethod(AccessibleMemberInfo member, AccessOperation operation)
         {
-            var directAccess = operation switch
+            var multiLevelEngineAccess = operation switch
             {
-                AccessOperation.Get => $"return {member.Name}.GetValueInternal<T>(ref path,ref index);",
-                AccessOperation.Set => $"{member.Name}.SetValueInternal<T>(ref path,ref index, value);return;",
-                AccessOperation.Remove => $"{member.Name}.RemoveValueInternal(ref path,ref index);return;",
+                AccessOperation.Get => $"return ProcessMultiLevel_GetValue<T>({member.Name}, ref path,ref index);",
+                AccessOperation.Set => $"ProcessMultiLevel_SetValue({member.Name},ref path,ref index, value);return;",
+                AccessOperation.Remove => $"ProcessMultiLevel_RemoveValue({member.Name},ref path,ref index);return;",
                 _ => throw new ArgumentException($"Unknown operation: {operation}")
             };
-
-            var propertyAccessorAccess = operation switch
-            {
-                AccessOperation.Get => $"return PropertyAccessor.GetValueInternal<T>({member.Name}, ref path,ref index);",
-                AccessOperation.Set => $"PropertyAccessor.SetValueInternal({member.Name},ref path,ref index, value);return;",
-                AccessOperation.Remove => $"PropertyAccessor.RemoveValueInternal({member.Name},ref path,ref index);return;",
-                _ => throw new ArgumentException($"Unknown operation: {operation}")
-            };
-            return member.ImplementsIPropertyAccessor || member.IsJsonNodeType || (member.Type is INamedTypeSymbol namedTypeSymbol && TypeDict.ContainsKey(namedTypeSymbol)) ? directAccess : propertyAccessorAccess;
+            return multiLevelEngineAccess;
         }
 
         private string GetNestedAccessMethodForStruct(AccessibleMemberInfo member, AccessOperation operation, string tempVarName)
         {
-            var directAccess = operation switch
+            var multiLevelEngineAccess = operation switch
             {
-                AccessOperation.Get => $"return {tempVarName}.GetValueInternal<T>(ref path,ref index);",
-                AccessOperation.Set => $"{tempVarName}.SetValueInternal<T>(ref path,ref index, value);",
-                AccessOperation.Remove => $"{tempVarName}.RemoveValueInternal(ref path,ref index);",
+                AccessOperation.Get => $"return ProcessMultiLevel_GetValue<T>({tempVarName}, ref path,ref index);",
+                AccessOperation.Set => $"ProcessMultiLevel_SetValue({tempVarName},ref path,ref index, value);",
+                AccessOperation.Remove => $"ProcessMultiLevel_RemoveValue({tempVarName},ref path,ref index);",
                 _ => throw new ArgumentException($"Unknown operation: {operation}")
             };
 
-            var propertyAccessorAccess = operation switch
-            {
-                AccessOperation.Get => $"return PropertyAccessor.GetValueInternal<T>({tempVarName}, ref path,ref index);",
-                AccessOperation.Set => $"PropertyAccessor.SetValueInternal({tempVarName},ref path,ref index, value);",
-                AccessOperation.Remove => $"PropertyAccessor.RemoveValueInternal({tempVarName},ref path,ref index);",
-                _ => throw new ArgumentException($"Unknown operation: {operation}")
-            };
-
-            return member.ImplementsIPropertyAccessor || member.IsJsonNodeType || (member.Type is INamedTypeSymbol namedTypeSymbol && TypeDict.ContainsKey(namedTypeSymbol)) ? directAccess : propertyAccessorAccess;
+            return multiLevelEngineAccess;
         }
 
         private string GetSinglePathDefaultCase(AccessOperation operation)
@@ -426,26 +411,12 @@ namespace TreeNodeSourceGenerator
 
                 if (member.IsCollection)
                 {
-                    if (member.ImplementsIPropertyAccessor || member.IsJsonNodeType || (member.Type is INamedTypeSymbol namedTypeSymbol && TypeDict.ContainsKey(namedTypeSymbol)))
-                    {
-                        sb.AppendLine($"                    {member.Name}.ValidatePath(ref path, ref index);");
-                    }
-                    else
-                    {
-                        sb.AppendLine($"                    {member.Name}.ValidatePath(ref path, ref index);");
-                    }
+                    sb.AppendLine($"                    ProcessMultiLevel_ValidatePath({member.Name}, ref path, ref index);");
                     sb.AppendLine("                    return;");
                 }
                 else // member.HasNestedAccess
                 {
-                    if (member.ImplementsIPropertyAccessor || member.IsJsonNodeType || (member.Type is INamedTypeSymbol namedTypeSymbol2 && TypeDict.ContainsKey(namedTypeSymbol2)))
-                    {
-                        sb.AppendLine($"                    {member.Name}.ValidatePath(ref path, ref index);");
-                    }
-                    else
-                    {
-                        sb.AppendLine($"                    PropertyAccessor.ValidatePath({member.Name}, ref path, ref index);");
-                    }
+                    sb.AppendLine($"                    ProcessMultiLevel_ValidatePath({member.Name}, ref path, ref index);");
                     sb.AppendLine("                    return;");
                 }
             }
@@ -506,21 +477,7 @@ namespace TreeNodeSourceGenerator
                 if (member.HasNestedAccess || member.IsCollection)
                 {
                     sb.AppendLine("                    index++;");
-                    if (member.IsCollection)
-                    {
-                        sb.AppendLine($"                    {member.Name}.GetAllInPath<T>(ref path, ref index, list);");
-                    }
-                    else // member.HasNestedAccess
-                    {
-                        if (member.ImplementsIPropertyAccessor || member.IsJsonNodeType || (member.Type is INamedTypeSymbol namedTypeSymbol && TypeDict.ContainsKey(namedTypeSymbol)))
-                        {
-                            sb.AppendLine($"                    {member.Name}.GetAllInPath<T>(ref path, ref index, list);");
-                        }
-                        else
-                        {
-                            sb.AppendLine($"                    PropertyAccessor.GetAllInPath<T>({member.Name}, ref path, ref index, list);");
-                        }
-                    }
+                    sb.AppendLine($"                    ProcessMultiLevel_GetAllInPath({member.Name}, ref path, ref index, list);");
                 }
 
                 sb.AppendLine("                    return;");
@@ -603,19 +560,12 @@ namespace TreeNodeSourceGenerator
                     sb.AppendLine($"{indent}            {member.Name}??=new();");
                 }
 
-                if (member.ImplementsIPropertyAccessor || member.IsJsonNodeType || (member.Type is INamedTypeSymbol namedTypeSymbol && TypeDict.ContainsKey(namedTypeSymbol)))
-                {
-                    sb.AppendLine($"{indent}            {member.Name}.CollectNodes(list, {memberPath}, {depth_});");
-                }
-                else
-                {
-                    sb.AppendLine($"{indent}            PropertyAccessor.CollectNodes({member.Name}, list, {memberPath}, depth);");
-                }
+                sb.AppendLine($"{indent}            ProcessMultiLevel_CollectNodes({member.Name}, list, {memberPath}, {depth_});");
             }
             // 处理其他可能包含嵌套结构的引用类型成员
             else if (!member.IsValueType && member.Type.SpecialType != SpecialType.System_String)
             {
-                sb.AppendLine($"{indent}            PropertyAccessor.CollectNodes({member.Name}, list, {memberPath}, depth);");
+                sb.AppendLine($"{indent}            ProcessMultiLevel_CollectNodes({member.Name}, list, {memberPath}, depth);");
             }
         }
 

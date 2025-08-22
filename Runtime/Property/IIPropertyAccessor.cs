@@ -6,6 +6,7 @@ using System.Xml.Linq;
 using TreeNode.Runtime.Property.Exceptions;
 using TreeNode.Utility;
 using static TreeNode.Runtime.TypeCacheSystem;
+using static TreeNode.Runtime.MultiLevelNavigationEngine;
 using IndexOutOfRangeException = TreeNode.Runtime.Property.Exceptions.IndexOutOfRangeException;
 
 namespace TreeNode.Runtime
@@ -49,12 +50,7 @@ namespace TreeNode.Runtime
                 throw new InvalidCastException($"Cannot cast element of type {element?.GetType().Name ?? "null"} to {typeof(T).Name}");
             }
             index++;
-            if (element is IPropertyAccessor accessor)
-            {
-                return accessor.GetValueInternal<T>(ref path, ref index);
-            }
-            else if (element is ICollection) { throw new NestedCollectionException(path.GetSubPath(0, index), list.GetType()); }
-            return PropertyAccessor.GetValueInternal<T>(element, ref path, ref index);
+            return ProcessMultiLevel_GetValue<T>(element, ref path, ref index);
         }
         public static void SetValueInternal<T>(this IList list, ref PAPath path, ref int index, T value)
         {
@@ -71,13 +67,7 @@ namespace TreeNode.Runtime
             }
             index++;
             object item = list[first.Index];
-            if (item is IPropertyAccessor accessor)
-            {
-                accessor.SetValueInternal(ref path, ref index, value);
-                list[first.Index] = accessor;
-                return;
-            }
-            PropertyAccessor.SetValueInternal(item, ref path, ref index, value);
+            ProcessMultiLevel_SetValue(item, ref path, ref index, value);
             list[first.Index] = item;
         }
         public static void RemoveValueInternal(this IList list, ref PAPath path, ref int index)
@@ -90,13 +80,7 @@ namespace TreeNode.Runtime
             }
             index++;
             object item = list[first.Index];
-            if (item is IPropertyAccessor accessor)
-            {
-                accessor.RemoveValueInternal(ref path, ref index);
-                list[first.Index] = accessor;
-                return;
-            }
-            PropertyAccessor.RemoveValueInternal(item, ref path, ref index);
+            ProcessMultiLevel_RemoveValue(item, ref path, ref index);
             list[first.Index] = item;
         }
         public static void ValidatePath(this IList list, ref PAPath path, ref int index)
@@ -113,13 +97,7 @@ namespace TreeNode.Runtime
             if (part.Index >= list.Count) { index--; throw new IndexOutOfRangeException(path, list.GetType(), part.Index, list.Count); }
             object element = list[part.Index];
             index++;
-            if (element is IPropertyAccessor accessor) {
-                //Debug.Log($"IPropertyAccessor.ValidatePath:{path} ref {index}");
-                accessor.ValidatePath(ref path, ref index);
-            }
-            else if (element is ICollection) { throw new NestedCollectionException(path.GetSubPath(0, index), list.GetType()); }
-            else if (element != null) { PropertyAccessor.ValidatePath(element, ref path, ref index); }
-
+            ProcessMultiLevel_ValidatePath(element, ref path, ref index);
         }
         public static void GetAllInPath<T>(this IList list, ref PAPath path, ref int index, List<(int depth, T value)> listValues) where T : class
         {
@@ -128,9 +106,7 @@ namespace TreeNode.Runtime
             if (element is T value) { listValues.Add((index, value)); }
             if (index == path.Parts.Length - 1) { return; }
             index++;
-            if (element is IPropertyAccessor accessor) { accessor.GetAllInPath(ref path, ref index, listValues); }
-            else if (element is ICollection) { throw new NestedCollectionException(path.GetSubPath(0, index), list.GetType()); }
-            else { PropertyAccessor.GetAllInPath<T>(element, ref path, ref index, listValues); }
+            ProcessMultiLevel_GetAllInPath(element, ref path, ref index, listValues);
         }
 
         public static void CollectNodes(this IList list, List<(PAPath, JsonNode)> listNodes, PAPath parent, int depth = -1)
@@ -145,9 +121,7 @@ namespace TreeNode.Runtime
                     listNodes.Add((next, node));
                     if (depth_ > 0) { depth_--; }
                 }
-                if (list[i] is IPropertyAccessor accessor) { accessor.CollectNodes(listNodes, next, depth_); }
-                else if (list[i] is ICollection) { throw new NestedCollectionException(parent, list.GetType()); }
-                else { PropertyAccessor.CollectNodes(list[i], listNodes, next, depth_); }
+                ProcessMultiLevel_CollectNodes(list[i], listNodes, next, depth_);
             }
         }
     }
