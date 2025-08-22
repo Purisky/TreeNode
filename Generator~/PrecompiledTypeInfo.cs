@@ -468,35 +468,20 @@ namespace TreeNodeSourceGenerator
         /// </summary>
         private static int CalculateRenderOrder(AccessibleMemberInfo member)
         {
-            int order = 1000; // 默认顺序
+            // 首先检查是否有ShowInNodeAttribute.Order指定
+            if (member.Order != 0)
+            {
+                return member.Order;
+            }
 
-            // TitlePort具有最高优先级
+            // TitlePort具有最高优先级（-999）
             if (member.IsTitlePort)
             {
-                order = 0;
-            }
-            // Child属性次之
-            else if (member.IsChild)
-            {
-                // 假设所有Child都是top=false，因为编译时无法确定动态值
-                order = 200;
-            }
-            // ShowInNode属性再次之
-            else if (member.ShowInNode)
-            {
-                order = 300;
+                return -999;
             }
 
-            // Group属性影响顺序
-            if (!string.IsNullOrEmpty(member.GroupName))
-            {
-                order += 50;
-            }
-
-            // 根据成员名称的字母顺序作为次要排序
-            order += Math.Abs(member.Name.GetHashCode()) % 100;
-
-            return order;
+            // 其他成员按声明顺序排列（默认从0开始）
+            return member.DeclarationIndex;
         }
 
         /// <summary>

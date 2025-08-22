@@ -1084,9 +1084,10 @@ namespace TreeNode.Runtime
 
             var memberInfos = new List<UnifiedMemberInfo>();
 
-            foreach (var member in allMembers)
+            for (int i = 0; i < allMembers.Count; i++)
             {
-                var memberInfo = CreateUnifiedMemberInfo(member);
+                var member = allMembers[i];
+                var memberInfo = CreateUnifiedMemberInfo(member, i);
                 if (memberInfo != null)
                 {
                     memberInfos.Add(memberInfo);
@@ -1102,7 +1103,7 @@ namespace TreeNode.Runtime
         /// 创建统一的成员信息
         /// 只收集同时能够读写且不被标记为JsonIgnore的成员
         /// </summary>
-        private static UnifiedMemberInfo CreateUnifiedMemberInfo(MemberInfo member)
+        private static UnifiedMemberInfo CreateUnifiedMemberInfo(MemberInfo member, int declarationIndex = 0)
         {
             var valueType = GetMemberValueType(member);
             if (valueType == null) return null;
@@ -1134,7 +1135,7 @@ namespace TreeNode.Runtime
                 ShowInNode = HasAttribute<ShowInNodeAttribute>(member) || HasAttribute<ChildAttribute>(member) || HasAttribute<TitlePortAttribute>(member),
 
                 // 渲染信息
-                RenderOrder = CalculateRenderOrder(member),
+                RenderOrder = CalculateRenderOrder(member, declarationIndex),
                 GroupName = GetGroupName(member),
                 IsMultiValue = IsCollectionType(valueType),
                 MayContainNestedStructure = MayContainNestedStructure(valueType),
@@ -1231,50 +1232,23 @@ namespace TreeNode.Runtime
         /// <summary>
         /// 计算渲染顺序
         /// </summary>
-        private static int CalculateRenderOrder(MemberInfo member)
+        private static int CalculateRenderOrder(MemberInfo member, int declarationIndex = 0)
         {
-            int order = 1000; // 默认顺序
+            // 首先检查是否有ShowInNodeAttribute.Order指定
+            var showInNodeAttr = member.GetCustomAttribute<ShowInNodeAttribute>();
+            if (showInNodeAttr != null && showInNodeAttr.Order != 0)
+            {
+                return showInNodeAttr.Order;
+            }
 
-            // TitlePort具有最高优先级
+            // TitlePort具有最高优先级（-999）
             if (HasAttribute<TitlePortAttribute>(member))
             {
-                order = 0;
-            }
-            // Child属性次之
-            else if (HasAttribute<ChildAttribute>(member))
-            {
-                var childAttr = member.GetCustomAttribute<ChildAttribute>();
-                bool isTop = false;
-
-                // 尝试判断是否为置顶Child
-                try
-                {
-                    var attrString = childAttr?.ToString();
-                    isTop = attrString?.Contains("True") == true;
-                }
-                catch
-                {
-                    isTop = false;
-                }
-
-                order = isTop ? 100 : 200;
-            }
-            // ShowInNode属性再次之
-            else if (HasAttribute<ShowInNodeAttribute>(member))
-            {
-                order = 300;
+                return -999;
             }
 
-            // Group属性影响顺序
-            if (HasAttribute<GroupAttribute>(member))
-            {
-                order += 50;
-            }
-
-            // 根据成员名称的字母顺序作为次要排序
-            order += Math.Abs(member.Name.GetHashCode()) % 100;
-
-            return order;
+            // 其他成员按声明顺序排列（默认从0开始）
+            return declarationIndex;
         }
 
         /// <summary>

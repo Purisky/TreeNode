@@ -108,6 +108,14 @@ namespace TreeNodeSourceGenerator
                         
                     case "ShowInNodeAttribute":
                         memberInfo.ShowInNode = true;
+                        // 获取 Order 属性
+                        foreach (var namedArg in attr.NamedArguments)
+                        {
+                            if (namedArg.Key == "Order" && namedArg.Value.Type?.SpecialType == SpecialType.System_Int32)
+                            {
+                                memberInfo.Order = (int)(namedArg.Value.Value ?? 0);
+                            }
+                        }
                         break;
                         
                     case "GroupAttribute":
@@ -153,6 +161,8 @@ namespace TreeNodeSourceGenerator
 
             var currentType = nodeType;
             Dictionary<string, AccessibleMemberInfo> dic = new();
+            int declarationIndex = 0;
+            
             while (currentType != null)
             {
                 //Debug.Log($"  {currentType.ToDisplayString()}");
@@ -168,6 +178,7 @@ namespace TreeNodeSourceGenerator
                     {
                         if (dic.ContainsKey(field.Name)) { continue; }
                         var memberInfo = AnalyzeFieldMember(field);
+                        memberInfo.DeclarationIndex = declarationIndex++;
                         dic.Add(field.Name, memberInfo);
 
                         added = true;
@@ -187,6 +198,7 @@ namespace TreeNodeSourceGenerator
                     {
                         if (dic.ContainsKey(property.Name)) { continue; }
                         var memberInfo = AnalyzePropertyMember(property);
+                        memberInfo.DeclarationIndex = declarationIndex++;
                         dic.Add(property.Name, memberInfo);
                         added = true;
 

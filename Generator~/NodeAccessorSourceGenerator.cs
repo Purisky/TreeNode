@@ -509,5 +509,9 @@ namespace TreeNodeSourceGenerator
         public bool IsTopChild { get; set; }
         public bool HasGroupAttribute { get; set; }
         public string GroupName { get; set; }
+        
+        // 排序相关
+        public int Order { get; set; }
+        public int DeclarationIndex { get; set; }
     }
 }
