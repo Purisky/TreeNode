@@ -37,7 +37,7 @@ namespace TreeNode.Runtime
         /// <param name="path">字符串路径</param>
         public PAPath(string path)
         {
-            path = path.Trim();
+            path = path?.Trim();
             if (string.IsNullOrEmpty(path) || string.IsNullOrWhiteSpace(path))
             {
                 Parts = new PAPart[0];

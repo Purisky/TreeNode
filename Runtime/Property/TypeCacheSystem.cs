@@ -829,7 +829,7 @@ namespace TreeNode.Runtime
         public static void WarmupJsonNodeTypes(params Type[] additionalTypes)
         {
             // 自动发现所有 JsonNode 派生类型
-            var allJsonNodeTypes = System.AppDomain.CurrentDomain.GetAssemblies()
+            var allJsonNodeTypes = AppDomain.CurrentDomain.GetAssemblies()
                 .Where(assembly => !assembly.IsDynamic)
                 .SelectMany(assembly => 
                 {
@@ -839,7 +839,7 @@ namespace TreeNode.Runtime
                     }
                     catch
                     {
-                        return System.Linq.Enumerable.Empty<Type>();
+                        return Enumerable.Empty<Type>();
                     }
                 })
                 .Where(type => typeof(JsonNode).IsAssignableFrom(type) && !type.IsAbstract)
@@ -849,8 +849,8 @@ namespace TreeNode.Runtime
             {
                 typeof(JsonNode),
                 typeof(TreeNodeAsset),
-                typeof(System.Collections.Generic.List<>),
-                typeof(System.Collections.Generic.Dictionary<,>)
+                typeof(List<>),
+                typeof(Dictionary<,>)
             };
 
             var allTypes = coreTypes.Concat(allJsonNodeTypes).Concat(additionalTypes ?? new Type[0]).Distinct();

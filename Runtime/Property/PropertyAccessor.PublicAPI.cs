@@ -56,12 +56,6 @@ namespace TreeNode.Runtime
             SetValueInternal<T>(obj, ref path, ref index, value);
         }
 
-        public static void RemoveValue(object obj, PAPath path)
-        {
-            int index = 0;
-            RemoveValueInternal(obj, ref path, ref index);
-        }
-
         public static bool GetValidPath(object obj, string path, out int validLength)
         {
             obj.ThrowIfNull(nameof(obj));
