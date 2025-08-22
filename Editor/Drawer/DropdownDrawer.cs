@@ -12,6 +12,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
 using static TreeNode.ReflectionExtensions;
+using Debug = TreeNode.Utility.Debug;
 
 namespace TreeNode.Editor
 {

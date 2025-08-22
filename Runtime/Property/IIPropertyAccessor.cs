@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Xml.Linq;
 using TreeNode.Runtime.Property.Exceptions;
+using TreeNode.Utility;
 using static TreeNode.Runtime.TypeCacheSystem;
 using IndexOutOfRangeException = TreeNode.Runtime.Property.Exceptions.IndexOutOfRangeException;
 
@@ -100,6 +101,7 @@ namespace TreeNode.Runtime
         }
         public static void ValidatePath(this IList list, ref PAPath path, ref int index)
         {
+            //Debug.Log($"List.ValidatePath:{path} ref {index}");
             ref PAPart part = ref path.Parts[index];
             if (!part.IsIndex) { index--; throw new NotSupportedException($"Non-index access not supported by {list.GetType().Name}"); }
             if (part.Index < 0) { index--; throw new IndexOutOfRangeException(path, list.GetType(), part.Index, list.Count); }
@@ -111,7 +113,10 @@ namespace TreeNode.Runtime
             if (part.Index >= list.Count) { index--; throw new IndexOutOfRangeException(path, list.GetType(), part.Index, list.Count); }
             object element = list[part.Index];
             index++;
-            if (element is IPropertyAccessor accessor) { accessor.ValidatePath(ref path, ref index); }
+            if (element is IPropertyAccessor accessor) {
+                //Debug.Log($"IPropertyAccessor.ValidatePath:{path} ref {index}");
+                accessor.ValidatePath(ref path, ref index);
+            }
             else if (element is ICollection) { throw new NestedCollectionException(path.GetSubPath(0, index), list.GetType()); }
             else if (element != null) { PropertyAccessor.ValidatePath(element, ref path, ref index); }
 

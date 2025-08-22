@@ -11,6 +11,7 @@ using System.Runtime.CompilerServices;
 using TreeNode.Runtime.Property.Exceptions;
 using TreeNode.Utility;
 using UnityEngine;
+using Debug = UnityEngine.Debug;
 using IndexOutOfRangeException = TreeNode.Runtime.Property.Exceptions.IndexOutOfRangeException;
 
 namespace TreeNode.Runtime

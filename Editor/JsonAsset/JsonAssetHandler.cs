@@ -10,6 +10,7 @@ using TreeNode.Runtime;
 using UnityEditor.VersionControl;
 using Newtonsoft.Json;
 using System.Reflection;
+using Debug = TreeNode.Utility.Debug;
 
 namespace TreeNode.Editor
 {

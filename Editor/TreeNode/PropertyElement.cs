@@ -9,6 +9,7 @@ using UnityEngine.UIElements;
 using UnityEngine;
 using TreeNode.Utility;
 using UnityEngine.Experimental.GlobalIllumination;
+using Debug = TreeNode.Utility.Debug;
 
 namespace TreeNode.Editor
 {

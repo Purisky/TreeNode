@@ -7,6 +7,7 @@ using TreeNode.Utility;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine;
 using UnityEngine.UIElements;
+using Debug = TreeNode.Utility.Debug;
 
 namespace TreeNode.Editor
 {
@@ -148,7 +149,7 @@ namespace TreeNode.Editor
                 }
                 catch (Exception e)
                 {
-                    Debug.LogWarning(string.Format(I18n.Runtime.Warning.PropertyRefreshFailed, path, e.Message));
+                    Debug.LogError(string.Format(I18n.Runtime.Warning.PropertyRefreshFailed, path, e.Message));
                     // 单个属性刷新失败时，标记需要完整刷新
                     _needsFullRefresh = true;
                 }
@@ -218,7 +219,7 @@ namespace TreeNode.Editor
                     }
                     catch (Exception e)
                     {
-                        Debug.LogWarning($"刷新属性元素失败 {path}: {e.Message}");
+                        Debug.LogError($"刷新属性元素失败 {path}: {e.Message}");
                         // 单个属性失败时不影响其他属性的更新
                     }
                 }
@@ -231,7 +232,7 @@ namespace TreeNode.Editor
             }
             catch (Exception e)
             {
-                Debug.LogWarning($"增量刷新失败，标记为需要完整刷新: {e.Message}");
+                Debug.LogError($"增量刷新失败，标记为需要完整刷新: {e.Message}");
                 _needsFullRefresh = true;
             }
         }
@@ -276,7 +277,7 @@ namespace TreeNode.Editor
             }
             catch (Exception e)
             {
-                Debug.LogWarning($"刷新PropertyElement值失败: {e.Message}");
+                Debug.LogError($"刷新PropertyElement值失败: {e.Message}");
                 _needsFullRefresh = true;
             }
         }
@@ -526,14 +527,14 @@ namespace TreeNode.Editor
                 if (port == null)
                 {
                     invalidPorts.Add(path);
-                    Debug.LogWarning(string.Format(I18n.Runtime.Warning.InvalidPortReference, path));
+                    Debug.LogError(string.Format(I18n.Runtime.Warning.InvalidPortReference, path));
                     continue;
                 }
 
                 if (port.LocalPath != path)
                 {
                     invalidPorts.Add(path);
-                    Debug.LogWarning(string.Format(I18n.Runtime.Warning.PortInconsistency, path, port.LocalPath));
+                    Debug.LogError(string.Format(I18n.Runtime.Warning.PortInconsistency, path, port.LocalPath));
                 }
             }
 

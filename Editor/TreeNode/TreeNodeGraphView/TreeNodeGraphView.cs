@@ -12,6 +12,7 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.Pool;
 using UnityEngine.UIElements;
+using Debug = TreeNode.Utility.Debug;
 using Timer = TreeNode.Utility.Timer;
 
 namespace TreeNode.Editor
@@ -358,7 +359,7 @@ namespace TreeNode.Editor
             }
             catch (Exception e)
             {
-                Debug.LogWarning($"创建ViewNode失败 {node?.GetType().Name}: {e.Message}");
+                Debug.LogError($"创建ViewNode失败 {node?.GetType().Name}: {e.Message}");
             }
         }
         /// <summary>

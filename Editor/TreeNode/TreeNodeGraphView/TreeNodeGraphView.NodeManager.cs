@@ -10,6 +10,7 @@ using TreeNode.Utility;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine;
 using UnityEngine.UIElements;
+using Debug = TreeNode.Utility.Debug;
 
 namespace TreeNode.Editor
 {
@@ -164,7 +165,7 @@ namespace TreeNode.Editor
                 }
                 else
                 {
-                    Debug.LogWarning($"工具节点连接失败: 找不到端口 - 路径: {nodePath}");
+                    Debug.LogError($"工具节点连接失败: 找不到端口 - 路径: {nodePath}");
                     
                     // 尝试延迟连接创建 - 可能端口还未创建完成
                     schedule.Execute(() => 
@@ -180,7 +181,7 @@ namespace TreeNode.Editor
             }
             catch (Exception e)
             {
-                Debug.LogWarning($"工具节点连接创建失败: {e.Message}");
+                Debug.LogError($"工具节点连接创建失败: {e.Message}");
             }
         }
 
@@ -452,7 +453,7 @@ namespace TreeNode.Editor
                 }
                 catch (Exception e)
                 {
-                    Debug.LogWarning($"删除边时出错: {e.Message}");
+                    Debug.LogError($"删除边时出错: {e.Message}");
                 }
             }
         }
@@ -472,7 +473,7 @@ namespace TreeNode.Editor
                 }
                 catch (Exception e)
                 {
-                    Debug.LogWarning($"创建边时出错: {e.Message}");
+                    Debug.LogError($"创建边时出错: {e.Message}");
                 }
             }
         }
@@ -493,7 +494,7 @@ namespace TreeNode.Editor
                 }
                 catch (Exception e)
                 {
-                    Debug.LogWarning($"移动节点时出错: {e.Message}");
+                    Debug.LogError($"移动节点时出错: {e.Message}");
                 }
             }
         }

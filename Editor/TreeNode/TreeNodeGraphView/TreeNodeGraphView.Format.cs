@@ -6,6 +6,7 @@ using UnityEditor.PackageManager.UI;
 using UnityEngine;
 using System.Linq;
 using TreeNode.Runtime;
+using Debug = TreeNode.Utility.Debug;
 
 namespace TreeNode.Editor
 {
@@ -129,7 +130,7 @@ namespace TreeNode.Editor
                     }
                     catch (Exception ex)
                     {
-                        Debug.LogWarning($"获取子节点值时出错: {ex.Message}");
+                        Debug.LogError($"获取子节点值时出错: {ex.Message}");
                     }
                 }
             }

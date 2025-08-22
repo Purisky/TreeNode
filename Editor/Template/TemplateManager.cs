@@ -10,6 +10,7 @@ using TreeNode.Utility;
 using Unity.Properties;
 using UnityEditor;
 using UnityEngine;
+using Debug = TreeNode.Utility.Debug;
 namespace TreeNode.Editor
 {
     public static class TemplateManager

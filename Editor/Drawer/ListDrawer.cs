@@ -12,6 +12,7 @@ using UnityEditor.Experimental.GraphView;
 using UnityEditorInternal;
 using UnityEngine;
 using UnityEngine.UIElements;
+using Debug = TreeNode.Utility.Debug;
 
 namespace TreeNode.Editor
 {
@@ -1122,7 +1123,7 @@ namespace TreeNode.Editor
             }
             catch (Exception ex)
             {
-                Debug.LogWarning($"ListElement.SyncItemsSourceFromData: 同步失败 - {ex.Message}");
+                Debug.LogError($"ListElement.SyncItemsSourceFromData: 同步失败 - {ex.Message}");
             }
         }
 
@@ -1151,7 +1152,7 @@ namespace TreeNode.Editor
             else
             {
                 // 无效操作，执行完全刷新
-                Debug.LogWarning($"ListElement.ApplyListItemChange: 无效的索引组合 fromIndex={fromIndex}, toIndex={toIndex}，执行完全刷新");
+                Debug.LogError($"ListElement.ApplyListItemChange: 无效的索引组合 fromIndex={fromIndex}, toIndex={toIndex}，执行完全刷新");
                 RefreshItems();
             }
         }

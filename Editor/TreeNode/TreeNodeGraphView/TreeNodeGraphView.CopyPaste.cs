@@ -7,6 +7,7 @@ using TreeNode.Utility;
 using UnityEditor;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine;
+using Debug = TreeNode.Utility.Debug;
 
 namespace TreeNode.Editor
 {
@@ -287,7 +288,7 @@ namespace TreeNode.Editor
             }
             else if (!string.IsNullOrEmpty(errorMessage))
             {
-                Debug.LogWarning($"Paste操作被取消: {errorMessage}");
+                Debug.Log($"Paste操作被取消: {errorMessage}");
             }
         }
 

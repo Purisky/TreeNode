@@ -8,6 +8,7 @@ using UnityEditor;
 using UnityEditor.VersionControl;
 using UnityEngine;
 using UnityEngine.UIElements;
+using Debug = TreeNode.Utility.Debug;
 namespace TreeNode.Editor
 {
     /// <summary>
@@ -108,7 +109,7 @@ namespace TreeNode.Editor
             // 在序列化前验证状态，如果状态无效则清理
             if (!string.IsNullOrEmpty(Path) && !File.Exists(Path))
             {
-                Debug.LogWarning($"TreeNodeGraphWindow.OnBeforeSerialize() - File missing, clearing path: {Path}");
+                Debug.LogError($"TreeNodeGraphWindow.OnBeforeSerialize() - File missing, clearing path: {Path}");
                 Path = null;
                 JsonAsset = null;
                 Title = null;
@@ -123,7 +124,7 @@ namespace TreeNode.Editor
             // 如果反序列化后发现路径为空，标记为无效状态
             if (string.IsNullOrEmpty(Path))
             {
-                Debug.LogWarning("TreeNodeGraphWindow.OnAfterDeserialize() - No path found after deserialization");
+                Debug.LogError("TreeNodeGraphWindow.OnAfterDeserialize() - No path found after deserialization");
                 _isDeserializing = false; // 不需要延迟处理
             }
         }
@@ -180,7 +181,7 @@ namespace TreeNode.Editor
                             {
                                 if (this != null && !File.Exists(Path))
                                 {
-                                    Debug.LogWarning($"File not found after delay (deserialization): {Path}. Closing window.");
+                                    Debug.LogError($"File not found after delay (deserialization): {Path}. Closing window.");
                                     Close();
                                 }
                                 else if (this != null)
@@ -195,7 +196,7 @@ namespace TreeNode.Editor
                         }
                         else
                         {
-                            Debug.LogWarning($"File not found (immediate): {Path}. Closing window.");
+                            Debug.LogError($"File not found (immediate): {Path}. Closing window.");
                             Close();
                             return;
                         }
@@ -310,7 +311,7 @@ namespace TreeNode.Editor
             // 如果是反序列化但没有有效路径，直接关闭窗口
             if (_isDeserializing && string.IsNullOrEmpty(Path))
             {
-                Debug.LogWarning("TreeNodeGraphWindow.OnEnable() - Deserialized window has no path, closing");
+                Debug.LogError("TreeNodeGraphWindow.OnEnable() - Deserialized window has no path, closing");
                 Close();
                 return;
             }
@@ -456,7 +457,7 @@ namespace TreeNode.Editor
             // Check if the file exists before opening
             if (!File.Exists(path))
             {
-                Debug.LogWarning($"Cannot open window for non-existent file: {path}");
+                Debug.LogError($"Cannot open window for non-existent file: {path}");
                 return null;
             }
             
