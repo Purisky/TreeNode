@@ -19,35 +19,21 @@ namespace TreeNode.Runtime
 {
     public static partial class PropertyAccessor//公共API - 保持向后兼容
     {
-        public static T GetValue<T>(object obj, string path)
-        {
-            return GetValue<T>(obj, PAPath.Create(path));
-        }
         public static T GetValue<T>(object obj, PAPart part)
         {
             if (!part.Valid) { return (T)obj; }
-            Type type = obj.GetType();
-            var typeInfo = TypeCacheSystem.GetTypeInfo(type);
-            var memberInfo = typeInfo.GetMember(part.Name);
-            return (T)memberInfo.Getter(obj);
+            
+            var paPath = new PAPath(part);
+            int index = 0;
+            return GetValueInternal<T>(obj, ref paPath, ref index);
         }
-
-
-
-
         public static T GetValue<T>(object obj, PAPath path)
         {
             if (path.IsEmpty)
                 return (T)obj;
 
-            if (path.Depth == 1)
-            {
-                return GetValue<T>(obj, path.FirstPart);
-            }
-            // 多层路径访问
-            var parent = GetParentObject(obj, path, out var lastPart);
-            var multiGetter = GetOrCreateGetter<T>(parent.GetType(), lastPart);
-            return multiGetter(parent);
+            int index = 0;
+            return GetValueInternal<T>(obj, ref path, ref index);
         }
 
         public static void SetValue<T>(object obj, PAPart part, T value)
@@ -56,57 +42,24 @@ namespace TreeNode.Runtime
             {
                 throw new InvalidOperationException("无法修改值类型的根对象");
             }
-            var setter = GetOrCreateSetter<T>(obj.GetType(), part);
-            setter(obj, value);
-            return;
-        }
-        public static void SetValue<T>(object obj, string path, T value)
-        {
-            SetValue(obj, PAPath.Create(path), value);
+            
+            var paPath = new PAPath(part);
+            int index = 0;
+            SetValueInternal<T>(obj, ref paPath, ref index, value);
         }
         public static void SetValue<T>(object obj, PAPath path, T value)
         {
             if (path.IsEmpty)
                 throw new ArgumentException("路径不能为空");
 
-            if (path.Depth == 1)
-            {
-                SetValue(obj, path.FirstPart, value);
-                return;
-            }
-
-            // 多层路径设置
-            var parent = GetParentObject(obj, path, out var lastPart);
-
-            // 处理值类型的特殊情况
-            if (parent.GetType().IsValueType)
-            {
-                HandleValueTypeSet(obj, path, lastPart, value);
-            }
-            else
-            {
-                var setter = GetOrCreateSetter<T>(parent.GetType(), lastPart);
-                setter(parent, value);
-            }
+            int index = 0;
+            SetValueInternal<T>(obj, ref path, ref index, value);
         }
 
-        public static void RemoveValue(object obj, string path)
-        {
-            RemoveValue(obj, PAPath.Create(path));
-        }
         public static void RemoveValue(object obj, PAPath path)
         {
-            var parent = GetParentObject(obj, path, out var lastPart);
-
-            if (parent is IList list && lastPart.IsIndex)
-            {
-                list.RemoveAt(lastPart.Index);
-            }
-            else
-            {
-                var setter = GetOrCreateSetter<object>(parent.GetType(), lastPart);
-                setter(parent, null);
-            }
+            int index = 0;
+            RemoveValueInternal(obj, ref path, ref index);
         }
 
         public static bool GetValidPath(object obj, string path, out int validLength)
@@ -178,7 +131,8 @@ namespace TreeNode.Runtime
         }
         public static T GetLast<T>(object obj, string path, bool includeEnd, out int index)
         {
-            return GetLast<T>(obj, PAPath.Create(path), includeEnd, out index);
+            var paPath = PAPath.Create(path);
+            return GetLast<T>(obj, paPath, includeEnd, out index);
         }
         public static T GetLast<T>(object obj, PAPath path, bool includeEnd, out int index)
         {
@@ -192,8 +146,10 @@ namespace TreeNode.Runtime
 
             for (int i = 0; i < endIndex; i++)
             {
-                var getter = GetOrCreateGetter<object>(currentObj.GetType(), path.Parts[i]);
-                currentObj = getter(currentObj);
+                var part = path.Parts[i];
+                var tempPath = new PAPath(part);
+                int tempIndex = 0;
+                currentObj = GetValueInternal<object>(currentObj, ref tempPath, ref tempIndex);
 
                 if (currentObj is T typedObj)
                 {
@@ -238,11 +194,14 @@ namespace TreeNode.Runtime
             ref PAPart first = ref path.Parts[index];
             if (index == path.Parts.Length - 1)
             {
-                var singleGetter = GetOrCreateGetter<T>(obj.GetType(), first);
-                return singleGetter(obj); 
+                // 单级访问 - 也支持实例创建
+                object result = GetOrCreateNextObject(obj, first);
+                return (T)result;
             }
             index++;
-            object nextObj = GetOrCreateGetter<object>(obj.GetType(), first)(obj);
+            
+            // 多级访问 - 使用统一的获取或创建方法
+            object nextObj = GetOrCreateNextObject(obj, first);
             
             // 使用统一的多层链路处理引擎
             return ProcessMultiLevel_GetValue<T>(nextObj, ref path, ref index);
@@ -255,26 +214,30 @@ namespace TreeNode.Runtime
             var typeInfo = TypeCacheSystem.GetTypeInfo(type);
             Debug.Log(typeInfo.Type.Name);
             var memberInfo = typeInfo.GetMember(first.Name);
-            Debug.Log(memberInfo.Name);
+            Debug.Log(memberInfo?.Name ?? "null");
+            
             if (index == path.Parts.Length - 1)
             {
-                var singleSetter = CacheManager.GetOrCreateSetter<T>(type, first);
+                // 单级设置 - 使用统一的访问器设置策略
+                var singleSetter = GetUnifiedSetter<T>(type, first);
                 Debug.Log($"singleSetter {singleSetter} ( {obj} ,{value} )");
-                singleSetter(obj,value);
+                singleSetter(obj, value);
                 return;
             }
+            
             index++;
-            object nextObj = GetOrCreateGetter<object>(type, first)(obj);
+            // 多级设置 - 使用统一的获取或创建方法
+            object nextObj = GetOrCreateNextObject(obj, first);
             
             // 使用统一的多层链路处理引擎
             ProcessMultiLevel_SetValue<T>(nextObj, ref path, ref index, value);
             
             // 处理值类型的特殊情况
             if (nextObj is IPropertyAccessor accessor && 
-                memberInfo.ValueType.IsValueType && 
-                memberInfo.MemberType == TypeCacheSystem.MemberType.Property)
+                memberInfo?.ValueType.IsValueType == true && 
+                memberInfo?.MemberType == TypeCacheSystem.MemberType.Property)
             {
-                var singleSetter = CacheManager.GetOrCreateSetter<object>(type, first);
+                var singleSetter = GetUnifiedSetter<object>(type, first);
                 singleSetter(obj, accessor);
             }
         }
@@ -284,24 +247,29 @@ namespace TreeNode.Runtime
             Type type = obj.GetType();
             var typeInfo = TypeCacheSystem.GetTypeInfo(type);
             var memberInfo = typeInfo.GetMember(first.Name);
+            
             if (index == path.Parts.Length - 1)
             {
-                var singleSetter = CacheManager.GetOrCreateSetter<object>(type, first);
+                // 单级移除 - 使用统一的访问器设置策略
+                var singleSetter = GetUnifiedSetter<object>(type, first);
                 singleSetter(obj, default);
                 return;
             }
+            
             index++;
-            object nextObj = GetOrCreateGetter<object>(type, first)(obj);
+            // 多级移除 - 使用统一的获取或创建方法
+            // 注意：对于Remove操作，通常不需要创建实例，但为了路径一致性可能需要
+            object nextObj = GetOrCreateNextObject(obj, first);
             
             // 使用统一的多层链路处理引擎
             ProcessMultiLevel_RemoveValue(nextObj, ref path, ref index);
             
             // 处理值类型的特殊情况
             if (nextObj is IPropertyAccessor accessor && 
-                memberInfo.ValueType.IsValueType && 
-                memberInfo.MemberType == TypeCacheSystem.MemberType.Property)
+                memberInfo?.ValueType.IsValueType == true && 
+                memberInfo?.MemberType == TypeCacheSystem.MemberType.Property)
             {
-                var singleSetter = CacheManager.GetOrCreateSetter<object>(type, first);
+                var singleSetter = GetUnifiedSetter<object>(type, first);
                 singleSetter(obj, accessor);
             }
         }
@@ -321,7 +289,9 @@ namespace TreeNode.Runtime
                     return;
                 }
                 
-                var nextObj = memberInfo.Getter(obj);
+                // 使用统一的获取或创建方法
+                // 注意：在ValidatePath中，我们不实际设置实例，只是用于验证路径的可达性
+                object nextObj = GetOrCreateNextObject(obj, path.Parts[index]);
                 if (nextObj == null) { return; }
                 index++;
                 
@@ -392,5 +362,172 @@ namespace TreeNode.Runtime
                 }
             }
         }
+
+        #region 统一访问器获取策略
+
+        /// <summary>
+        /// 统一的Getter获取策略 - 优先使用TypeCacheSystem，IList索引访问使用扩展方法，其他回退到CacheManager
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static Func<object, T> GetUnifiedGetter<T>(Type type, PAPart part)
+        {
+            // 对于索引访问，优先检查是否为IList类型
+            if (part.IsIndex)
+            {
+                // IList类型使用扩展方法（性能更优，零编译时间）
+                //if (typeof(IList).IsAssignableFrom(type))
+                //{
+                //    return obj =>
+                //    {
+                //        var list = (IList)obj;
+                //        var path = new PAPath(part);
+                //        int index = 0;
+                //        return list.GetValueInternal<T>(ref path, ref index);
+                //    };
+                //}
+                //else
+                {
+                    // 其他索引器类型使用CacheManager（支持自定义索引器）
+                    return CacheManager.GetOrCreateGetter<T>(type, part);
+                }
+            }
+
+            // 对于成员访问，优先使用TypeCacheSystem的预编译委托
+            var typeInfo = TypeCacheSystem.GetTypeInfo(type);
+            var memberInfo = typeInfo.GetMember(part.Name);
+            
+            if (memberInfo?.Getter != null)
+            {
+                // 使用预编译委托（性能最优）
+                return obj =>
+                {
+                    var value = memberInfo.Getter(obj);
+                    return (T)value;
+                };
+            }
+            else
+            {
+                // 回退到CacheManager（用于动态创建访问器）
+                return CacheManager.GetOrCreateGetter<T>(type, part);
+            }
+        }
+
+        /// <summary>
+        /// 统一的Setter获取策略 - 优先使用TypeCacheSystem，IList索引访问使用扩展方法，其他回退到CacheManager
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static Action<object, T> GetUnifiedSetter<T>(Type type, PAPart part)
+        {
+            // 对于索引访问，优先检查是否为IList类型
+            if (part.IsIndex)
+            {
+                //// IList类型使用扩展方法（性能更优，零编译时间）
+                //if (typeof(IList).IsAssignableFrom(type))
+                //{
+                //    return (obj, value) =>
+                //    {
+                //        var list = (IList)obj;
+                //        var path = new PAPath(part);
+                //        int index = 0;
+                //        list.SetValueInternal<T>(ref path, ref index, value);
+                //    };
+                //}
+                //else
+                {
+                    // 其他索引器类型使用CacheManager（支持自定义索引器）
+                    return CacheManager.GetOrCreateSetter<T>(type, part);
+                }
+            }
+
+            // 对于成员访问，优先使用TypeCacheSystem的预编译委托
+            var typeInfo = TypeCacheSystem.GetTypeInfo(type);
+            var memberInfo = typeInfo.GetMember(part.Name);
+            
+            if (memberInfo?.Setter != null)
+            {
+                // 使用预编译委托（性能最优）
+                return (obj, value) => memberInfo.Setter(obj, value);
+            }
+            else
+            {
+                // 回退到CacheManager（用于动态创建访问器）
+                return CacheManager.GetOrCreateSetter<T>(type, part);
+            }
+        }
+
+        #endregion
+
+        #region 实例创建支持
+
+        /// <summary>
+        /// 判断一个成员是否需要创建实例
+        /// 条件：不是值类型 && 不是JsonNode类型 && 有无参构造函数
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static bool NeedCreateInstance(Type memberType)
+        {
+            if (memberType == null || memberType.IsValueType)
+                return false;
+
+            // 检查是否为JsonNode类型
+            if (IsJsonNodeType(memberType))
+                return false;
+
+            // 使用 TypeCacheSystem 检查是否有无参构造函数
+            var typeInfo = TypeCacheSystem.GetTypeInfo(memberType);
+            return typeInfo.HasParameterlessConstructor;
+        }
+
+        /// <summary>
+        /// 创建实例（如果需要且可能）
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static object CreateInstanceIfNeeded(Type memberType)
+        {
+            if (!NeedCreateInstance(memberType))
+                return null;
+
+            var typeInfo = TypeCacheSystem.GetTypeInfo(memberType);
+            return typeInfo.Constructor?.Invoke();
+        }
+
+        /// <summary>
+        /// 获取或创建下一个对象
+        /// 如果对象为null且需要创建实例，则创建并设置回原对象
+        /// </summary>
+        /// <param name="currentObj">当前对象</param>
+        /// <param name="part">路径部分</param>
+        /// <param name="shouldCreate">是否应该创建实例（用于区分读取和写入操作）</param>
+        /// <returns>下一个对象（可能是现有的或新创建的）</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static object GetOrCreateNextObject(object currentObj, PAPart part)
+        {
+            // 使用统一的访问器获取策略
+            var nextGetter = GetUnifiedGetter<object>(currentObj.GetType(), part);
+            object nextObj = nextGetter(currentObj);
+            
+            // 实例创建支持：如果下一个对象为null且需要创建实例，则创建并设置
+            if (nextObj == null)
+            {
+                var type = currentObj.GetType();
+                var typeInfo = TypeCacheSystem.GetTypeInfo(type);
+                var memberInfo = typeInfo.GetMember(part.Name);
+                
+                if (memberInfo != null && NeedCreateInstance(memberInfo.ValueType))
+                {
+                    nextObj = CreateInstanceIfNeeded(memberInfo.ValueType);
+                    if (nextObj != null)
+                    {
+                        // 设置创建的实例回原对象
+                        var singleSetter = GetUnifiedSetter<object>(type, part);
+                        singleSetter(currentObj, nextObj);
+                    }
+                }
+            }
+            
+            return nextObj;
+        }
+
+        #endregion
     }
 }

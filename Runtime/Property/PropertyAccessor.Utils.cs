@@ -84,8 +84,44 @@ namespace TreeNode.Runtime
             public static object NavigateToNext(object rootObj, object currentObj, PAPath fullPath, int partIndex)
             {
                 var part = fullPath.Parts[partIndex];
-                var getter = GetOrCreateGetter<object>(currentObj.GetType(), part);
-                object nextObj = getter(currentObj);
+                
+                // 使用统一的访问器获取策略（与GetUnifiedGetter保持一致）
+                var type = currentObj.GetType();
+                object nextObj;
+                
+                if (part.IsIndex)
+                {
+                    // IList类型使用扩展方法（性能更优，零编译时间）
+                    if (typeof(IList).IsAssignableFrom(type))
+                    {
+                        var list = (IList)currentObj;
+                        var path = new PAPath(part);
+                        int index = 0;
+                        nextObj = list.GetValueInternal<object>(ref path, ref index);
+                    }
+                    else
+                    {
+                        // 其他索引器类型使用CacheManager
+                        var getter = CacheManager.GetOrCreateGetter<object>(type, part);
+                        nextObj = getter(currentObj);
+                    }
+                }
+                else
+                {
+                    // 成员访问优先使用TypeCacheSystem
+                    var typeInfo = TypeCacheSystem.GetTypeInfo(type);
+                    var memberInfo = typeInfo.GetMember(part.Name);
+                    
+                    if (memberInfo?.Getter != null)
+                    {
+                        nextObj = memberInfo.Getter(currentObj);
+                    }
+                    else
+                    {
+                        var getter = CacheManager.GetOrCreateGetter<object>(type, part);
+                        nextObj = getter(currentObj);
+                    }
+                }
 
                 // 如果对象为null，尝试自动创建
                 nextObj ??= TryCreateMissingObject(rootObj, fullPath, partIndex, currentObj.GetType());

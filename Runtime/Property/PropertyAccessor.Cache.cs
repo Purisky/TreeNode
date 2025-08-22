@@ -119,63 +119,6 @@ namespace TreeNode.Runtime
         #endregion
 
         #region 缓存和创建方法
-
-        /// <summary>
-        /// 获取或创建Getter - 使用TypeCacheSystem
-        /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static Func<object, T> GetOrCreateGetter<T>(Type type, PAPart part)
-        {
-            // 对于索引访问，仍使用原有机制
-            if (part.IsIndex)
-            {
-                return CacheManager.GetOrCreateGetter<T>(type, part);
-            }
-
-            // 对于成员访问，使用TypeCacheSystem的预编译委托
-            var typeInfo = TypeCacheSystem.GetTypeInfo(type);
-            var memberInfo = typeInfo.GetMember(part.Name);
-            
-            if (memberInfo?.Getter == null)
-            {
-                // 如果成员不存在或没有Getter，回退到原有机制
-                return CacheManager.GetOrCreateGetter<T>(type, part);
-            }
-
-            // 包装TypeCacheSystem的Getter
-            return obj =>
-            {
-                var value = memberInfo.Getter(obj);
-                return (T)value;
-            };
-        }
-
-        /// <summary>
-        /// 获取或创建Setter - 使用TypeCacheSystem
-        /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static Action<object, T> GetOrCreateSetter<T>(Type type, PAPart part)
-        {
-            // 对于索引访问，仍使用原有机制
-            if (part.IsIndex)
-            {
-                return CacheManager.GetOrCreateSetter<T>(type, part);
-            }
-
-            // 对于成员访问，使用TypeCacheSystem的预编译委托
-            var typeInfo = TypeCacheSystem.GetTypeInfo(type);
-            var memberInfo = typeInfo.GetMember(part.Name);
-            
-            if (memberInfo?.Setter == null)
-            {
-                // 如果成员不存在或没有Setter，回退到原有机制
-                return CacheManager.GetOrCreateSetter<T>(type, part);
-            }
-
-            // 包装TypeCacheSystem的Setter
-            return (obj, value) => memberInfo.Setter(obj, value);
-        }
-
         /// <summary>
         /// 创建Getter表达式 - 使用PAPart
         /// </summary>

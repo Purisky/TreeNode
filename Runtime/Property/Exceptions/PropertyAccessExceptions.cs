@@ -11,14 +11,14 @@ namespace TreeNode.Runtime.Property.Exceptions
         public string PropertyPath { get; }
         public Type TargetType { get; }
 
-        protected PropertyAccessException(string message, string propertyPath, Type targetType) 
+        protected PropertyAccessException(string message, string propertyPath, Type targetType)
             : base(message)
         {
             PropertyPath = propertyPath;
             TargetType = targetType;
         }
 
-        protected PropertyAccessException(string message, string propertyPath, Type targetType, Exception innerException) 
+        protected PropertyAccessException(string message, string propertyPath, Type targetType, Exception innerException)
             : base(message, innerException)
         {
             PropertyPath = propertyPath;
