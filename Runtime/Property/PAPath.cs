@@ -696,7 +696,7 @@ namespace TreeNode.Runtime
         #region ToString
 
         public override readonly string ToString() => 
-            IsIndex ? $"[{Index}]" : $".{Name}";
+            IsIndex ? $"[{Index}]" : $"{Name}";
 
         #endregion
     }

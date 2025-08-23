@@ -96,7 +96,15 @@ namespace TreeNode.Editor
         protected bool Dirty;
         protected Action OnChange;
         protected MemberGetter<DropdownList<T>> ListGetter;
-        public DropdownList<T> GetList() => ListGetter(Node.View.Asset.Data.GetType());
+        public DropdownList<T> GetList() 
+        {
+            if (ListGetter == null)
+            {
+                //Debug.LogError($"ListGetter is null for {typeof(T).Name} in {Meta.DeclaringType?.Name} at path {Path}");
+                return new DropdownList<T>();
+            }
+            return ListGetter(Node.View.Asset.Data.GetType());
+        }
         public ViewNode Node;
         public DropdownElement() : base(null, null)
         {
@@ -188,29 +196,25 @@ namespace TreeNode.Editor
 
         private void InitializeListGetterForEnum(MemberMeta meta, DropdownAttribute dropdownAttribute)
         {
-            // 尝试从 TypeCacheSystem 获取缓存的访问器
-            var typeInfo = TypeCacheSystem.GetTypeInfo(meta.DeclaringType);
-            var cachedAccessor = typeInfo.GetSpecialMemberAccessor<object>(dropdownAttribute.ListGetter);
-            
-            if (cachedAccessor == null)
-            {
-                // 创建并缓存访问器
-                cachedAccessor = typeInfo.GetOrCreateSpecialMemberAccessor(dropdownAttribute.ListGetter, null, Data);
-            }
-            
-            if (cachedAccessor == null)
-            {
-                SetLabelError($"{dropdownAttribute.ListGetter} not found");
-                return;
-            }
-
-            // 确定返回类型并设置 ListGetter
+            // 首先获取成员信息确定返回类型
             var member = GetMemberInfo(meta, dropdownAttribute.ListGetter);
             if (member == null) return;
 
             Type memberType = member.GetValueType();
+            
+            // 尝试从 TypeCacheSystem 获取缓存的访问器
+            var typeInfo = TypeCacheSystem.GetTypeInfo(meta.DeclaringType);
+            
             if (memberType == typeof(DropdownList<T>))
             {
+                var cachedAccessor = typeInfo.GetSpecialMemberAccessor<object>(dropdownAttribute.ListGetter);
+                
+                if (cachedAccessor == null)
+                {
+                    // 创建并缓存访问器
+                    cachedAccessor = typeInfo.GetOrCreateSpecialMemberAccessor(dropdownAttribute.ListGetter, null, Data);
+                }
+                
                 var accessor = cachedAccessor as MemberGetter<DropdownList<T>>;
                 if (accessor != null)
                 {
@@ -224,6 +228,14 @@ namespace TreeNode.Editor
             }
             else if (memberType == typeof(List<T>))
             {
+                var cachedAccessor = typeInfo.GetSpecialMemberAccessor<object>(dropdownAttribute.ListGetter);
+                
+                if (cachedAccessor == null)
+                {
+                    // 创建并缓存访问器
+                    cachedAccessor = typeInfo.GetOrCreateSpecialMemberAccessor(dropdownAttribute.ListGetter, null, Data);
+                }
+                
                 var accessor = cachedAccessor as MemberGetter<List<T>>;
                 if (accessor != null)
                 {

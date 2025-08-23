@@ -157,7 +157,7 @@ namespace TreeNode.Editor
 
         private void ShowTreeView(DropdownMenuAction a)
         {
-            string treeView = GetTreeView();
+            string treeView = Validate();
             Debug.Log(treeView);
         }
 

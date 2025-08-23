@@ -31,7 +31,13 @@ namespace TreeNode.Runtime
         {
             ref PAPart first = ref path.Parts[index];
             if (!first.IsIndex) { index--; throw new NotSupportedException($"Non-index access not supported by {list.GetType().Name}"); }
-            if (first.Index < 0 || first.Index >= list.Count) { index--; throw new IndexOutOfRangeException(path, list.GetType(), first.Index, list.Count); }
+            if (first.Index < 0 || first.Index >= list.Count)
+            {
+                index--;
+                var remainingPath = index + 2 < path.Parts.Length ? $" -> {path.GetSubPath(index + 2)}" : "";
+                throw new ArgumentException($"路径对象为空：{path.GetSubPath(0, index + 1)} -> {path.Parts[index + 1]}(null){remainingPath}");
+                //throw new IndexOutOfRangeException(path, list.GetType(), first.Index, list.Count);
+            }
             return ref first;
         }
         public static T GetValueInternal<T>(this IList list, ref PAPath path, ref int index)
@@ -85,14 +91,18 @@ namespace TreeNode.Runtime
         {
             //Debug.Log($"List.ValidatePath:{path} ref {index}");
             ref PAPart part = ref path.Parts[index];
-            if (!part.IsIndex) { index--; throw new NotSupportedException($"Non-index access not supported by {list.GetType().Name}"); }
-            if (part.Index < 0) { index--; throw new IndexOutOfRangeException(path, list.GetType(), part.Index, list.Count); }
+            if (!part.IsIndex) { index--; return; }
+            if (part.Index < 0) { index--; return; }
             if (index == path.Parts.Length - 1)
             {
-                if (part.Index > list.Count) { index--; throw new IndexOutOfRangeException(path, list.GetType(), part.Index, list.Count); }
+                if (part.Index > list.Count) { index--;return; }
                 return;
             }
-            if (part.Index >= list.Count) { index--; throw new IndexOutOfRangeException(path, list.GetType(), part.Index, list.Count); }
+            if (part.Index >= list.Count) {
+                
+                index--; //throw new IndexOutOfRangeException(path, list.GetType(), part.Index, list.Count);
+                return;
+            }
             object element = list[part.Index];
             index++;
             ProcessMultiLevel_ValidatePath(element, ref path, ref index);

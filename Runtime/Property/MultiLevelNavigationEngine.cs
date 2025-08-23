@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -36,10 +36,44 @@ namespace TreeNode.Runtime
         /// 获取对象的导航策略（高性能版本）
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static ObjectNavigationStrategy? GetNavigationStrategy(object obj, ref PAPath path, ref int index)
+        {
+            // 空值检查：提供有用的错误信息
+            if (obj == null)
+            {
+                // 直接使用PAPath.GetSubPath计算有效路径
+                var validPath = path.GetSubPath(0, index+1);
+                
+                // 安全获取当前尝试访问的路径部分
+                var currentPart =  path.Parts[index+1];
+                
+                // 安全获取剩余路径
+                var remainingPath = index + 2 < path.Parts.Length ? $" -> {path.GetSubPath(index + 2)}": "";
+                
+                throw new ArgumentNullException(nameof(obj),
+                    $"路径对象为空：{validPath} -> {currentPart}(null) {remainingPath}");
+            }
+            var type = obj.GetType();
+            
+            // 热路径：先检查缓存
+            if (_navigationStrategyCache.TryGetValue(type, out var cached))
+            {
+                return cached;
+            }
+            
+            // 冷路径：计算并缓存策略
+            var strategy = ComputeNavigationStrategy(obj);
+            _navigationStrategyCache[type] = strategy;
+            return strategy;
+        }
+        
+        /// <summary>
+        /// 获取对象的导航策略（简化版本，用于不需要路径信息的场景）
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static ObjectNavigationStrategy? GetNavigationStrategy(object obj)
         {
             var type = obj.GetType();
-            
             // 热路径：先检查缓存
             if (_navigationStrategyCache.TryGetValue(type, out var cached))
             {
@@ -74,17 +108,13 @@ namespace TreeNode.Runtime
         public static T ProcessMultiLevel_GetValue<T>(object nextObj, ref PAPath path, ref int index)
         {
             // 使用策略分发避免重复类型检查
-            switch (GetNavigationStrategy(nextObj))
+            return GetNavigationStrategy(nextObj, ref path, ref index) switch
             {
-                case ObjectNavigationStrategy.PropertyAccessor:
-                    return ((IPropertyAccessor)nextObj).GetValueInternal<T>(ref path, ref index);
-                    
-                case ObjectNavigationStrategy.ListExtension:
-                    return ((IList)nextObj).GetValueInternal<T>(ref path, ref index);
-                    
-                default: // 静态兜底方法
-                    return PropertyAccessor.GetValueInternal<T>(nextObj, ref path, ref index);
-            }
+                ObjectNavigationStrategy.PropertyAccessor => ((IPropertyAccessor)nextObj).GetValueInternal<T>(ref path, ref index),
+                ObjectNavigationStrategy.ListExtension => ((IList)nextObj).GetValueInternal<T>(ref path, ref index),
+                // 静态兜底方法
+                _ => PropertyAccessor.GetValueInternal<T>(nextObj, ref path, ref index),
+            };
         }
         
         /// <summary>
@@ -93,7 +123,8 @@ namespace TreeNode.Runtime
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void ProcessMultiLevel_SetValue<T>(object nextObj, ref PAPath path, ref int index, T value)
         {
-            switch (GetNavigationStrategy(nextObj))
+            // 空值检查现在在GetNavigationStrategy内部处理
+            switch (GetNavigationStrategy(nextObj, ref path, ref index))
             {
                 case ObjectNavigationStrategy.PropertyAccessor:
                     ((IPropertyAccessor)nextObj).SetValueInternal(ref path, ref index, value);
@@ -115,7 +146,8 @@ namespace TreeNode.Runtime
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void ProcessMultiLevel_RemoveValue(object nextObj, ref PAPath path, ref int index)
         {
-            switch (GetNavigationStrategy(nextObj))
+            // 空值检查现在在GetNavigationStrategy内部处理
+            switch (GetNavigationStrategy(nextObj, ref path, ref index))
             {
                 case ObjectNavigationStrategy.PropertyAccessor:
                     ((IPropertyAccessor)nextObj).RemoveValueInternal(ref path, ref index);
@@ -137,7 +169,8 @@ namespace TreeNode.Runtime
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void ProcessMultiLevel_ValidatePath(object nextObj, ref PAPath path, ref int index)
         {
-            switch (GetNavigationStrategy(nextObj))
+            // 空值检查现在在GetNavigationStrategy内部处理
+            switch (GetNavigationStrategy(nextObj, ref path, ref index))
             {
                 case ObjectNavigationStrategy.PropertyAccessor:
                     ((IPropertyAccessor)nextObj).ValidatePath(ref path, ref index);
@@ -159,7 +192,13 @@ namespace TreeNode.Runtime
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void ProcessMultiLevel_GetAllInPath<T>(object nextObj, ref PAPath path, ref int index, List<(int depth, T value)> list) where T : class
         {
-            switch (GetNavigationStrategy(nextObj))
+            // 空值检查：直接返回，不抛出异常
+            if (nextObj == null)
+            {
+                return;
+            }
+            
+            switch (GetNavigationStrategy(nextObj, ref path, ref index))
             {
                 case ObjectNavigationStrategy.PropertyAccessor:
                     ((IPropertyAccessor)nextObj).GetAllInPath<T>(ref path, ref index, list);
@@ -181,6 +220,12 @@ namespace TreeNode.Runtime
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void ProcessMultiLevel_CollectNodes(object nextObj, List<(PAPath, JsonNode)> listNodes, PAPath parent, int depth = -1)
         {
+            // 空值检查：直接返回，不抛出异常
+            if (nextObj == null)
+            {
+                return;
+            }
+            
             switch (GetNavigationStrategy(nextObj))
             {
                 case ObjectNavigationStrategy.PropertyAccessor:

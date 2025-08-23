@@ -332,9 +332,9 @@ namespace TreeNode.Editor
         /// <summary>
         /// 验证 - 使用逻辑层验证
         /// </summary>
-        public virtual string Validate()
+        public virtual string Validate(bool appendText = true)
         {
-            return Asset?.Data?.GetTreeView((node) =>
+            string text =  Asset?.Data?.GetTreeView((node) =>
             {
                 ViewNode viewNode = NodeDic.GetValueOrDefault(node);
                 ValidationResult res = viewNode.Validate(out string error);
@@ -352,16 +352,18 @@ namespace TreeNode.Editor
                     };
                     return $"{node.GetInfo()} {symbol} - {error}";
                 }
-
-
-            });
+            }, appendText);
+            if (text.Contains("⚠️"))
+            {
+                text = $"⚠️警告不代表错误,需仔细甄别该配置是否符合实际设计意图,如符合需求,可忽略警告\n{text}";
+            }
+            return text;
         }
 
         /// <summary>
         /// 获取所有节点路径 - 使用逻辑层实现
         /// </summary>
         public virtual List<(string, string)> GetAllNodePaths() => Asset?.Data.GetAllNodeInfo();
-        public virtual string GetTreeView() => Asset?.Data?.GetTreeView();
         #endregion
         #region 图表视图管理
         private GraphViewChange OnGraphViewChanged(GraphViewChange graphViewChange)

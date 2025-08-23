@@ -16,7 +16,7 @@ namespace TreeNode.Runtime
         {
             return PropertyAccessor.GetValue<T>(Nodes, path);
         }
-        public virtual string GetTreeView(Func<JsonNode,string> text = null)
+        public virtual string GetTreeView(Func<JsonNode,string> text = null,bool appendText = true)
         {
             // 直接使用新的递归实现，不再依赖JsonNodeTree
             if (Nodes == null || Nodes.Count == 0)
@@ -36,12 +36,15 @@ namespace TreeNode.Runtime
 
                 var rootNode = Nodes[i];
                 var rootPath = PAPath.Index(i);
-
+                sb.Append($"[{i}]");
                 // 构建根节点，从根节点开始递归
                 BuildTreeNodeRecursive(rootNode, sb, "", true, true, rootPath, text);
 
-                sb.AppendLine();
-                sb.AppendLine(Nodes[i].GetText());
+                if (appendText)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine($"[{i}]{Nodes[i].GetText()}");
+                }
             }
 
             return sb.ToString();
