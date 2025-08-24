@@ -53,8 +53,51 @@ namespace TreeNode.Editor
                 PAPart last = path_.LastPart;
                 object oldValue = PropertyAccessor.GetValue<object>(parent, last);
                 
+                // 检查是否需要处理原有节点的迁移（针对单连接端口）
+                JsonNode originalConnectedNode = null;
+                PAPath originalNodePath = PAPath.Empty;
+                bool needMigrateOriginal = false;
+                
+                if (oldValue is JsonNode existingNode && !path.ItemOfCollection)
+                {
+                    // 检查目标端口是否为单连接端口
+                    ChildPort targetPort = GetPort(path);
+                    if (targetPort != null && targetPort.capacity == Port.Capacity.Single)
+                    {
+                        originalConnectedNode = existingNode;
+                        originalNodePath = path_;
+                        needMigrateOriginal = true;
+                        
+                        // 先将原节点迁移到根节点
+                        PAPath newRootPath = PAPath.Index(Asset.Data.Nodes.Count);
+                        Asset.Data.Nodes.Add(originalConnectedNode);
+                        int removeIndex = 0;
+                        Asset.Data.Nodes.RemoveValueInternal(ref originalNodePath, ref removeIndex);
+                        var migrateOperation = NodeOperation.Move(originalConnectedNode, originalNodePath, newRootPath, this.Asset);
+                        Window.History.Record(migrateOperation);
+                        
+                        // 断开原有的视觉连接
+                        if (NodeDic.TryGetValue(originalConnectedNode, out ViewNode originalViewNode))
+                        {
+                            var existingEdges = originalViewNode.ParentPort?.connections?.ToList();
+                            if (existingEdges != null)
+                            {
+                                foreach (var edge in existingEdges)
+                                {
+                                    RemoveElement(edge);
+                                    targetPort.Disconnect(edge);
+                                    edge.ParentPort().Disconnect(edge);
+                                    targetPort.OnRemoveEdge(edge);
+                                }
+                            }
+                        }
+                        
+                        Debug.Log($"迁移原节点 {originalConnectedNode.GetType().Name} 从路径 {originalNodePath} 到根节点");
+                    }
+                }
+                
                 bool add = false;
-                if (oldValue is null)
+                if (oldValue is null || needMigrateOriginal)
                 {
                     Type parentType = parent.GetType();
                     Type valueType = TypeCacheSystem.GetTypeInfo(parentType).GetMember(last.Name).ValueType;
@@ -136,16 +179,47 @@ namespace TreeNode.Editor
         /// </summary>
         public ViewNode AddViewNodeWithConnection(JsonNode node, PAPath nodePath)
         {
-            // 1. 创建ViewNode（使用现有的AddViewNode方法）
-            ViewNode viewNode = AddViewNode(node);
+            // 开始批量操作
+            Window.History.BeginBatch();
             
-            // 2. 如果指定了路径，尝试创建连接
-            if (!string.IsNullOrEmpty(nodePath))
+            try
             {
-                CreateToolNodeConnection(viewNode, nodePath);
+                ViewNode viewNode = null;
+                
+                // 1. 如果指定了路径，先设置数据层连接（这会处理原有节点的迁移）
+                if (!string.IsNullOrEmpty(nodePath))
+                {
+                    bool success = SetNodeByPath(node, nodePath);
+                    if (success)
+                    {
+                        // 2. 创建ViewNode
+                        viewNode = AddViewNode(node);
+                        
+                        // 3. 创建视觉连接
+                        CreateToolNodeConnection(viewNode, nodePath);
+                    }
+                    else
+                    {
+                        Debug.LogError($"工具添加节点失败: 无法设置节点路径 {nodePath}");
+                        // 如果设置路径失败，则添加到根节点
+                        AddNode(node);
+                        viewNode = AddViewNode(node);
+                    }
+                }
+                else
+                {
+                    // 没有指定路径，直接添加到根节点
+                    AddNode(node);
+                    viewNode = AddViewNode(node);
+                }
+                
+                return viewNode;
             }
-            
-            return viewNode;
+            finally
+            {
+                // 结束批量操作
+                Window.History.EndBatch();
+            }
         }
 
         /// <summary>
