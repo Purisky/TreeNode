@@ -60,7 +60,7 @@ namespace TreeNodeSourceGenerator
 
         private void GenerateAccessMethod(StringBuilder sb, INamedTypeSymbol nodeType, List<AccessibleMemberInfo> members, AccessOperation operation)
         {
-            var (ReturnType, EmptyHandling, IndexErrorHandling) = GetMethodInfo(operation, nodeType.Name);
+            var (ReturnType, EmptyHandling, IndexErrorHandling) = GetMethodInfo(operation, nodeType.Name, members);
             string override_keyword = ImplementsIPropertyAccessor(nodeType) ? "override " : "";
             sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
             sb.AppendLine($"        public {override_keyword}{ReturnType}");
@@ -104,33 +104,36 @@ namespace TreeNodeSourceGenerator
             sb.AppendLine("            if (index == path.Parts.Length - 1)");
 
             sb.AppendLine("            {");
-            GenerateSinglePathLogic(sb, members, operation);
+            GenerateSinglePathLogic(sb, members, operation, nodeType.Name);
             sb.AppendLine("            }");
             sb.AppendLine("            index++;");
-            GenerateMultiPathLogic(sb, members, operation);
+            GenerateMultiPathLogic(sb, members, operation, nodeType.Name);
 
             sb.AppendLine("        }");
             sb.AppendLine();
         }
 
-        private (string ReturnType, string EmptyHandling, string IndexErrorHandling) GetMethodInfo(AccessOperation operation, string nodeTypeName)
+        private (string ReturnType, string EmptyHandling, string IndexErrorHandling) GetMethodInfo(AccessOperation operation, string nodeTypeName, List<AccessibleMemberInfo> members)
         {
+            var validFields = GetValidFieldsInfo(members, operation);
+            var indexErrorMsg = $"throw new NotSupportedException($\"{nodeTypeName} 不支持索引访问。请使用属性访问。可用属性: {validFields}\");";
+            
             return operation switch
             {
                 AccessOperation.Get => (
                     "T GetValueInternal<T>(ref PAPath path,ref int index)",
-                    "throw new NotSupportedException(\"No readable properties or fields available for getting value.\");",
-                    $"throw new NotSupportedException($\"Index access not supported by {nodeTypeName}\");"
+                    $"throw new NotSupportedException(\"{nodeTypeName} 中没有可读属性或字段可用于获取值。\");",
+                    indexErrorMsg
                 ),
                 AccessOperation.Set => (
                     "void SetValueInternal<T>(ref PAPath path,ref int index, T value)",
-                    "throw new NotSupportedException(\"No writable properties or fields available for setting value.\");",
-                    $"throw new NotSupportedException($\"Index access not supported by {nodeTypeName}\");"
+                    $"throw new NotSupportedException(\"{nodeTypeName} 中没有可写属性或字段可用于设置值。\");",
+                    indexErrorMsg
                 ),
                 AccessOperation.Remove => (
                     "void RemoveValueInternal(ref PAPath path,ref int index)",
-                    "throw new NotSupportedException(\"No removable properties or fields available for removing value.\");",
-                    $"throw new NotSupportedException($\"Index access not supported by {nodeTypeName}\");"
+                    $"throw new NotSupportedException(\"{nodeTypeName} 中没有可删除属性或字段可用于删除值。\");",
+                    indexErrorMsg
                 ),
                 AccessOperation.ValidatePath => (
                     "void ValidatePath(ref PAPath path,ref int index)",
@@ -140,18 +143,18 @@ namespace TreeNodeSourceGenerator
                 AccessOperation.GetAllInPath => (
                     "void GetAllInPath<T>(ref PAPath path,ref int index, List<(int depth, T value)> list)  where T : class",
                     "// No handling needed for empty type",
-                    $"throw new NotSupportedException($\"Index access not supported by {nodeTypeName}\");"
+                    indexErrorMsg
                 ),
                 AccessOperation.CollectNodes => (
                     "void CollectNodes(List<(PAPath, JsonNode)> list, PAPath parent, int depth = -1)",
                     "// No handling needed for empty type",
-                    $"throw new NotSupportedException($\"Index access not supported by {nodeTypeName}\");"
+                    indexErrorMsg
                 ),
                 _ => throw new ArgumentException($"Unknown operation: {operation}")
             };
         }
 
-        private void GenerateSinglePathLogic(StringBuilder sb, List<AccessibleMemberInfo> members, AccessOperation operation)
+        private void GenerateSinglePathLogic(StringBuilder sb, List<AccessibleMemberInfo> members, AccessOperation operation, string typeName)
         {
             var targetMembers = operation == AccessOperation.Set || operation == AccessOperation.Remove
                 ? members.Where(m => m.CanWrite && !m.IsReadOnly).ToList()
@@ -172,12 +175,13 @@ namespace TreeNodeSourceGenerator
                 GenerateSinglePathMemberAccess(sb, member, operation);
             }
 
+            var validFields = GetValidFieldsInfo(members, operation);
             sb.AppendLine("                    default:");
-            sb.AppendLine($"                        {GetSinglePathDefaultCase(operation)}");
+            sb.AppendLine($"                        {GetSinglePathDefaultCase(operation, typeName, validFields)}");
             sb.AppendLine("                }");
         }
 
-        private void GenerateMultiPathLogic(StringBuilder sb, List<AccessibleMemberInfo> members, AccessOperation operation)
+        private void GenerateMultiPathLogic(StringBuilder sb, List<AccessibleMemberInfo> members, AccessOperation operation, string typeName)
         {
             var multiPathMembers = operation == AccessOperation.Set || operation == AccessOperation.Remove
                 ? members.Where(m => (m.HasNestedAccess || m.IsCollection) && m.CanWrite && !m.IsReadOnly).ToList()
@@ -187,7 +191,7 @@ namespace TreeNodeSourceGenerator
             {
                 if (members.Any())
                 {
-                    sb.AppendLine($"            {GetMultiPathEmptyHandling(operation)}");
+                    sb.AppendLine($"            {GetMultiPathEmptyHandling(operation, typeName, members)}");
                 }
                 return;
             }
@@ -201,8 +205,9 @@ namespace TreeNodeSourceGenerator
                 GenerateMultiPathMemberAccess(sb, member, operation);
             }
 
+            var validFields = GetValidMultiPathFieldsInfo(members, operation);
             sb.AppendLine("                default:");
-            sb.AppendLine($"                    {GetMultiPathDefaultCase(operation)}");
+            sb.AppendLine($"                    {GetMultiPathDefaultCase(operation, typeName, validFields)}");
             sb.AppendLine("            }");
         }
 
@@ -223,7 +228,7 @@ namespace TreeNodeSourceGenerator
                     break;
                 case AccessOperation.Set:
                     sb.AppendLine($"                        if (value is {member.Type.ToDisplayString()} _{member.Name}) {{ {member.Name} = _{member.Name}; return; }}");
-                    sb.AppendLine($"                        throw new InvalidCastException($\"Cannot cast {{typeof(T).Name}} to {member.Type.ToDisplayString()}\");");
+                    sb.AppendLine($"                        throw new InvalidCastException($\"无法将 {{typeof(T).Name}} 转换为属性 '{member.Name}' 的类型 {member.Type.ToDisplayString()}。期望类型: {member.Type.ToDisplayString()}，实际类型: {{typeof(T).FullName}}\");");
                     break;
                 case AccessOperation.Remove:
                     if (member.IsValueType)
@@ -296,7 +301,7 @@ namespace TreeNodeSourceGenerator
 
                 if (!member.IsValueType && !needCreateInstance)
                 {
-                    sb.AppendLine($"                    throw new NullReferenceException($\"{member.Name} is null\");");
+                    sb.AppendLine($"                    throw new NullReferenceException($\"属性 '{member.Name}' 为空，无法继续路径导航。属性类型: {member.Type.ToDisplayString()}。建议在访问嵌套路径之前初始化此属性。\");");
                 }
             }
         }
@@ -326,35 +331,67 @@ namespace TreeNodeSourceGenerator
             return multiLevelEngineAccess;
         }
 
-        private string GetSinglePathDefaultCase(AccessOperation operation)
+        private string GetValidFieldsInfo(List<AccessibleMemberInfo> members, AccessOperation operation)
+        {
+            var targetMembers = operation switch
+            {
+                AccessOperation.Set => members.Where(m => m.CanWrite && !m.IsReadOnly).ToList(),
+                AccessOperation.Remove => members.Where(m => m.CanWrite && !m.IsReadOnly).ToList(),
+                _ => members
+            };
+
+            if (!targetMembers.Any())
+            {
+                return "[无]";
+            }
+
+            return string.Join(", ", targetMembers.Select(m => $"{m.Name}({m.Type.Name})"));
+        }
+
+        private string GetValidMultiPathFieldsInfo(List<AccessibleMemberInfo> members, AccessOperation operation)
+        {
+            var multiPathMembers = operation == AccessOperation.Set || operation == AccessOperation.Remove
+                ? members.Where(m => (m.HasNestedAccess || m.IsCollection) && m.CanWrite && !m.IsReadOnly).ToList()
+                : members.Where(m => m.HasNestedAccess || m.IsCollection).ToList();
+
+            if (!multiPathMembers.Any())
+            {
+                return "[无]";
+            }
+
+            return string.Join(", ", multiPathMembers.Select(m => $"{m.Name}({m.Type.Name})"));
+        }
+
+        private string GetSinglePathDefaultCase(AccessOperation operation, string typeName, string validFields)
         {
             return operation switch
             {
-                AccessOperation.Get => "throw new NotSupportedException($\"Property '{first.Name}' not found\");",
-                AccessOperation.Set => "throw new NotSupportedException($\"Property '{first.Name}' not found or not writable\");",
-                AccessOperation.Remove => "throw new NotSupportedException($\"Property '{first.Name}' not found or not removable\");",
+                AccessOperation.Get => $"throw new NotSupportedException($\"属性 '{{first.Name}}' 在 {typeName} 中未找到。可用属性: {validFields}\");",
+                AccessOperation.Set => $"throw new NotSupportedException($\"属性 '{{first.Name}}' 在 {typeName} 中未找到或不可写。可写属性: {validFields}\");",
+                AccessOperation.Remove => $"throw new NotSupportedException($\"属性 '{{first.Name}}' 在 {typeName} 中未找到或不可删除。可删除属性: {validFields}\");",
                 _ => throw new ArgumentException($"Unknown operation: {operation}")
             };
         }
 
-        private string GetMultiPathDefaultCase(AccessOperation operation)
+        private string GetMultiPathDefaultCase(AccessOperation operation, string typeName, string validFields)
         {
             return operation switch
             {
-                AccessOperation.Get => "throw new NotSupportedException($\"Path starting with '{first.Name}' not supported\");",
-                AccessOperation.Set => "throw new NotSupportedException($\"Path starting with '{first.Name}' not supported or not writable\");",
-                AccessOperation.Remove => "throw new NotSupportedException($\"Path starting with '{first.Name}' not supported or not removable\");",
+                AccessOperation.Get => $"throw new NotSupportedException($\"以 '{{first.Name}}' 开头的路径在 {typeName} 中不受支持。可用的多路径属性: {validFields}\");",
+                AccessOperation.Set => $"throw new NotSupportedException($\"以 '{{first.Name}}' 开头的路径在 {typeName} 中不受支持或不可写。可写的多路径属性: {validFields}\");",
+                AccessOperation.Remove => $"throw new NotSupportedException($\"以 '{{first.Name}}' 开头的路径在 {typeName} 中不受支持或不可删除。可删除的多路径属性: {validFields}\");",
                 _ => throw new ArgumentException($"Unknown operation: {operation}")
             };
         }
 
-        private string GetMultiPathEmptyHandling(AccessOperation operation)
+        private string GetMultiPathEmptyHandling(AccessOperation operation, string typeName, List<AccessibleMemberInfo> members)
         {
+            var singlePathFields = GetValidFieldsInfo(members, operation);
             return operation switch
             {
-                AccessOperation.Get => "throw new NotSupportedException(\"No multi-path properties or fields available for getting value.\");",
-                AccessOperation.Set => "throw new NotSupportedException(\"No multi-path properties or fields available for setting value.\");",
-                AccessOperation.Remove => "throw new NotSupportedException(\"No multi-path properties or fields available for removing value.\");",
+                AccessOperation.Get => $"throw new NotSupportedException(\"{typeName} 中没有可用于获取值的多路径属性或字段。可用的单路径属性: {singlePathFields}\");",
+                AccessOperation.Set => $"throw new NotSupportedException(\"{typeName} 中没有可用于设置值的多路径属性或字段。可用的单路径可写属性: {singlePathFields}\");",
+                AccessOperation.Remove => $"throw new NotSupportedException(\"{typeName} 中没有可用于删除值的多路径属性或字段。可用的单路径可删除属性: {singlePathFields}\");",
                 _ => throw new ArgumentException($"Unknown operation: {operation}")
             };
         }

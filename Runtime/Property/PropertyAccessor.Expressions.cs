@@ -3,6 +3,7 @@ using System;
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -33,7 +34,7 @@ namespace TreeNode.Runtime
                 }
 
                 var indexer = type.GetProperty("Item") 
-                    ?? throw new ArgumentException($"索引器 '[{index}]' 在类型 '{type.Name}' 中未找到");
+                    ?? throw new ArgumentException($"索引器 '[{index}]' 在类型 '{type.Name}' 中未找到。该类型不支持索引访问。请检查类型是否实现了索引器属性。");
                 
                 var result2 = Expression.MakeIndex(target, indexer, new[] { Expression.Constant(index) });
                 type = indexer.PropertyType;
@@ -54,7 +55,7 @@ namespace TreeNode.Runtime
                 else
                 {
                     var indexer = structType.GetProperty("Item") 
-                        ?? throw new ArgumentException($"索引器 '[{index}]' 在类型 '{structType.Name}' 中未找到");
+                        ?? throw new ArgumentException($"索引器 '[{index}]' 在类型 '{structType.Name}' 中未找到。该值类型不支持索引访问。请检查类型是否实现了索引器属性。");
                     var indexAccess = Expression.MakeIndex(structVariable, indexer, new[] { Expression.Constant(index) });
                     return Expression.Assign(indexAccess, TypeConverter.CreateConversion<T>(valueParam, indexAccess.Type));
                 }
@@ -104,7 +105,10 @@ namespace TreeNode.Runtime
             
             if (memberInfo == null)
             {
-                throw new ArgumentException($"成员 '{memberName}' 在类型 '{type.Name}' 中未找到");
+                // 获取所有可用成员列表
+                var availableMembers = typeInfo.AllMembers.Select(m => m.Name);
+                var memberList = string.Join(", ", availableMembers);
+                throw new ArgumentException($"成员 '{memberName}' 在类型 '{type.Name}' 中未找到。可用成员: {memberList}");
             }
 
             // 根据成员类型选择对应的访问方式

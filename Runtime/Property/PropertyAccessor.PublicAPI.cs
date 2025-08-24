@@ -40,7 +40,7 @@ namespace TreeNode.Runtime
         {
             if (obj.GetType().IsValueType)
             {
-                throw new InvalidOperationException("无法修改值类型的根对象");
+                throw new InvalidOperationException($"无法修改值类型 {obj.GetType().Name} 的根对象。值类型是不可变的，请考虑使用引用类型。");
             }
             
             var paPath = new PAPath(part);
@@ -50,7 +50,7 @@ namespace TreeNode.Runtime
         public static void SetValue<T>(object obj, PAPath path, T value)
         {
             if (path.IsEmpty)
-                throw new ArgumentException("路径不能为空");
+                throw new ArgumentException($"路径不能为空。请提供有效的属性路径，例如 'property.subProperty' 或 'field[0]'。");
 
             int index = 0;
             SetValueInternal<T>(obj, ref path, ref index, value);

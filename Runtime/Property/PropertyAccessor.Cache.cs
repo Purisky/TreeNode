@@ -49,7 +49,7 @@ namespace TreeNode.Runtime
                 if (targetType == typeof(object))
                     return Expression.Convert(valueParam, typeof(object));
 
-                throw new InvalidCastException($"无法将类型 {typeof(T).Name} 转换为 {targetType.Name}");
+                throw new InvalidCastException($"无法将类型 {typeof(T).Name} 转换为 {targetType.Name}。支持的转换：数值类型之间的转换、装箱到 object 类型。当前转换不被支持。");
             }
 
             /// <summary>
@@ -129,7 +129,7 @@ namespace TreeNode.Runtime
             var target = BuildMemberAccess(current, part, ref type);
 
             if (!typeof(T).IsAssignableFrom(type))
-                throw new InvalidCastException($"无法将类型 {type.Name} 转换为 {typeof(T).Name}");
+                throw new InvalidCastException($"无法将类型 {type.Name} 转换为 {typeof(T).Name}。成员访问路径: {part}。请检查返回类型是否匹配。");
 
             var finalConvert = Expression.Convert(target, typeof(T));
             return Expression.Lambda<Func<object, T>>(finalConvert, param).Compile();
@@ -183,7 +183,7 @@ namespace TreeNode.Runtime
         {
             if (!ValidationStrategy.CanWriteToMember(type, part))
             {
-                throw new InvalidOperationException($"成员 '{part}' 在类型 '{type.Name}' 中为只读或不可写");
+                throw new InvalidOperationException($"成员 '{part}' 在类型 '{type.Name}' 中为只读或不可写。请检查该成员是否为可写属性或字段。只读属性和 readonly 字段无法设置值。");
             }
         }
 
@@ -205,7 +205,7 @@ namespace TreeNode.Runtime
             
             if (!typeInfo.HasParameterlessConstructor || typeInfo.Constructor == null)
             {
-                throw new InvalidOperationException($"类型 {type.Name} 没有无参构造函数");
+                throw new InvalidOperationException($"类型 {type.Name} 没有无参构造函数。无法自动创建实例。请确保类型有公共的无参构造函数，或手动初始化该对象。");
             }
 
             return (T)typeInfo.Constructor();
