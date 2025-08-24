@@ -504,7 +504,6 @@ namespace TreeNodeSourceGenerator
                 sb.AppendLine($"                    if ({member.Name} is T value_{member.Name})");
                 sb.AppendLine("                    {");
                 sb.AppendLine($"                        list.Add((index, value_{member.Name}));");
-                sb.AppendLine("                        return;");
                 sb.AppendLine("                    }");
 
                 // 如果不是目标类型T，且这是路径的终点，则返回
