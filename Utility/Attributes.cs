@@ -167,7 +167,7 @@ namespace TreeNode.Utility
     public class HideEnumAttribute : Attribute
     {
     }
-    [AttributeUsage(AttributeTargets.Field| AttributeTargets.Class| AttributeTargets.Property| AttributeTargets.Struct,Inherited =false)]
+    [AttributeUsage(AttributeTargets.Field| AttributeTargets.Class| AttributeTargets.Property| AttributeTargets.Struct| AttributeTargets.Enum,Inherited =false)]
     public class PromptAttribute : Attribute
     {
         public string Desc;
