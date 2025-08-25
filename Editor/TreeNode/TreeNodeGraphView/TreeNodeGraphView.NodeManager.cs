@@ -46,6 +46,7 @@ namespace TreeNode.Editor
             }
             try
             {
+                //Debug.Log($"SetNodeByPath: {node.GetType().Name} to {path}");
                 PAPath path_ = path;
                 PAPath parentPath = path_.GetParent();
                 int index = 0;
@@ -111,6 +112,7 @@ namespace TreeNode.Editor
                 {
                     path_ = path_.Append(nodeList.Count);
                     nodeList.Add(node);
+                    //Debug.Log($"List.Add: {node.GetType().Name} to {path_}");
                     add = true;
                 }
                 if (!add)
@@ -129,6 +131,11 @@ namespace TreeNode.Editor
                     {
                         PropertyAccessor.SetValueInternal(parent, ref lastPath, ref index_, node);
                     }
+                    //Debug.Log($"Set Property: {parent.GetType().Name}.{last.Name} = {node.GetType().Name}");
+                }
+                if(oldValue is IList nodeList_)
+                {
+                //Debug.Log($"List.[{nodeList_.Count}] at {path_}");      
                 }
                 var moveOperation = NodeOperation.Create(node, path_, this.Asset);
                 Window.History.Record(moveOperation);
@@ -264,7 +271,16 @@ namespace TreeNode.Editor
         /// </summary>
         private void CreateConnectionImmediately(ChildPort childPort, ViewNode childViewNode)
         {
-            var edge = childPort.ConnectTo(childViewNode.ParentPort);
+            // 为工具添加的节点创建纯视觉连接，不触发数据层移动
+            var edge = new Edge()
+            {
+                output = childPort,
+                input = childViewNode.ParentPort
+            };
+            
+            // 直接建立视觉连接，不通过GraphView的连接系统
+            childPort.Connect(edge);
+            childViewNode.ParentPort.Connect(edge);
             AddElement(edge);
             
             // 处理多端口索引 - 优化索引计算
@@ -275,6 +291,9 @@ namespace TreeNode.Editor
                 childViewNode.ParentPort.SetIndex(newIndex);
                 //Debug.Log($"设置MultiPort索引: {newIndex}");
             }
+            
+            // 触发端口连接事件（但不触发数据移动）
+            childPort.OnAddEdge(edge);
             
             //Debug.Log($"立即创建工具节点连接: {childPort.node.Data.GetType().Name} -> {childViewNode.Data.GetType().Name}");
         }

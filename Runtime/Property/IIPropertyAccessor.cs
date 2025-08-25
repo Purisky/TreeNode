@@ -58,6 +58,7 @@ namespace TreeNode.Runtime
         }
         public static void SetValueInternal<T>(this IList list, ref PAPath path, ref int index, T value)
         {
+            Debug.Log($"List.SetValueInternal:{path} ref {index} value:{value}");
             ref PAPart first = ref list.ValidIndex(ref path, ref index);
             if (index == path.Parts.Length - 1)
             {
